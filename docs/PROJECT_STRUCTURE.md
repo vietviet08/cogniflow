@@ -46,6 +46,7 @@ note-mesh/
 │   ├── AI_RESEARCH_INFRASTRUCTURE_SPEC.md
 │   ├── API_SPEC.md
 │   ├── DATABASE_SCHEMA.sql
+│   ├── DOCS_CAPABILITY_GAP_ANALYSIS.md
 │   ├── ARCHITECTURE_DIAGRAM.md
 │   └── PROJECT_STRUCTURE.md
 ├── openspec/

@@ -155,6 +155,13 @@ Must emit:
 - metrics for queue depth, throughput, latency, failure classes
 - traces for multi-step jobs from ingestion to report generation
 
+Error taxonomy baseline:
+- validation_error
+- dependency_error
+- timeout_error
+- resource_exhausted
+- internal_error
+
 ### 7.3 Reproducibility
 
 Each generation run must store:
@@ -177,6 +184,14 @@ Must define policy for:
 - retention period by artifact type (raw, derived, generated)
 - deletion and archival workflows
 - handling of sensitive or restricted content
+
+### 7.6 Queue Safety Controls
+
+Asynchronous workers must enforce:
+- bounded retries with backoff
+- dead-letter routing after retry exhaustion
+- idempotency key semantics for re-submitted operations
+- cancellation and retry audit trails
 
 ## 8. Delivery Phases and Readiness Criteria
 

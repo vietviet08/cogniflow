@@ -1,0 +1,25 @@
+{
+  "name": "cogniflow",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "install:all": "pnpm --dir apps/web install && python -m pip install -r apps/api/requirements-dev.txt",
+    "dev:web": "pnpm --dir apps/web dev",
+    "dev:api": "uvicorn app.main:app --reload --app-dir apps/api",
+    "dev": "concurrently \"pnpm dev:web\" \"pnpm dev:api\"",
+    "lint:web": "pnpm --dir apps/web lint",
+    "lint:api": "ruff check apps/api",
+    "lint": "pnpm lint:web && pnpm lint:api",
+    "typecheck:web": "pnpm --dir apps/web typecheck",
+    "typecheck:api": "mypy apps/api/app",
+    "typecheck": "pnpm typecheck:web && pnpm typecheck:api",
+    "test:web": "pnpm --dir apps/web test",
+    "test:api": "pytest apps/api/tests",
+    "test": "pnpm test:web && pnpm test:api",
+    "format": "ruff format apps/api && pnpm --dir apps/web format"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
