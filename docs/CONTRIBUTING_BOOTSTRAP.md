@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js 20+
-- `pnpm` 10+
+- `npm` 10+
 - Python 3.12+
 - Docker
 
@@ -11,20 +11,20 @@
 
 1. Clone repository and open root.
 2. Copy environment files:
-   - `.env.example` -> `.env`
-   - `apps/api/.env.example` -> `apps/api/.env`
-   - `apps/web/.env.example` -> `apps/web/.env.local`
+   - `api/.env.example` -> `api/.env`
+   - `web/.env.example` -> `web/.env.local`
 3. Start local dependencies:
    - `docker compose -f infra/docker/docker-compose.local.yml up -d`
 4. Install dependencies:
-   - `pnpm install:all`
+   - `python3 -m pip install -r api/requirements-dev.txt`
+   - `cd web && npm install`
 5. Apply migrations:
-   - `cd apps/api && alembic upgrade head`
+   - `cd api && alembic upgrade head`
 6. Start applications:
-   - `pnpm dev`
+   - `pwsh infra/scripts/dev.ps1`
 
 ## Validation Checklist
 
 - Backend health responds at `GET /api/v1/health`.
 - Frontend shell is reachable and links to workflow pages.
-- `pnpm lint`, `pnpm typecheck`, and `pnpm test` execute without failures.
+- `pwsh infra/scripts/lint.ps1`, backend `mypy`, frontend `npm run typecheck`, and `pwsh infra/scripts/test.ps1` execute without failures.

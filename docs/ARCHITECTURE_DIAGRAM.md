@@ -31,8 +31,8 @@
                               v
                     +-----------------------+
                     | Storage and Retrieval |
-                    | PostgreSQL + pgvector |
-                    | Object Storage + Redis|
+                    | PostgreSQL + ChromaDB |
+                    | local files for uploads|
                     +-----------+-----------+
                                 |
                                 v
@@ -48,6 +48,7 @@
 - Worker queues execute ingestion, processing, insight, and report jobs.
 - Governance controls apply retention, audit logging, and access boundaries.
 - Reproducibility records capture model/prompt/config versions for each run.
+- Ingestion adapters target arXiv API, lightweight web scraping, and PDF upload.
 
 ## Lineage Path
 
