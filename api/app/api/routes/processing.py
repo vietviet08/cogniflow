@@ -61,6 +61,8 @@ def start_processing(
     try:
         result = process_sources(
             db=db,
+            project_id=payload.project_id,
+            job_id=job.id,
             sources=sources,
             chunk_size=payload.options.chunk_size,
             chunk_overlap=payload.options.chunk_overlap,
@@ -89,6 +91,7 @@ def start_processing(
         request,
         {
             "job_id": str(job.id),
+            "run_id": result["run_id"],
             "status": job.status,
             "documents_created": result["documents_created"],
             "chunks_created": result["chunks_created"],
