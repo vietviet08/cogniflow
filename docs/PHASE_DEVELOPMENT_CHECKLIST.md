@@ -6,9 +6,31 @@ Checklist này dùng để theo dõi tiến độ triển khai theo phase, bám 
 
 Status cập nhật ngày `2026-03-22`:
 
-- Phase hiện tại: `Phase 1 MVP complete`
+- Theo roadmap của bạn: `Phase 1 complete`, `Phase 2 complete`, `Phase 3 baseline complete`
+- Theo phase naming trong docs repo: `Phase 1 complete`, `Phase 2 Insight Layer chưa bắt đầu`
 - Đã có happy path MVP: `project -> ingest -> process -> query + citations`
+- Processing runtime hiện có `processing_runs`, reprocess không nhân bản dữ liệu, và có API inventory cho `documents/chunks/runs`
 - Chưa đóng hoàn toàn theo nghĩa production: chưa có worker async thật, chưa có latency metrics, chưa có hybrid retrieval
+
+## Roadmap Mapping
+
+- Roadmap `Phase 1 - Data Ingestion` tương ứng với ingestion baseline trong repo `Phase 1`
+- Roadmap `Phase 2 - Processing + Embedding` tương ứng với processing baseline trong repo `Phase 1`
+- Roadmap `Phase 3 - RAG Core` tương ứng với retrieval/query baseline trong repo `Phase 1`
+- Roadmap `Phase 4 - Intelligence Layer` tương ứng với repo `Phase 2 - Insight Layer`
+- Roadmap `Phase 5 - UI + Deploy + Demo` trải ngang các phase repo, chủ yếu là web/demo/deploy readiness
+
+## User Roadmap Phase 2: Processing + Embedding
+
+### Scope
+- [x] Chunking theo token với cấu hình nằm trong vùng `500-1000` token dùng được cho demo
+- [x] OpenAI embedding model mặc định là `text-embedding-3-small`
+- [x] ChromaDB lưu vector + metadata `project_id/source_id/document_id/chunk_id`
+- [x] Processing run lưu `model_id`, `config_hash`, `run_metadata`
+- [x] Reprocessing cùng source thay thế document/chunk cũ thay vì nhân bản
+- [x] Có API để inspect `documents`, `chunks`, `processing_runs` sau khi xử lý
+- [ ] Async worker hóa processing flow
+- [ ] Metrics/observability cho indexing latency
 
 ## Goal Coverage
 
@@ -30,8 +52,9 @@ Status cập nhật ngày `2026-03-22`:
 ### API and Data
 - [x] `POST /sources/files`, `POST /sources/urls` chạy đúng contract
 - [x] `POST /jobs/processing`, `GET /jobs/{job_id}` chạy đúng baseline lifecycle state
-- [x] Schema cho `projects/sources/jobs/documents/chunks` đã có trong codebase và contract
+- [x] Schema cho `projects/sources/jobs/documents/chunks/processing_runs` đã có trong codebase và contract
 - [x] Alembic/schema/runtime model được verify đồng bộ cho Phase 1 flow sau đợt refactor
+- [x] `GET /projects/{project_id}/documents|chunks|processing-runs` mở được inventory của dữ liệu đã xử lý
 
 ### Readiness Gate
 - [x] Query trả lời có citation tối thiểu ở mức baseline
