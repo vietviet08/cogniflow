@@ -39,6 +39,7 @@ export interface SourceIngestionData {
 
 export interface ProcessingResultData {
   job_id: string;
+  run_id: string;
   status: string;
   documents_created: number;
   chunks_created: number;
