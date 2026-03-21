@@ -21,3 +21,40 @@ export interface HealthData {
   status: string;
   service: string;
 }
+
+export interface ProjectData {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string | null;
+}
+
+export interface SourceIngestionData {
+  source_id: string;
+  job_id: string;
+  status: string;
+  source_type: string;
+  filename?: string | null;
+}
+
+export interface ProcessingResultData {
+  job_id: string;
+  status: string;
+  documents_created: number;
+  chunks_created: number;
+}
+
+export interface CitationData {
+  citation_id: string;
+  source_id: string;
+  document_id: string;
+  chunk_id: string;
+  title?: string;
+  url?: string;
+}
+
+export interface QueryResultData {
+  answer: string;
+  citations: CitationData[];
+  run_id: string;
+}
