@@ -41,3 +41,12 @@ def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def db_session() -> Generator[Session, None, None]:
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
