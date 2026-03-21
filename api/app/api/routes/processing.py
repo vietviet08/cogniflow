@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
-from app.storage.models import Job
+from app.services.processing_service import ProcessingError, process_sources
+from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
+from app.storage.repositories.source_repository import SourceRepository
 
 router = APIRouter(prefix="/jobs")
 
@@ -38,13 +40,58 @@ def start_processing(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
-    job = Job(project_id=payload.project_id, job_type="processing", status="queued", progress=0)
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+    source_repo = SourceRepository(db)
+    sources = source_repo.list_by_ids(payload.project_id, payload.source_ids)
+    if len(sources) != len(payload.source_ids):
+        return error_response(
+            request,
+            code="SOURCE_NOT_FOUND",
+            message="One or more source IDs do not exist in the project.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    job_repo = JobRepository(db)
+    job = job_repo.create(
+        project_id=payload.project_id,
+        job_type="processing",
+        status="running",
+        progress=0,
+    )
+
+    try:
+        result = process_sources(
+            db=db,
+            sources=sources,
+            chunk_size=payload.options.chunk_size,
+            chunk_overlap=payload.options.chunk_overlap,
+        )
+    except (ProcessingError, ValueError) as exc:
+        job_repo.update_status(job, status="failed", progress=0)
+        return error_response(
+            request,
+            code="PROCESSING_FAILED",
+            message=str(exc),
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+    except Exception as exc:
+        job_repo.update_status(job, status="failed", progress=0)
+        return error_response(
+            request,
+            code="PROCESSING_INTERNAL_ERROR",
+            message="Unexpected processing failure.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            details={"reason": str(exc)},
+        )
+
+    job = job_repo.update_status(job, status="completed", progress=100)
 
     return success_response(
         request,
-        {"job_id": str(job.id), "status": job.status},
+        {
+            "job_id": str(job.id),
+            "status": job.status,
+            "documents_created": result["documents_created"],
+            "chunks_created": result["chunks_created"],
+        },
         status_code=201,
     )
