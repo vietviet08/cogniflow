@@ -19,7 +19,6 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE EXTENSION IF NOT EXISTS pgcrypto;
-        CREATE EXTENSION IF NOT EXISTS vector;
 
         CREATE TABLE projects (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,7 +91,8 @@ def upgrade() -> None:
             document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
             chunk_index INT NOT NULL,
             content TEXT NOT NULL,
-            embedding VECTOR(1536),
+            chroma_id TEXT,
+            embedding_model TEXT,
             metadata JSONB,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -173,7 +173,7 @@ def upgrade() -> None:
         CREATE UNIQUE INDEX idx_jobs_idempotency_key ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
         CREATE INDEX idx_documents_source_id ON documents(source_id);
         CREATE INDEX idx_chunks_document_id ON chunks(document_id);
-        CREATE INDEX idx_chunks_embedding ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+        CREATE UNIQUE INDEX idx_chunks_chroma_id ON chunks(chroma_id) WHERE chroma_id IS NOT NULL;
         CREATE INDEX idx_processing_runs_project_id ON processing_runs(project_id);
         CREATE INDEX idx_query_runs_project_id ON query_runs(project_id);
         CREATE INDEX idx_insights_project_id ON insights(project_id);

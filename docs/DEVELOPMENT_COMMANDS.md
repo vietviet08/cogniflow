@@ -3,40 +3,42 @@
 ## Setup
 
 - Copy environment template:
-  - `cp .env.example .env`
-  - `cp apps/api/.env.example apps/api/.env`
-  - `cp apps/web/.env.example apps/web/.env.local`
+  - `cp api/.env.example api/.env`
+  - `cp web/.env.example web/.env.local`
 - Start local dependencies:
   - `docker compose -f infra/docker/docker-compose.local.yml up -d`
-- Install all dependencies:
-  - `pnpm install:all`
+- Install backend dependencies:
+  - `python3 -m pip install -r api/requirements-dev.txt`
+- Install frontend dependencies:
+  - `cd web && npm install`
 
 ## Run
 
 - Start backend + frontend:
-  - `pnpm dev`
+  - `pwsh infra/scripts/dev.ps1`
 - Start only backend:
-  - `pnpm dev:api`
+  - `cd api && uvicorn app.main:app --reload`
 - Start only frontend:
-  - `pnpm dev:web`
+  - `cd web && npm run dev`
 
 ## Quality Checks
 
 - Lint:
-  - `pnpm lint`
+  - `pwsh infra/scripts/lint.ps1`
 - Type check:
-  - `pnpm typecheck`
+  - `cd api && mypy app`
+  - `cd web && npm run typecheck`
 - Tests:
-  - `pnpm test`
+  - `pwsh infra/scripts/test.ps1`
 
 ## Database and Migrations
 
 - Create migration:
-  - `cd apps/api && alembic revision -m "message"`
+  - `cd api && alembic revision -m "message"`
 - Apply migrations:
-  - `cd apps/api && alembic upgrade head`
+  - `cd api && alembic upgrade head`
 - Rollback one migration:
-  - `cd apps/api && alembic downgrade -1`
+  - `cd api && alembic downgrade -1`
 
 ## Utility Scripts
 

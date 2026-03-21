@@ -12,6 +12,14 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://postgres:postgres@localhost:5432/notemesh",
         alias="DATABASE_URL",
     )
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
+    chat_model: str = Field(default="gpt-4o", alias="CHAT_MODEL")
+    fallback_chat_model: str = Field(default="gpt-4o-mini", alias="FALLBACK_CHAT_MODEL")
+    chroma_host: str = Field(default="localhost", alias="CHROMA_HOST")
+    chroma_port: int = Field(default=8001, alias="CHROMA_PORT")
+    chroma_collection: str = Field(default="notemesh-documents", alias="CHROMA_COLLECTION")
+    upload_dir: str = Field(default="data/uploads", alias="UPLOAD_DIR")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

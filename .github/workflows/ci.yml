@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/api
+        working-directory: api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,22 +31,17 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
-          cache-dependency-path: apps/web/package.json
       - name: Install frontend dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: npm install
       - name: Lint frontend
-        run: pnpm lint
+        run: npm run lint
       - name: Typecheck frontend
-        run: pnpm typecheck
+        run: npm run typecheck
       - name: Frontend smoke tests
-        run: pnpm test
+        run: npm run test

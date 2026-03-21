@@ -1,42 +1,38 @@
 ﻿# Project Structure
 
-## Monorepo Layout
+## Service Layout
 
 ```text
 note-mesh/
-├── apps/
-│   ├── web/                         # Next.js frontend
-│   │   ├── app/
-│   │   ├── components/
-│   │   ├── features/
-│   │   ├── lib/
-│   │   └── package.json
-│   └── api/                         # FastAPI backend
-│       ├── app/
-│       │   ├── main.py
-│       │   ├── api/
-│       │   │   ├── routes/
-│       │   │   └── deps/
-│       │   ├── core/
-│       │   │   ├── config.py
-│       │   │   ├── logging.py
-│       │   │   └── security.py
-│       │   ├── contracts/           # shared DTOs and engine contracts
-│       │   ├── engines/
-│       │   │   ├── ingestion/
-│       │   │   ├── processing/
-│       │   │   ├── query/
-│       │   │   ├── insight/
-│       │   │   └── report/
-│       │   ├── services/
-│       │   ├── workers/             # async job handlers
-│       │   ├── storage/
-│       │   └── observability/
-│       ├── alembic/
-│       └── pyproject.toml
-├── packages/
-│   ├── shared-types/
-│   └── sdk-client/
+├── api/                             # FastAPI backend
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── api/
+│   │   │   ├── routes/
+│   │   │   └── deps/
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   ├── logging.py
+│   │   │   └── security.py
+│   │   ├── contracts/
+│   │   ├── engines/
+│   │   │   ├── ingestion/
+│   │   │   ├── processing/
+│   │   │   ├── query/
+│   │   │   ├── insight/
+│   │   │   └── report/
+│   │   ├── services/
+│   │   ├── workers/
+│   │   ├── storage/
+│   │   └── observability/
+│   ├── alembic/
+│   ├── requirements.txt
+│   └── pyproject.toml
+├── web/                             # Next.js frontend
+│   ├── app/
+│   ├── src/
+│   ├── tests/
+│   └── package.json
 ├── infra/
 │   ├── docker/
 │   ├── k8s/
@@ -58,7 +54,7 @@ note-mesh/
 
 ## Backend Responsibility Boundaries
 
-- `api/routes`: HTTP contract and request validation.
+- `api/app/api/routes`: HTTP contract and request validation.
 - `engines/*`: domain logic by lifecycle stage.
 - `workers`: long-running and queue-driven execution.
 - `contracts`: shared schemas for cross-engine handoffs.
@@ -73,7 +69,7 @@ note-mesh/
 ## Test Strategy Layout (Recommended)
 
 ```text
-apps/api/tests/
+api/tests/
 ├── contract/        # API and schema contract tests
 ├── engines/         # engine-level behavior tests
 ├── workers/         # async job lifecycle tests

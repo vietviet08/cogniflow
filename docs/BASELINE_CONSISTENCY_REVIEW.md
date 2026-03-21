@@ -5,7 +5,7 @@ Change: `bootstrap-project-source-base`
 
 ## Checked Areas
 
-- `docs/PROJECT_STRUCTURE.md` vs scaffolded directories under `apps/`, `packages/`, `infra/`.
+- `docs/PROJECT_STRUCTURE.md` vs scaffolded directories under `api/`, `web/`, and `infra/`.
 - `docs/API_SPEC.md` vs implemented baseline FastAPI route paths and envelope format.
 - `docs/DATABASE_SCHEMA.sql` vs Alembic initial migration entities and major relationships.
 - `openspec/specs/*` baseline requirements vs implemented bootstrap placeholders.
