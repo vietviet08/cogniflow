@@ -83,6 +83,18 @@ class Chunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class QueryRun(Base):
+    __tablename__ = "query_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    query_text: Mapped[str] = mapped_column(Text())
+    top_k: Mapped[int] = mapped_column(Integer, default=5)
+    filters: Mapped[dict | None] = mapped_column(JSON())
+    answer_text: Mapped[str | None] = mapped_column(Text())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Report(Base):
     __tablename__ = "reports"
 

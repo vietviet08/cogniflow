@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -50,18 +51,11 @@ def process_sources(
             chunk_overlap=chunk_overlap,
         )
         vectors = embed_texts([item["content"] for item in chunk_payloads])
-        collection = get_collection()
-
-        collection.add(
-            ids=[item["chroma_id"] for item in chunk_payloads],
-            documents=[item["content"] for item in chunk_payloads],
-            embeddings=vectors,
-            metadatas=[item["metadata"] for item in chunk_payloads],
-        )
-
+        chunk_models: list[Chunk] = []
         for item in chunk_payloads:
-            db.add(
+            chunk_models.append(
                 Chunk(
+                    id=uuid.UUID(item["chunk_id"]),
                     document_id=document.id,
                     chunk_index=item["chunk_index"],
                     content=item["content"],
@@ -70,6 +64,16 @@ def process_sources(
                     metadata=item["metadata"],
                 )
             )
+        collection = get_collection()
+        collection.add(
+            ids=[chunk.chroma_id for chunk in chunk_models if chunk.chroma_id],
+            documents=[chunk.content for chunk in chunk_models],
+            embeddings=vectors,
+            metadatas=[chunk.metadata for chunk in chunk_models],
+        )
+
+        for chunk in chunk_models:
+            db.add(chunk)
             chunks_created += 1
 
         db.commit()
@@ -144,16 +148,18 @@ def _build_chunk_payloads(
     payloads: list[dict[str, Any]] = []
 
     for index, chunk in enumerate(chunks):
-        chunk_id = f"{document.id}:{index}"
+        chunk_uuid = str(uuid.uuid4())
         payloads.append(
             {
-                "chroma_id": chunk_id,
+                "chunk_id": chunk_uuid,
+                "chroma_id": chunk_uuid,
                 "chunk_index": index,
                 "content": chunk,
                 "metadata": {
                     "project_id": str(source.project_id),
                     "source_id": str(source.id),
                     "document_id": str(document.id),
+                    "chunk_id": chunk_uuid,
                     "chunk_index": index,
                     "source_type": source.type,
                     "title": document.title or "",
