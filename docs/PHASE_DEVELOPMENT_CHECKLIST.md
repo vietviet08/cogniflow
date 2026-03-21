@@ -2,30 +2,42 @@
 
 Checklist này dùng để theo dõi tiến độ triển khai theo phase, bám các goal trong `AI_RESEARCH_INFRASTRUCTURE_SPEC.md`.
 
+## Current Snapshot
+
+Status cập nhật ngày `2026-03-22`:
+
+- Phase hiện tại: `Phase 1 MVP complete`
+- Đã có happy path MVP: `project -> ingest -> process -> query + citations`
+- Chưa đóng hoàn toàn theo nghĩa production: chưa có worker async thật, chưa có latency metrics, chưa có hybrid retrieval
+
 ## Goal Coverage
 
 - [ ] Goal 1: Transform information into actionable insight
-- [ ] Goal 2: Maintain durable and queryable knowledge base
-- [ ] Goal 3: Evidence-first outputs with citation traceability
+- [x] Goal 2: Maintain durable and queryable knowledge base
+- [x] Goal 3: Evidence-first outputs with citation traceability
 - [ ] Goal 4: Reproducible runs for audit and drift analysis
 - [ ] Goal 5: Reliable operations at async/high-volume workload
 
 ## Phase 1: Knowledge Foundation
 
 ### Scope
-- [ ] Ingestion baseline (file + URL) hoạt động async
-- [ ] Processing baseline (extract, chunk, embedding pipeline scaffold)
-- [ ] Retrieval baseline có semantic/hybrid query path
+- [x] Ingestion baseline (file + URL) hoạt động end-to-end
+- [x] Processing baseline (extract, chunk, embedding, Chroma indexing)
+- [x] Retrieval baseline có semantic query path
+- [ ] Hybrid retrieval path
+- [ ] Async worker-based execution cho ingestion/processing
 
 ### API and Data
-- [ ] `POST /sources/files`, `POST /sources/urls` chạy đúng contract
-- [ ] `POST /jobs/processing`, `GET /jobs/{job_id}` chạy đúng lifecycle state
-- [ ] Schema cho `projects/sources/jobs/documents/chunks` đã migrate
+- [x] `POST /sources/files`, `POST /sources/urls` chạy đúng contract
+- [x] `POST /jobs/processing`, `GET /jobs/{job_id}` chạy đúng baseline lifecycle state
+- [x] Schema cho `projects/sources/jobs/documents/chunks` đã có trong codebase và contract
+- [x] Alembic/schema/runtime model được verify đồng bộ cho Phase 1 flow sau đợt refactor
 
 ### Readiness Gate
-- [ ] Query trả lời có citation tối thiểu ở mức baseline
+- [x] Query trả lời có citation tối thiểu ở mức baseline
 - [ ] P95 indexing lag và query latency được đo
-- [ ] Smoke test backend/frontend pass
+- [x] Frontend upload + query flow đã có implementation cho Phase 1
+- [ ] Smoke test backend/frontend pass trên môi trường cài đủ dependency
 
 ## Phase 2: Insight Layer
 

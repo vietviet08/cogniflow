@@ -77,7 +77,9 @@ Response data:
 {
   "source_id": "src_001",
   "job_id": "job_ingest_001",
-  "status": "queued"
+  "status": "completed",
+  "source_type": "file",
+  "filename": "paper.pdf"
 }
 ```
 
@@ -100,7 +102,8 @@ Response data:
 {
   "source_id": "src_002",
   "job_id": "job_ingest_002",
-  "status": "queued"
+  "status": "completed",
+  "source_type": "arxiv"
 }
 ```
 
@@ -128,7 +131,9 @@ Response data:
 ```json
 {
   "job_id": "job_process_001",
-  "status": "queued"
+  "status": "completed",
+  "documents_created": 2,
+  "chunks_created": 14
 }
 ```
 
@@ -184,10 +189,12 @@ Response data:
   "answer": "...",
   "citations": [
     {
-      "citation_id": "cit_001",
+      "citation_id": "chk_045",
       "source_id": "src_001",
       "document_id": "doc_001",
-      "chunk_id": "chk_045"
+      "chunk_id": "chk_045",
+      "title": "Paper A",
+      "url": "https://arxiv.org/abs/1234.5678"
     }
   ],
   "run_id": "run_query_001"

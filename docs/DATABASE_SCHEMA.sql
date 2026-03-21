@@ -59,12 +59,10 @@ CREATE TABLE processing_runs (
 CREATE TABLE documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_id UUID NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    processing_run_id UUID REFERENCES processing_runs(id) ON DELETE SET NULL,
     title TEXT,
-    language TEXT,
     raw_path TEXT,
-    clean_text TEXT,
-    token_count INT,
+    clean_text TEXT NOT NULL,
+    token_count INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -83,9 +81,8 @@ CREATE TABLE chunks (
 CREATE TABLE query_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    processing_run_id UUID REFERENCES processing_runs(id) ON DELETE SET NULL,
     query_text TEXT NOT NULL,
-    top_k INT NOT NULL DEFAULT 8,
+    top_k INT NOT NULL DEFAULT 5,
     filters JSONB,
     answer_text TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
