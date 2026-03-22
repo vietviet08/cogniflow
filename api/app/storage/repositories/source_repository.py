@@ -17,6 +17,7 @@ class SourceRepository(BaseRepository[Source]):
         original_uri: str | None,
         storage_path: str | None = None,
         checksum: str | None = None,
+        source_metadata: dict | None = None,
         status: str = "queued",
     ) -> Source:
         source = Source(
@@ -25,6 +26,7 @@ class SourceRepository(BaseRepository[Source]):
             original_uri=original_uri,
             storage_path=storage_path,
             checksum=checksum,
+            source_metadata=source_metadata,
             status=status,
         )
         self.db.add(source)
