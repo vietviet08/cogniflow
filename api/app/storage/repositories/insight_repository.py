@@ -56,10 +56,12 @@ class InsightRepository(BaseRepository[Insight]):
             InsightCitation(
                 insight_id=insight.id,
                 source_id=c.get("source_id"),
+                source_type=c.get("source_type"),
                 document_id=c.get("document_id"),
                 chunk_id=c.get("chunk_id"),
                 title=c.get("title"),
                 url=c.get("url"),
+                page_number=c.get("page_number"),
             )
             for c in citations
         ]

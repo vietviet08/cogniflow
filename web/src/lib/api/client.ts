@@ -24,6 +24,10 @@ export function createApiUrl(path: string): string {
   return `${base}${relativePath}`;
 }
 
+export function getSourceArtifactUrl(sourceId: string): string {
+  return createApiUrl(`/sources/${sourceId}/artifact`);
+}
+
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<ApiSuccess<T>> {
   const response = await fetch(createApiUrl(path), {
     ...init,

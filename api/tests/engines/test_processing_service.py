@@ -110,3 +110,71 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(
     assert len(runs) == 2
     assert runs[-1].run_metadata["documents_created"] == 1
     assert runs[-1].run_metadata["chunks_created"] == db_session.query(Chunk).count()
+
+
+def test_process_pdf_sources_store_page_number_metadata(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    project = Project(name="PDF pages", description="processing")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source_path = tmp_path / "paper.pdf"
+    source_path.write_text("placeholder", encoding="utf-8")
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="paper.pdf",
+        storage_path=str(source_path),
+        checksum="checksum-pdf",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    fake_collection = FakeCollection()
+    monkeypatch.setattr(
+        processing_service,
+        "get_retrieval_collection",
+        lambda embedding_model: fake_collection,
+    )
+    monkeypatch.setattr(
+        processing_service,
+        "embed_texts_with_local_model",
+        lambda texts, model_name=None: [[float(index + 1)] * 3 for index, _ in enumerate(texts)],
+    )
+    monkeypatch.setattr(
+        processing_service,
+        "_extract_pdf_pages",
+        lambda path: ["Page one text", "Page two text"],
+    )
+
+    job = Job(
+        project_id=project.id,
+        source_id=source.id,
+        job_type="processing",
+        status="running",
+        progress=0,
+    )
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+
+    processing_service.process_sources(
+        db=db_session,
+        project_id=project.id,
+        job_id=job.id,
+        sources=[source],
+        chunk_size=64,
+        chunk_overlap=0,
+    )
+
+    page_numbers = {
+        chunk.chunk_metadata["page_number"] for chunk in db_session.query(Chunk).all()
+    }
+    assert page_numbers == {1, 2}

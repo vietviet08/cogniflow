@@ -1,7 +1,9 @@
 import uuid
+from pathlib import Path
 
 import requests
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -154,6 +156,47 @@ def ingest_url(payload: IngestUrlRequest, request: Request, db: Session = Depend
             "source_type": source.type,
         },
         status_code=201,
+    )
+
+
+@router.get("/{source_id}/artifact")
+def get_source_artifact(source_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    source = SourceRepository(db).get(source_id)
+    if not source:
+        return error_response(
+            request,
+            code="SOURCE_NOT_FOUND",
+            message="Source does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    if source.type != "file" or not source.storage_path:
+        return error_response(
+            request,
+            code="SOURCE_ARTIFACT_UNAVAILABLE",
+            message="Source artifact is unavailable for this source type.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    artifact_path = source.storage_path
+    if not artifact_path.lower().endswith(".pdf"):
+        return error_response(
+            request,
+            code="SOURCE_ARTIFACT_UNSUPPORTED",
+            message="Only PDF artifacts are supported by the built-in viewer.",
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    if not Path(artifact_path).exists():
+        return error_response(
+            request,
+            code="SOURCE_ARTIFACT_MISSING",
+            message="Stored PDF artifact does not exist.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    return FileResponse(
+        artifact_path,
+        media_type="application/pdf",
+        filename=source.original_uri or f"{source.id}.pdf",
     )
 
 

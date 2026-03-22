@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.services.citation_service import hydrate_citations
 from app.services.insight_service import InsightError, generate_insight
 from app.storage.repositories.insight_repository import InsightRepository
 
@@ -64,7 +65,22 @@ def get_insight(
             message="Insight does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    citations = repo.get_citations(insight_id)
+    citations = hydrate_citations(
+        db,
+        [
+            {
+                "citation_id": str(c.id),
+                "source_id": c.source_id,
+                "source_type": c.source_type,
+                "document_id": c.document_id,
+                "chunk_id": c.chunk_id,
+                "title": c.title,
+                "url": c.url,
+                "page_number": c.page_number,
+            }
+            for c in repo.get_citations(insight_id)
+        ],
+    )
     return success_response(
         request,
         {
@@ -78,15 +94,6 @@ def get_insight(
             "run_id": str(insight.run_id) if insight.run_id else None,
             "status": insight.status,
             "created_at": insight.created_at.isoformat(),
-            "citations": [
-                {
-                    "source_id": c.source_id,
-                    "document_id": c.document_id,
-                    "chunk_id": c.chunk_id,
-                    "title": c.title,
-                    "url": c.url,
-                }
-                for c in citations
-            ],
+            "citations": citations,
         },
     )

@@ -15,6 +15,7 @@ import {
 } from "@/lib/api/client";
 import { getActiveProject } from "@/lib/project-store";
 
+import { useCitationViewer } from "@/components/citation-viewer-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +25,7 @@ import { PageWrapper } from "@/components/layout/page-wrapper";
 
 export function QueryConsole() {
   const queryClient = useQueryClient();
+  const { openCitation } = useCitationViewer();
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
@@ -140,6 +142,16 @@ export function QueryConsole() {
     }
   };
 
+  const handleCitationClick = (citation: any) => {
+    if (citation.source_type === "file" && citation.source_id) {
+      openCitation(citation);
+      return;
+    }
+    if (citation.url) {
+      window.open(citation.url, "_blank", "noopener,noreferrer");
+    }
+  };
+
   if (!activeProjectId) {
     return (
       <PageWrapper title="Query Console" description="Ask questions about your data.">
@@ -252,9 +264,17 @@ export function QueryConsole() {
                         {msg.citations && msg.citations.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {msg.citations.map((cit, idx) => (
-                              <Badge key={idx} variant="outline" className="text-[10px] bg-background">
-                                [{idx + 1}] {cit.title || cit.source_id.substring(0,6)}
-                              </Badge>
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleCitationClick(cit)}
+                                className="inline-flex"
+                              >
+                                <Badge variant="outline" className="cursor-pointer text-[10px] bg-background">
+                                  [{idx + 1}] {cit.title || cit.source_id.substring(0,6)}
+                                  {cit.page_number ? ` · p.${cit.page_number}` : ""}
+                                </Badge>
+                              </button>
                             ))}
                           </div>
                         )}

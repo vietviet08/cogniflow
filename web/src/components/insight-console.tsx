@@ -15,6 +15,7 @@ import { generateInsight, getInsight, listInsights } from "@/lib/api/client";
 import type { InsightResult, InsightListItem } from "@/lib/api/types";
 import { getActiveProject } from "@/lib/project-store";
 
+import { useCitationViewer } from "@/components/citation-viewer-provider";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -31,6 +32,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { PageWrapper } from "@/components/layout/page-wrapper";
 
 export function InsightConsole() {
+    const { openCitation } = useCitationViewer();
     const [activeProjectId, setActiveProjectId] = useState("");
     const [activeProjectName, setActiveProjectName] = useState("");
     const [query, setQuery] = useState("");
@@ -113,6 +115,16 @@ export function InsightConsole() {
             toast.error("Failed to load full insight.");
         } finally {
             setBusy(false);
+        }
+    }
+
+    function handleCitationClick(citation: InsightResult["citations"][number]) {
+        if (citation.source_type === "file" && citation.source_id) {
+            openCitation(citation);
+            return;
+        }
+        if (citation.url) {
+            window.open(citation.url, "_blank", "noopener,noreferrer");
         }
     }
 
@@ -371,19 +383,21 @@ export function InsightConsole() {
                                                             ID:{" "}
                                                             {citation.chunk_id}
                                                         </p>
-                                                        {citation.url && (
-                                                            <a
-                                                                href={
-                                                                    citation.url
-                                                                }
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="mt-1 flex items-center gap-1 text-xs text-primary hover:underline"
-                                                            >
-                                                                <ExternalLink className="h-3 w-3" />
-                                                                View Source
-                                                            </a>
-                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleCitationClick(
+                                                                    citation,
+                                                                )
+                                                            }
+                                                            className="mt-1 flex items-center gap-1 text-xs text-primary hover:underline"
+                                                        >
+                                                            <ExternalLink className="h-3 w-3" />
+                                                            {citation.source_type ===
+                                                            "file"
+                                                                ? `Open PDF${citation.page_number ? ` (p.${citation.page_number})` : ""}`
+                                                                : "View Source"}
+                                                        </button>
                                                     </div>
                                                 ),
                                             )}

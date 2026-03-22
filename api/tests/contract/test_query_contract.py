@@ -18,10 +18,12 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
                 {
                     "citation_id": "chunk-1",
                     "source_id": "source-1",
+                    "source_type": "file",
                     "document_id": "doc-1",
                     "chunk_id": "chunk-1",
                     "title": "Paper A",
                     "url": "https://arxiv.org/abs/1234.5678",
+                    "page_number": 3,
                 }
             ],
             "run_id": "run-1",
@@ -50,6 +52,8 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
     assert body["data"]["model"] == "gemini-2.5-flash"
     assert len(body["data"]["citations"]) == 1
     assert body["data"]["citations"][0]["chunk_id"] == "chunk-1"
+    assert body["data"]["citations"][0]["source_type"] == "file"
+    assert body["data"]["citations"][0]["page_number"] == 3
 
 
 def test_query_search_returns_structured_upstream_error(client, monkeypatch):

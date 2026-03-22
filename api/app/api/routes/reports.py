@@ -66,7 +66,7 @@ def get_report(report_id: uuid.UUID, request: Request, db: Session = Depends(get
             message="Report does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    return success_response(request, serialize_report(report))
+    return success_response(request, serialize_report(report, db))
 
 
 @router.put("/{report_id}/action-items/{item_id}")
