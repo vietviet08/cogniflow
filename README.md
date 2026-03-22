@@ -45,3 +45,14 @@ Research assistant scaffold organized as two top-level services:
   current vector store is indexed with OpenAI embeddings.
 
 Detailed commands: `docs/DEVELOPMENT_COMMANDS.md`.
+
+## Actionable Outputs MVP
+
+The reports workflow now supports structured, practical output templates in addition to markdown:
+
+- `action_items`: extract concrete follow-ups, suggested owners, and due date hints
+- `risk_analysis`: surface source-grounded risks with mitigation recommendations
+- `executive_brief`: summarize key points, decisions needed, and next steps
+
+Each actionable output is persisted with a `structured_payload` in the backend and rendered in the
+frontend as a dedicated view, while still producing markdown for export and sharing.
