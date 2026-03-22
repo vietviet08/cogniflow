@@ -38,11 +38,15 @@ export function CitationPdfPanel({
   const [containerWidth, setContainerWidth] = useState(720);
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(citation.page_number || 1);
-  const [textLayerVersion, setTextLayerVersion] = useState(0);
 
   const highlightTargets = useMemo(
     () => buildHighlightTargets(citation.quote),
     [citation.quote],
+  );
+  const highlightKey = useMemo(
+    () =>
+      `${citation.chunk_id || citation.citation_id || "citation"}:${pageNumber}:${highlightTargets.join("|")}`,
+    [citation.chunk_id, citation.citation_id, pageNumber, highlightTargets],
   );
 
   useEffect(() => {
@@ -66,52 +70,17 @@ export function CitationPdfPanel({
   }, []);
 
   useEffect(() => {
-    const layer = pageWrapperRef.current?.querySelector(
-      ".react-pdf__Page__textContent",
-    );
-    if (!layer) {
-      return;
-    }
-
-    const spans = Array.from(layer.querySelectorAll("span"));
-    let firstHighlighted: HTMLSpanElement | null = null;
-
-    for (const span of spans) {
-      if (!(span instanceof HTMLSpanElement)) {
-        continue;
-      }
-      if (span.dataset.notemeshHighlight === "true") {
-        span.dataset.notemeshHighlight = "false";
-        span.style.backgroundColor = "";
-        span.style.borderRadius = "";
-        span.style.boxShadow = "";
-      }
-      const text = normalizeText(span.textContent || "");
-      if (!text || text.length < 8) {
-        continue;
-      }
-      const isMatch = highlightTargets.some(
-        (target) => target.includes(text) || text.includes(target),
-      );
-      if (!isMatch) {
-        continue;
-      }
-      span.dataset.notemeshHighlight = "true";
-      span.style.backgroundColor = "rgba(250, 204, 21, 0.45)";
-      span.style.borderRadius = "0.2rem";
-      span.style.boxShadow = "0 0 0 1px rgba(202, 138, 4, 0.25)";
-      if (!firstHighlighted) {
-        firstHighlighted = span;
-      }
-    }
-
-    if (firstHighlighted) {
-      firstHighlighted.scrollIntoView({
-        block: "center",
-        behavior: "smooth",
+    const rafId = window.requestAnimationFrame(() => {
+      applyHighlights({
+        container: pageWrapperRef.current,
+        highlightTargets,
+        highlightKey,
+        shouldScroll: false,
       });
-    }
-  }, [highlightTargets, pageNumber, textLayerVersion]);
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [highlightKey, highlightTargets]);
 
   const artifactUrl = citation.source_id
     ? getSourceArtifactUrl(citation.source_id)
@@ -243,9 +212,14 @@ export function CitationPdfPanel({
               width={Math.max(containerWidth - 32, 280)}
               renderAnnotationLayer={false}
               renderTextLayer
-              onRenderTextLayerSuccess={() =>
-                setTextLayerVersion((current) => current + 1)
-              }
+              onRenderTextLayerSuccess={() => {
+                applyHighlights({
+                  container: pageWrapperRef.current,
+                  highlightTargets,
+                  highlightKey,
+                  shouldScroll: true,
+                });
+              }}
             />
           </div>
         </Document>
@@ -289,4 +263,66 @@ function clampPanelWidth(width: number, viewportWidth: number) {
   const minWidth = 380;
   const maxWidth = Math.max(520, Math.floor(viewportWidth * 0.72));
   return Math.min(Math.max(Math.floor(width), minWidth), maxWidth);
+}
+
+function applyHighlights({
+  container,
+  highlightTargets,
+  highlightKey,
+  shouldScroll,
+}: {
+  container: HTMLDivElement | null;
+  highlightTargets: string[];
+  highlightKey: string;
+  shouldScroll: boolean;
+}) {
+  const layer = container?.querySelector(".react-pdf__Page__textContent");
+  if (!(layer instanceof HTMLDivElement)) {
+    return;
+  }
+
+  if (layer.dataset.notemeshHighlightKey === highlightKey) {
+    return;
+  }
+
+  const spans = Array.from(layer.querySelectorAll("span"));
+  let firstHighlighted: HTMLSpanElement | null = null;
+
+  for (const span of spans) {
+    if (!(span instanceof HTMLSpanElement)) {
+      continue;
+    }
+    if (span.dataset.notemeshHighlight === "true") {
+      span.dataset.notemeshHighlight = "false";
+      span.style.backgroundColor = "";
+      span.style.borderRadius = "";
+      span.style.boxShadow = "";
+    }
+    const text = normalizeText(span.textContent || "");
+    if (!text || text.length < 8) {
+      continue;
+    }
+    const isMatch = highlightTargets.some(
+      (target) => target.includes(text) || text.includes(target),
+    );
+    if (!isMatch) {
+      continue;
+    }
+    span.dataset.notemeshHighlight = "true";
+    span.style.backgroundColor = "rgba(250, 204, 21, 0.45)";
+    span.style.borderRadius = "0.2rem";
+    span.style.boxShadow = "0 0 0 1px rgba(202, 138, 4, 0.25)";
+    if (!firstHighlighted) {
+      firstHighlighted = span;
+    }
+  }
+
+  layer.dataset.notemeshHighlightKey = highlightKey;
+
+  if (firstHighlighted && shouldScroll) {
+    firstHighlighted.scrollIntoView({
+      block: "center",
+      behavior: "auto",
+    });
+  }
 }
