@@ -11,7 +11,9 @@ def test_list_provider_settings_returns_supported_providers(client):
     providers = {item["provider"]: item for item in body["data"]["items"]}
     assert set(providers) == {"openai", "gemini"}
     assert providers["openai"]["configured"] is False
+    assert providers["openai"]["supports_base_url"] is True
     assert providers["gemini"]["configured_source"] == "missing"
+    assert providers["gemini"]["supports_base_url"] is False
     assert providers["openai"]["available_chat_models"]
     assert providers["openai"]["available_embedding_models"]
 
@@ -23,6 +25,7 @@ def test_save_provider_key_and_models_masks_secret_in_response(client):
         f"/api/v1/projects/{project['id']}/providers/openai",
         json={
             "api_key": "sk-test-openai-1234",
+            "base_url": "https://proxy.example.com/v1",
             "chat_model": "gpt-4o",
             "embedding_model": "text-embedding-3-small",
         },
@@ -34,6 +37,7 @@ def test_save_provider_key_and_models_masks_secret_in_response(client):
     assert body["data"]["configured"] is True
     assert body["data"]["configured_source"] == "project"
     assert body["data"]["masked_api_key"] == "sk-t...1234"
+    assert body["data"]["base_url"] == "https://proxy.example.com/v1"
     assert body["data"]["chat_model"] == "gpt-4o"
     assert body["data"]["embedding_model"] == "text-embedding-3-small"
 

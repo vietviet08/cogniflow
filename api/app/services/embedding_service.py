@@ -42,11 +42,15 @@ def embed_texts_with_config(
     texts: Sequence[str],
     api_key: str,
     model: str,
+    base_url: str | None = None,
 ) -> list[list[float]]:
     if not texts:
         return []
 
-    client = OpenAI(api_key=api_key)
+    client_kwargs = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
     vectors: list[list[float]] = []
     batch_size = 32
 

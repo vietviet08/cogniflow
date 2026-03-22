@@ -40,6 +40,7 @@ def process_sources(
         raise ProcessingError(str(exc)) from exc
     openai_api_key = embedding_config["api_key"]
     embedding_model = embedding_config["embedding_model"]
+    openai_base_url = embedding_config.get("base_url")
     run_metadata = {
         "source_ids": [str(source.id) for source in sources],
         "source_count": len(sources),
@@ -100,6 +101,7 @@ def process_sources(
             [item["content"] for item in chunk_payloads],
             api_key=openai_api_key,
             model=embedding_model,
+            base_url=openai_base_url,
         )
         chunk_models: list[Chunk] = []
         for item in chunk_payloads:

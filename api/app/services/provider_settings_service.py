@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -12,12 +13,14 @@ SUPPORTED_PROVIDERS: dict[str, dict[str, Any]] = {
     "openai": {
         "display_name": "OpenAI",
         "supports": ["embeddings", "chat"],
+        "supports_base_url": True,
         "chat_models": ["gpt-4o", "gpt-4o-mini"],
         "embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
     },
     "gemini": {
         "display_name": "Gemini",
         "supports": ["chat"],
+        "supports_base_url": False,
         "chat_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
         "embedding_models": [],
     },
@@ -48,6 +51,7 @@ def upsert_provider_key(
     project_id: uuid.UUID,
     provider: str,
     api_key: str,
+    base_url: str | None,
     chat_model: str | None,
     embedding_model: str | None,
 ) -> dict[str, Any]:
@@ -55,6 +59,7 @@ def upsert_provider_key(
     cleaned_key = api_key.strip()
     if not cleaned_key:
         raise ProviderSettingsError("api_key must not be empty.")
+    validated_base_url = validate_base_url(normalized_provider, base_url)
     validated_chat_model = validate_chat_model(normalized_provider, chat_model)
     validated_embedding_model = validate_embedding_model(normalized_provider, embedding_model)
 
@@ -62,6 +67,7 @@ def upsert_provider_key(
         project_id=project_id,
         provider=normalized_provider,
         api_key=cleaned_key,
+        base_url=validated_base_url,
         chat_model=validated_chat_model,
         embedding_model=validated_embedding_model,
     )
@@ -111,7 +117,13 @@ def resolve_chat_provider_config(
             f"{SUPPORTED_PROVIDERS[normalized_provider]['display_name']} chat model is required. "
             "Configure it in project settings.",
         )
-    return {"api_key": credential.api_key.strip(), "chat_model": credential.chat_model}
+    payload = {
+        "api_key": credential.api_key.strip(),
+        "chat_model": credential.chat_model,
+    }
+    if credential.base_url:
+        payload["base_url"] = credential.base_url
+    return payload
 
 
 def resolve_embedding_provider_config(
@@ -135,10 +147,13 @@ def resolve_embedding_provider_config(
             "embedding model is required. "
             "Configure it in project settings.",
         )
-    return {
+    payload = {
         "api_key": credential.api_key.strip(),
         "embedding_model": credential.embedding_model,
     }
+    if credential.base_url:
+        payload["base_url"] = credential.base_url
+    return payload
 
 
 def normalize_provider(provider: str) -> str:
@@ -178,6 +193,23 @@ def validate_embedding_model(provider: str, embedding_model: str | None) -> str 
     return cleaned
 
 
+def validate_base_url(provider: str, base_url: str | None) -> str | None:
+    cleaned = (base_url or "").strip()
+    if not cleaned:
+        return None
+
+    if not SUPPORTED_PROVIDERS[provider]["supports_base_url"]:
+        raise ProviderSettingsError(
+            f"base_url is not supported for provider '{provider}'.",
+        )
+
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ProviderSettingsError("base_url must be a valid absolute http(s) URL.")
+
+    return cleaned.rstrip("/")
+
+
 def _serialize_provider_status(
     provider: str,
     credential: ProviderCredential | None,
@@ -189,6 +221,7 @@ def _serialize_provider_status(
     updated_at: str | None = None
     chat_model: str | None = None
     embedding_model: str | None = None
+    base_url: str | None = None
 
     if credential is not None and credential.api_key.strip():
         has_chat_model = bool(credential.chat_model)
@@ -200,14 +233,17 @@ def _serialize_provider_status(
         updated_at = credential.updated_at.isoformat() if credential.updated_at else None
         chat_model = credential.chat_model
         embedding_model = credential.embedding_model
+        base_url = credential.base_url
 
     return {
         "provider": provider,
         "display_name": provider_config["display_name"],
         "supports": provider_config["supports"],
+        "supports_base_url": provider_config["supports_base_url"],
         "configured": configured,
         "configured_source": configured_source,
         "masked_api_key": masked_api_key,
+        "base_url": base_url,
         "chat_model": chat_model,
         "embedding_model": embedding_model,
         "available_chat_models": provider_config["chat_models"],

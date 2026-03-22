@@ -37,6 +37,7 @@ class ProviderCredentialRepository(BaseRepository[ProviderCredential]):
         project_id: uuid.UUID,
         provider: str,
         api_key: str,
+        base_url: str | None,
         chat_model: str | None,
         embedding_model: str | None,
     ) -> ProviderCredential:
@@ -46,11 +47,13 @@ class ProviderCredentialRepository(BaseRepository[ProviderCredential]):
                 project_id=project_id,
                 provider=provider,
                 api_key=api_key,
+                base_url=base_url,
                 chat_model=chat_model,
                 embedding_model=embedding_model,
             )
         else:
             credential.api_key = api_key
+            credential.base_url = base_url
             credential.chat_model = chat_model
             credential.embedding_model = embedding_model
 

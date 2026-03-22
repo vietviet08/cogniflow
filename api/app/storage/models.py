@@ -47,6 +47,7 @@ class ProviderCredential(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
     provider: Mapped[str] = mapped_column(String(50))
     api_key: Mapped[str] = mapped_column(Text())
+    base_url: Mapped[str | None] = mapped_column(Text())
     chat_model: Mapped[str | None] = mapped_column(String(128))
     embedding_model: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -54,6 +54,7 @@ def search_knowledge_base(
         [query],
         api_key=openai_embedding_config["api_key"],
         model=openai_embedding_config["embedding_model"],
+        base_url=openai_embedding_config.get("base_url"),
     )[0]
     collection = get_collection()
     result = collection.query(
@@ -93,6 +94,7 @@ def search_knowledge_base(
         metadatas,
         provider=answer_provider,
         api_key=generation_config["api_key"],
+        base_url=generation_config.get("base_url"),
         model=generation_config["chat_model"],
     )
     run = _store_query_run(db, project_id, query, top_k, filters, answer)
@@ -111,6 +113,7 @@ def _generate_answer(
     metadatas: list[dict[str, Any]],
     provider: str,
     api_key: str,
+    base_url: str | None,
     model: str,
 ) -> str:
     if provider == "gemini":
@@ -126,6 +129,7 @@ def _generate_answer(
         documents,
         metadatas,
         api_key=api_key,
+        base_url=base_url,
         model=model,
     )
 
@@ -135,9 +139,13 @@ def _generate_answer_with_openai(
     documents: list[str],
     metadatas: list[dict[str, Any]],
     api_key: str,
+    base_url: str | None,
     model: str,
 ) -> str:
-    client = OpenAI(api_key=api_key)
+    client_kwargs = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
     context_blocks: list[str] = []
     for index, (document, metadata) in enumerate(zip(documents, metadatas, strict=False), start=1):
         title = metadata.get("title", f"Source {index}")
