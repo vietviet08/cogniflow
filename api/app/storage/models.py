@@ -141,6 +141,7 @@ class Report(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    query: Mapped[str] = mapped_column(Text())
     title: Mapped[str] = mapped_column(String(255))
     report_type: Mapped[str] = mapped_column(String(50))
     format: Mapped[str] = mapped_column(String(50), default="markdown")

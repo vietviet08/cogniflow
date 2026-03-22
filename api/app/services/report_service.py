@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.services.insight_service import InsightError, generate_insight
 from app.storage.models import Chunk, Report, ReportInsight
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
+from app.storage.repositories.report_repository import ReportRepository
 
 
 class ReportError(Exception):
@@ -276,6 +277,7 @@ def generate_report(
 
     report = Report(
         project_id=project_id,
+        query=query,
         title=title,
         report_type=report_type,
         format=format,
@@ -301,6 +303,7 @@ def generate_report(
 
     return {
         "report_id": str(report.id),
+        "query": query,
         "title": title,
         "type": report_type,
         "format": format,
@@ -312,6 +315,81 @@ def generate_report(
         "source_ids": source_ids,
         "citations": insight_result["citations"],
     }
+
+
+def update_action_item_status(
+    db: Session,
+    report_id: uuid.UUID,
+    item_id: str,
+    status: str,
+) -> dict[str, Any]:
+    allowed_statuses = {"open", "needs_review", "done"}
+    if status not in allowed_statuses:
+        raise ReportError(
+            "Unsupported action item status.",
+            code="REPORT_ACTION_ITEM_STATUS_INVALID",
+            status_code=422,
+            details={"allowed_statuses": sorted(allowed_statuses)},
+        )
+
+    report_repo = ReportRepository(db)
+    report = report_repo.get(report_id)
+    if not report:
+        raise ReportError(
+            "Report does not exist.",
+            code="REPORT_NOT_FOUND",
+            status_code=404,
+        )
+    if report.report_type != "action_items":
+        raise ReportError(
+            "Only action item reports support status updates.",
+            code="REPORT_ACTION_ITEMS_UNSUPPORTED",
+            status_code=409,
+        )
+    if not isinstance(report.structured_payload, dict):
+        raise ReportError(
+            "Structured action items payload is missing.",
+            code="REPORT_ACTION_ITEMS_MISSING",
+            status_code=409,
+        )
+
+    raw_items = report.structured_payload.get("items")
+    if not isinstance(raw_items, list):
+        raise ReportError(
+            "Structured action items payload is invalid.",
+            code="REPORT_ACTION_ITEMS_INVALID",
+            status_code=409,
+        )
+
+    updated = False
+    normalized_items: list[dict[str, Any]] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        normalized_item = dict(raw_item)
+        if normalized_item.get("id") == item_id:
+            normalized_item["status"] = status
+            updated = True
+        normalized_items.append(normalized_item)
+
+    if not updated:
+        raise ReportError(
+            "Action item does not exist on this report.",
+            code="REPORT_ACTION_ITEM_NOT_FOUND",
+            status_code=404,
+            details={"item_id": item_id},
+        )
+
+    payload = dict(report.structured_payload)
+    payload["items"] = normalized_items
+    report.structured_payload = payload
+    report.content = _render_structured_payload_as_markdown(
+        report_type=report.report_type,
+        title=report.title,
+        payload=payload,
+    )
+    report = report_repo.save(report)
+    return serialize_report(report)
 
 
 def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
@@ -340,6 +418,22 @@ def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
         "insight_ids": insight_ids,
         "source_ids": list(source_ids_set),
         "run_id": run_id,
+    }
+
+
+def serialize_report(report: Report) -> dict[str, Any]:
+    return {
+        "report_id": str(report.id),
+        "project_id": str(report.project_id),
+        "query": report.query,
+        "title": report.title,
+        "type": report.report_type,
+        "format": report.format,
+        "content": report.content,
+        "structured_payload": report.structured_payload,
+        "status": report.status,
+        "run_id": str(report.run_id) if report.run_id else None,
+        "created_at": report.created_at.isoformat() if report.created_at else None,
     }
 
 
