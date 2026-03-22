@@ -208,6 +208,7 @@ export interface InsightListData {
 
 export interface ReportResult {
   report_id: string;
+  query: string;
   title: string;
   type: ReportType;
   format: string;
@@ -230,6 +231,7 @@ export interface ReportLineage {
 
 export interface ReportListItem {
   report_id: string;
+  query: string;
   title: string;
   type: ReportType;
   format: string;

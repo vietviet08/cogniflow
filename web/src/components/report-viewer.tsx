@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import {
     AlertTriangle,
     ClipboardList,
+    Copy,
+    Download,
     FileText,
     History,
     Quote,
@@ -19,6 +21,7 @@ import {
     getReport,
     getReportLineage,
     listReports,
+    updateActionItemStatus,
 } from "@/lib/api/client";
 import type {
     ActionItemData,
@@ -197,7 +200,18 @@ function CitationList({ citations }: { citations: CitationData[] }) {
     );
 }
 
-function ActionItemsView({ payload }: { payload: ActionItemsPayload }) {
+function ActionItemsView({
+    payload,
+    updatingItemId,
+    onStatusChange,
+}: {
+    payload: ActionItemsPayload;
+    updatingItemId: string | null;
+    onStatusChange: (
+        itemId: string,
+        status: ActionItemData["status"],
+    ) => Promise<void>;
+}) {
     return (
         <Card>
             <CardHeader>
@@ -223,8 +237,28 @@ function ActionItemsView({ payload }: { payload: ActionItemsPayload }) {
                             <Badge variant={getPriorityVariant(item.priority)}>
                                 {item.priority}
                             </Badge>
+                            <select
+                                value={item.status}
+                                onChange={(event) =>
+                                    void onStatusChange(
+                                        item.id,
+                                        event.target
+                                            .value as ActionItemData["status"],
+                                    )
+                                }
+                                disabled={updatingItemId === item.id}
+                                className="h-7 rounded-md border border-input bg-background px-2 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <option value="open">Open</option>
+                                <option value="needs_review">
+                                    Needs review
+                                </option>
+                                <option value="done">Done</option>
+                            </select>
                             <Badge variant={getStatusVariant(item.status)}>
-                                {item.status.replace("_", " ")}
+                                {updatingItemId === item.id
+                                    ? "saving..."
+                                    : item.status.replace("_", " ")}
                             </Badge>
                         </div>
                         <p className="mt-2 text-sm text-foreground/80">
@@ -374,13 +408,28 @@ function MarkdownPreview({
     );
 }
 
-function StructuredReportView({ report }: { report: ReportResult }) {
+function StructuredReportView({
+    report,
+    updatingItemId,
+    onActionItemStatusChange,
+}: {
+    report: ReportResult;
+    updatingItemId: string | null;
+    onActionItemStatusChange: (
+        itemId: string,
+        status: ActionItemData["status"],
+    ) => Promise<void>;
+}) {
     if (report.type === "action_items") {
         const payload = asActionItemsPayload(report.structured_payload);
         if (payload) {
             return (
                 <>
-                    <ActionItemsView payload={payload} />
+                    <ActionItemsView
+                        payload={payload}
+                        updatingItemId={updatingItemId}
+                        onStatusChange={onActionItemStatusChange}
+                    />
                     <MarkdownPreview
                         title="Markdown Export"
                         content={report.content}
@@ -432,6 +481,7 @@ export function ReportViewer() {
 
     const [busy, setBusy] = useState(false);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
     const [report, setReport] = useState<ReportResult | null>(null);
     const [lineage, setLineage] = useState<ReportLineage | null>(null);
@@ -509,7 +559,7 @@ export function ReportViewer() {
             const response = await getReport(reportId);
             setReport(response.data);
             setReportType(response.data.type);
-            setQuery("Loading from history...");
+            setQuery(response.data.query);
             await loadLineage(reportId);
             toast.success("Output loaded.");
         } catch {
@@ -517,6 +567,89 @@ export function ReportViewer() {
         } finally {
             setBusy(false);
         }
+    }
+
+    async function handleActionItemStatusChange(
+        itemId: string,
+        status: ActionItemData["status"],
+    ) {
+        if (!report) return;
+        setUpdatingItemId(itemId);
+        try {
+            const response = await updateActionItemStatus({
+                reportId: report.report_id,
+                itemId,
+                status,
+            });
+            setReport(response.data);
+            toast.success("Action item status updated.");
+            void loadHistory();
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to update action item status.",
+            );
+        } finally {
+            setUpdatingItemId(null);
+        }
+    }
+
+    async function handleCopyMarkdown() {
+        if (!report) return;
+        await navigator.clipboard.writeText(report.content);
+        toast.success("Markdown copied.");
+    }
+
+    async function handleCopyJson() {
+        if (!report?.structured_payload) {
+            toast.error("This output does not have structured JSON.");
+            return;
+        }
+        await navigator.clipboard.writeText(
+            JSON.stringify(report.structured_payload, null, 2),
+        );
+        toast.success("Structured JSON copied.");
+    }
+
+    function downloadFile(content: string, filename: string, type: string) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    function buildExportFilename(extension: "md" | "json") {
+        const base =
+            report?.title
+                ?.toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-|-$/g, "") || "report";
+        return `${base}.${extension}`;
+    }
+
+    function handleExportMarkdown() {
+        if (!report) return;
+        downloadFile(report.content, buildExportFilename("md"), "text/markdown");
+        toast.success("Markdown exported.");
+    }
+
+    function handleExportJson() {
+        if (!report?.structured_payload) {
+            toast.error("This output does not have structured JSON.");
+            return;
+        }
+        downloadFile(
+            JSON.stringify(report.structured_payload, null, 2),
+            buildExportFilename("json"),
+            "application/json",
+        );
+        toast.success("Structured JSON exported.");
     }
 
     const selectedTypeDescription = getReportTypeDescription(reportType);
@@ -694,6 +827,9 @@ export function ReportViewer() {
                                             <span className="line-clamp-2 text-sm font-medium">
                                                 {item.title}
                                             </span>
+                                            <span className="line-clamp-2 text-xs text-muted-foreground">
+                                                {item.query}
+                                            </span>
                                             <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                                                 <span>
                                                     {new Date(
@@ -759,10 +895,66 @@ export function ReportViewer() {
                                     <CardDescription>
                                         {getReportTypeDescription(report.type)}
                                     </CardDescription>
+                                    <div className="flex flex-wrap gap-2 pt-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() =>
+                                                void handleCopyMarkdown()
+                                            }
+                                            className="gap-2"
+                                        >
+                                            <Copy className="h-3.5 w-3.5" />
+                                            Copy Markdown
+                                        </Button>
+                                        {report.structured_payload ? (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() =>
+                                                    void handleCopyJson()
+                                                }
+                                                className="gap-2"
+                                            >
+                                                <Copy className="h-3.5 w-3.5" />
+                                                Copy JSON
+                                            </Button>
+                                        ) : null}
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleExportMarkdown}
+                                            className="gap-2"
+                                        >
+                                            <Download className="h-3.5 w-3.5" />
+                                            Export .md
+                                        </Button>
+                                        {report.structured_payload ? (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleExportJson}
+                                                className="gap-2"
+                                            >
+                                                <Download className="h-3.5 w-3.5" />
+                                                Export .json
+                                            </Button>
+                                        ) : null}
+                                    </div>
                                 </CardHeader>
                             </Card>
 
-                            <StructuredReportView report={report} />
+                            <StructuredReportView
+                                report={report}
+                                updatingItemId={updatingItemId}
+                                onActionItemStatusChange={
+                                    handleActionItemStatusChange
+                                }
+                            />
 
                             {lineage && lineage.source_ids.length > 0 && (
                                 <Card>

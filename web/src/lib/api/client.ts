@@ -244,6 +244,20 @@ export function getReport(reportId: string): Promise<ApiSuccess<ReportResult>> {
   return requestJson<ReportResult>(`/reports/${reportId}`);
 }
 
+export function updateActionItemStatus(payload: {
+  reportId: string;
+  itemId: string;
+  status: "open" | "needs_review" | "done";
+}): Promise<ApiSuccess<ReportResult>> {
+  return requestJson<ReportResult>(
+    `/reports/${payload.reportId}/action-items/${payload.itemId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ status: payload.status }),
+    },
+  );
+}
+
 export function getReportLineage(reportId: string): Promise<ApiSuccess<ReportLineage>> {
   return requestJson<ReportLineage>(`/reports/${reportId}/lineage`);
 }
