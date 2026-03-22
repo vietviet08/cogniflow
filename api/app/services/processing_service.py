@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.services.chroma_service import get_collection
-from app.services.embedding_service import chunk_text, count_tokens, embed_texts
+from app.services.embedding_service import chunk_text, count_tokens, embed_texts_with_config
+from app.services.provider_settings_service import (
+    ProviderSettingsError,
+    resolve_embedding_provider_config,
+)
 from app.storage.models import Chunk, Document, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
@@ -29,20 +33,28 @@ def process_sources(
     chunk_size: int,
     chunk_overlap: int,
 ) -> dict[str, int | str]:
-    settings = get_settings()
     run_repo = ProcessingRunRepository(db)
+    try:
+        embedding_config = resolve_embedding_provider_config(db, project_id, "openai")
+    except ProviderSettingsError as exc:
+        raise ProcessingError(str(exc)) from exc
+    openai_api_key = embedding_config["api_key"]
+    embedding_model = embedding_config["embedding_model"]
+    openai_base_url = embedding_config.get("base_url")
     run_metadata = {
         "source_ids": [str(source.id) for source in sources],
         "source_count": len(sources),
         "chunk_size": chunk_size,
         "chunk_overlap": chunk_overlap,
+        "provider": "openai",
+        "embedding_model": embedding_model,
     }
     config_hash = hashlib.sha256(
         json.dumps(
             {
                 "chunk_size": chunk_size,
                 "chunk_overlap": chunk_overlap,
-                "embedding_model": settings.embedding_model,
+                "embedding_model": embedding_model,
             },
             sort_keys=True,
         ).encode("utf-8")
@@ -51,7 +63,7 @@ def process_sources(
         project_id=project_id,
         job_id=job_id,
         run_type="processing",
-        model_id=settings.embedding_model,
+        model_id=embedding_model,
         prompt_hash=None,
         config_hash=config_hash,
         retrieval_config=None,
@@ -69,7 +81,7 @@ def process_sources(
             title=title,
             raw_path=source.storage_path,
             clean_text=text,
-            token_count=count_tokens(text),
+            token_count=count_tokens(text, model_name=embedding_model),
         )
         db.add(document)
         db.commit()
@@ -83,8 +95,14 @@ def process_sources(
             source_url=source_url,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
+            embedding_model=embedding_model,
         )
-        vectors = embed_texts([item["content"] for item in chunk_payloads])
+        vectors = embed_texts_with_config(
+            [item["content"] for item in chunk_payloads],
+            api_key=openai_api_key,
+            model=embedding_model,
+            base_url=openai_base_url,
+        )
         chunk_models: list[Chunk] = []
         for item in chunk_payloads:
             chunk_models.append(
@@ -94,7 +112,7 @@ def process_sources(
                     chunk_index=item["chunk_index"],
                     content=item["content"],
                     chroma_id=item["chroma_id"],
-                    embedding_model=get_settings().embedding_model,
+                    embedding_model=embedding_model,
                     chunk_metadata=item["metadata"],
                 )
             )
@@ -208,8 +226,14 @@ def _build_chunk_payloads(
     source_url: str,
     chunk_size: int,
     chunk_overlap: int,
+    embedding_model: str,
 ) -> list[dict[str, Any]]:
-    chunks = chunk_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = chunk_text(
+        text,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        model_name=embedding_model,
+    )
     payloads: list[dict[str, Any]] = []
 
     for index, chunk in enumerate(chunks):

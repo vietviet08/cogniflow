@@ -1,9 +1,20 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Upload, Link2, Play, FileText, Globe } from "lucide-react";
 
 import { ingestSourceUrl, processSources, uploadSourceFile } from "@/lib/api/client";
 import { getActiveProject } from "@/lib/project-store";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
+import { PageWrapper } from "@/components/layout/page-wrapper";
 
 interface LocalSourceItem {
   id: string;
@@ -16,7 +27,6 @@ export function SourceManager() {
   const [activeProjectName, setActiveProjectName] = useState("");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState("Select a project, then upload a PDF or ingest a URL.");
   const [sources, setSources] = useState<LocalSourceItem[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -31,20 +41,19 @@ export function SourceManager() {
   async function handleUrlSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeProjectId) {
-      setStatus("Create or select a project first.");
+      toast.error("Create or select a project first.");
       return;
     }
-
     setBusy(true);
-    setStatus("Ingesting remote source...");
+    const toastId = toast.loading("Ingesting remote source...");
     try {
       const response = await ingestSourceUrl({ projectId: activeProjectId, url });
       const source = response.data;
       setSources((current) => [...current, { id: source.source_id, kind: source.source_type, status: source.status }]);
       setUrl("");
-      setStatus(`Source ${source.source_id} ingested. Run processing to chunk and index it.`);
+      toast.success(`Source ingested. Run processing to index it.`, { id: toastId });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to ingest URL.");
+      toast.error(error instanceof Error ? error.message : "Failed to ingest URL.", { id: toastId });
     } finally {
       setBusy(false);
     }
@@ -53,24 +62,23 @@ export function SourceManager() {
   async function handleFileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeProjectId) {
-      setStatus("Create or select a project first.");
+      toast.error("Create or select a project first.");
       return;
     }
     if (!file) {
-      setStatus("Select a PDF file first.");
+      toast.error("Select a PDF file first.");
       return;
     }
-
     setBusy(true);
-    setStatus("Uploading file...");
+    const toastId = toast.loading("Uploading file...");
     try {
       const response = await uploadSourceFile({ projectId: activeProjectId, file });
       const source = response.data;
       setSources((current) => [...current, { id: source.source_id, kind: source.source_type, status: source.status }]);
       setFile(null);
-      setStatus(`File source ${source.source_id} uploaded. Run processing to chunk and index it.`);
+      toast.success("File uploaded. Run processing to index it.", { id: toastId });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to upload file.");
+      toast.error(error instanceof Error ? error.message : "Failed to upload file.", { id: toastId });
     } finally {
       setBusy(false);
     }
@@ -78,106 +86,159 @@ export function SourceManager() {
 
   async function handleProcessAll() {
     if (!activeProjectId) {
-      setStatus("Create or select a project first.");
+      toast.error("Create or select a project first.");
       return;
     }
     if (sources.length === 0) {
-      setStatus("Ingest at least one source before processing.");
+      toast.error("Ingest at least one source before processing.");
       return;
     }
-
     setBusy(true);
-    setStatus("Processing sources...");
+    const toastId = toast.loading("Processing sources...");
     try {
       const response = await processSources({
         projectId: activeProjectId,
-        sourceIds: sources.map((source) => source.id),
+        sourceIds: sources.map((s) => s.id),
       });
-      setStatus(
-        `Processing complete: ${response.data.documents_created} documents and ${response.data.chunks_created} chunks indexed. Run ${response.data.run_id} recorded.`,
+      toast.success(
+        `Done! ${response.data.documents_created} docs · ${response.data.chunks_created} chunks indexed.`,
+        { id: toastId },
       );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to process sources.");
+      toast.error(error instanceof Error ? error.message : "Failed to process sources.", { id: toastId });
     } finally {
       setBusy(false);
     }
   }
 
+  const statusBadge = (status: string) => {
+    if (status === "ready") return <Badge variant="success">{status}</Badge>;
+    if (status === "pending") return <Badge variant="warning">{status}</Badge>;
+    return <Badge variant="secondary">{status}</Badge>;
+  };
+
   return (
-    <section style={{ display: "grid", gap: 24 }}>
-      <div>
-        <h2 style={{ marginBottom: 8 }}>Sources</h2>
-        <p style={{ marginTop: 0, color: "#586069" }}>
-          Active project: {activeProjectName ? `${activeProjectName} (${activeProjectId})` : "none"}
-        </p>
-      </div>
-
-      <form onSubmit={handleFileSubmit} style={cardStyle}>
-        <strong>Upload PDF</strong>
-        <input type="file" accept=".pdf" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-        <button type="submit" disabled={busy} style={buttonStyle}>
-          Upload file
-        </button>
-      </form>
-
-      <form onSubmit={handleUrlSubmit} style={cardStyle}>
-        <strong>Ingest URL or arXiv link</strong>
-        <input
-          required
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          placeholder="https://arxiv.org/abs/1234.5678"
-          style={fieldStyle}
-        />
-        <button type="submit" disabled={busy} style={buttonStyle}>
-          Ingest URL
-        </button>
-      </form>
-
-      <div style={cardStyle}>
-        <strong>Current session sources</strong>
-        {sources.length === 0 ? <p style={{ margin: 0 }}>No sources ingested in this session yet.</p> : null}
-        {sources.map((source) => (
-          <div key={source.id} style={{ padding: "10px 0", borderTop: "1px solid #dde3eb" }}>
-            <div>{source.id}</div>
-            <div style={{ color: "#586069" }}>
-              {source.kind} · {source.status}
+    <PageWrapper
+      title="Sources"
+      description={
+        activeProjectName
+          ? `Project: ${activeProjectName}`
+          : "Select a project first, then upload a PDF or ingest a URL."
+      }
+    >
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* Upload PDF */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10">
+                <FileText className="h-4 w-4 text-violet-500" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Upload PDF</CardTitle>
+                <CardDescription>Upload a local PDF file</CardDescription>
+              </div>
             </div>
-          </div>
-        ))}
-        <button type="button" disabled={busy} onClick={handleProcessAll} style={buttonStyle}>
-          Process all session sources
-        </button>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleFileSubmit} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pdf-file">PDF file</Label>
+                <input
+                  id="pdf-file"
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  className="text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium file:transition-colors hover:file:bg-accent"
+                />
+              </div>
+              <Button type="submit" disabled={busy || !file} size="sm" className="w-fit gap-2">
+                {busy ? <Spinner size="sm" /> : <Upload className="h-3.5 w-3.5" />}
+                Upload file
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Ingest URL */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+                <Globe className="h-4 w-4 text-blue-500" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Ingest URL</CardTitle>
+                <CardDescription>arXiv link or any URL</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleUrlSubmit} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="source-url">URL</Label>
+                <Input
+                  id="source-url"
+                  required
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://arxiv.org/abs/1234.5678"
+                  disabled={busy}
+                />
+              </div>
+              <Button type="submit" disabled={busy} size="sm" className="w-fit gap-2">
+                {busy ? <Spinner size="sm" /> : <Link2 className="h-3.5 w-3.5" />}
+                Ingest URL
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
-      <p style={{ margin: 0, color: "#1d4f91" }}>{status}</p>
-    </section>
+      {/* Sources list */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Session Sources</CardTitle>
+              <CardDescription>
+                {sources.length === 0
+                  ? "No sources ingested yet."
+                  : `${sources.length} source${sources.length > 1 ? "s" : ""} ready to process.`}
+              </CardDescription>
+            </div>
+            {sources.length > 0 && (
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={handleProcessAll}
+                size="sm"
+                className="gap-2"
+              >
+                {busy ? <Spinner size="sm" /> : <Play className="h-3.5 w-3.5" />}
+                Process all
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        {sources.length > 0 && (
+          <CardContent className="p-0">
+            {sources.map((source, index) => (
+              <div key={source.id}>
+                {index > 0 && <Separator />}
+                <div className="flex items-center gap-3 px-6 py-3">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-mono text-muted-foreground truncate">{source.id}</p>
+                    <p className="text-xs text-muted-foreground">{source.kind}</p>
+                  </div>
+                  {statusBadge(source.status)}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        )}
+      </Card>
+    </PageWrapper>
   );
 }
-
-const cardStyle = {
-  display: "grid",
-  gap: 12,
-  padding: 16,
-  border: "1px solid #d7dce2",
-  borderRadius: 12,
-  background: "#f7f9fc",
-} as const;
-
-const fieldStyle = {
-  border: "1px solid #c4ccd6",
-  borderRadius: 10,
-  padding: 12,
-  font: "inherit",
-} as const;
-
-const buttonStyle = {
-  background: "#0f5fc2",
-  color: "#fff",
-  border: "none",
-  borderRadius: 10,
-  padding: "12px 16px",
-  font: "inherit",
-  cursor: "pointer",
-  width: "fit-content",
-} as const;

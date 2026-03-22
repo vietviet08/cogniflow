@@ -1,30 +1,38 @@
 import type { ReactNode } from "react";
+import { Inter } from "next/font/google";
 
-import { Navigation } from "@/components/navigation";
+import { Providers } from "@/components/providers";
+import { Sidebar } from "@/components/layout/sidebar";
+import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
 
 export const metadata = {
-    title: "Cogniflow",
-    description: "AI research infrastructure shell",
+  title: {
+    template: "%s | NoteMesh",
+    default: "NoteMesh",
+  },
+  description: "AI-powered research and knowledge management",
 };
 
 export default function RootLayout({
-    children,
+  children,
 }: Readonly<{ children: ReactNode }>) {
-    return (
-        <html lang="en">
-            <body
-                suppressHydrationWarning
-                style={{ margin: 0, fontFamily: "system-ui, sans-serif" }}
-            >
-                <header style={{ borderBottom: "1px solid #ddd", padding: 16 }}>
-                    <h1 style={{ margin: 0, fontSize: 24 }}>Cogniflow</h1>
-                    <p style={{ marginTop: 4, color: "#555" }}>
-                        AI research infrastructure
-                    </p>
-                    <Navigation />
-                </header>
-                <main style={{ padding: 16 }}>{children}</main>
-            </body>
-        </html>
-    );
+  return (
+    <html lang="en" suppressHydrationWarning className={inter.variable}>
+      <body className="bg-background text-foreground antialiased">
+        <Providers>
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar />
+            <main className="flex flex-1 flex-col overflow-y-auto">
+              {children}
+            </main>
+          </div>
+        </Providers>
+      </body>
+    </html>
+  );
 }

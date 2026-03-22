@@ -61,6 +61,150 @@ Request:
 }
 ```
 
+## Provider Settings
+
+Project-scoped provider settings let users save API keys and model choices in the application
+instead of hardcoding them into local env files. If a provider is not configured for the project,
+the backend refuses processing or query requests that depend on it.
+
+### List Provider Settings
+
+`GET /projects/{project_id}/providers`
+
+Response data:
+
+```json
+{
+  "items": [
+    {
+      "provider": "openai",
+      "display_name": "OpenAI",
+      "supports": ["embeddings", "chat"],
+      "supports_base_url": true,
+      "configured": true,
+      "configured_source": "project",
+      "masked_api_key": "sk-t...1234",
+      "base_url": "https://proxy.example.com/v1",
+      "chat_model": "gpt-4o",
+      "embedding_model": "text-embedding-3-small",
+      "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+      "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+      "model_discovery_error": null,
+      "updated_at": "2026-03-22T18:30:00Z"
+    },
+    {
+      "provider": "gemini",
+      "display_name": "Gemini",
+      "supports": ["chat"],
+      "supports_base_url": false,
+      "configured": false,
+      "configured_source": "missing",
+      "masked_api_key": null,
+      "base_url": null,
+      "chat_model": null,
+      "embedding_model": null,
+      "available_chat_models": [],
+      "available_embedding_models": [],
+      "model_discovery_error": null,
+      "updated_at": null
+    }
+  ]
+}
+```
+
+### Save Provider Key
+
+`PUT /projects/{project_id}/providers/{provider}`
+
+Request:
+
+```json
+{
+  "api_key": "sk-test-openai-1234",
+  "base_url": "https://proxy.example.com/v1",
+  "chat_model": "gpt-4o",
+  "embedding_model": "text-embedding-3-small"
+}
+```
+
+Response data:
+
+```json
+{
+  "provider": "openai",
+  "display_name": "OpenAI",
+  "supports": ["embeddings", "chat"],
+  "supports_base_url": true,
+  "configured": true,
+  "configured_source": "project",
+  "masked_api_key": "sk-t...1234",
+  "base_url": "https://proxy.example.com/v1",
+  "chat_model": "gpt-4o",
+  "embedding_model": "text-embedding-3-small",
+  "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+  "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+  "model_discovery_error": null,
+  "updated_at": "2026-03-22T18:30:00Z"
+}
+```
+
+### Discover Provider Models
+
+`POST /projects/{project_id}/providers/{provider}/models/discover`
+
+Request:
+
+```json
+{
+  "api_key": "sk-test-openai-1234",
+  "base_url": "https://proxy.example.com/v1"
+}
+```
+
+Notes:
+- `api_key` and `base_url` are optional.
+- If omitted, the backend falls back to the saved project-scoped provider config.
+
+Response data:
+
+```json
+{
+  "provider": "openai",
+  "display_name": "OpenAI",
+  "supports_base_url": true,
+  "base_url": "https://proxy.example.com/v1",
+  "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+  "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+  "source": "payload"
+}
+```
+
+### Delete Provider Key Override
+
+`DELETE /projects/{project_id}/providers/{provider}`
+
+Response data:
+
+```json
+{
+  "provider": "openai",
+  "display_name": "OpenAI",
+  "supports": ["embeddings", "chat"],
+  "supports_base_url": true,
+  "configured": false,
+  "configured_source": "missing",
+  "masked_api_key": null,
+  "base_url": null,
+  "chat_model": null,
+  "embedding_model": null,
+  "available_chat_models": [],
+  "available_embedding_models": [],
+  "model_discovery_error": null,
+  "updated_at": null,
+  "removed": true
+}
+```
+
 ## Ingestion
 
 ### Upload Source File
@@ -262,6 +406,7 @@ Request:
 {
   "project_id": "prj_001",
   "query": "What are major trends in AI agent infrastructure?",
+  "provider": "gemini",
   "filters": {
     "source_types": ["url", "pdf"]
   },
@@ -274,6 +419,8 @@ Response data:
 ```json
 {
   "answer": "...",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash",
   "citations": [
     {
       "citation_id": "chk_045",
@@ -287,6 +434,12 @@ Response data:
   "run_id": "run_query_001"
 }
 ```
+
+Notes:
+- `provider` supports `openai` and `gemini`
+- the answer model comes from the project provider settings UI/API
+- retrieval still uses the project OpenAI embedding pipeline, so Gemini query mode also requires
+  the project OpenAI provider to have both an API key and embedding model configured
 
 ## Insights
 

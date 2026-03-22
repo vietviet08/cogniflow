@@ -58,4 +58,38 @@ export interface QueryResultData {
   answer: string;
   citations: CitationData[];
   run_id: string;
+  provider: string;
+  model: string;
+}
+
+export interface ProviderSettingData {
+  provider: string;
+  display_name: string;
+  supports: string[];
+  supports_base_url: boolean;
+  configured: boolean;
+  configured_source: "project" | "missing";
+  masked_api_key: string | null;
+  base_url: string | null;
+  chat_model: string | null;
+  embedding_model: string | null;
+  available_chat_models: string[];
+  available_embedding_models: string[];
+  model_discovery_error: string | null;
+  updated_at: string | null;
+  removed?: boolean;
+}
+
+export interface ProviderSettingsListData {
+  items: ProviderSettingData[];
+}
+
+export interface ProviderModelsData {
+  provider: string;
+  display_name: string;
+  supports_base_url: boolean;
+  base_url: string | null;
+  available_chat_models: string[];
+  available_embedding_models: string[];
+  source: "payload" | "project";
 }

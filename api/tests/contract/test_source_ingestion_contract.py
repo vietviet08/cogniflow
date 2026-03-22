@@ -36,7 +36,10 @@ def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
     def fake_ingest_remote_source(source_id, url):
         target = tmp_path / f"{source_id}.json"
         target.write_text(
-            '{"title":"Paper A","content":"Abstract text","source":"arxiv","url":"https://arxiv.org/abs/1234.5678"}',
+            (
+                '{"title":"Paper A","content":"Abstract text","source":"arxiv",'
+                '"url":"https://arxiv.org/abs/1234.5678"}'
+            ),
             encoding="utf-8",
         )
         return str(target), "checksum-url", "arxiv"

@@ -15,6 +15,7 @@ router = APIRouter(prefix="/query")
 class SearchRequest(BaseModel):
     project_id: uuid.UUID
     query: str
+    provider: str = "openai"
     filters: dict | None = None
     top_k: int = 8
 
@@ -35,23 +36,24 @@ def search_knowledge(payload: SearchRequest, request: Request, db: Session = Dep
             db=db,
             project_id=payload.project_id,
             query=payload.query,
+            provider=payload.provider,
             top_k=payload.top_k,
             filters=payload.filters,
         )
     except QueryError as exc:
         return error_response(
             request,
-            code="QUERY_FAILED",
-            message=str(exc),
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
         )
-    except Exception as exc:
+    except Exception:
         return error_response(
             request,
             code="QUERY_INTERNAL_ERROR",
             message="Unexpected query failure.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            details={"reason": str(exc)},
         )
 
     return success_response(

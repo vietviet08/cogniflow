@@ -3,6 +3,9 @@ import type {
   ApiSuccess,
   HealthData,
   ProcessingResultData,
+  ProviderModelsData,
+  ProviderSettingData,
+  ProviderSettingsListData,
   ProjectData,
   QueryResultData,
   SourceIngestionData,
@@ -109,6 +112,7 @@ export function processSources(payload: {
 export function queryKnowledge(payload: {
   projectId: string;
   query: string;
+  provider?: string;
   topK?: number;
 }): Promise<ApiSuccess<QueryResultData>> {
   return requestJson<QueryResultData>("/query/search", {
@@ -116,7 +120,66 @@ export function queryKnowledge(payload: {
     body: JSON.stringify({
       project_id: payload.projectId,
       query: payload.query,
+      provider: payload.provider ?? "openai",
       top_k: payload.topK ?? 5,
     }),
   });
+}
+
+export function listProjectProviderSettings(
+  projectId: string,
+): Promise<ApiSuccess<ProviderSettingsListData>> {
+  return requestJson<ProviderSettingsListData>(`/projects/${projectId}/providers`);
+}
+
+export function saveProjectProviderKey(payload: {
+  projectId: string;
+  provider: string;
+  apiKey: string;
+  baseUrl?: string;
+  chatModel: string;
+  embeddingModel?: string;
+}): Promise<ApiSuccess<ProviderSettingData>> {
+  return requestJson<ProviderSettingData>(
+    `/projects/${payload.projectId}/providers/${payload.provider}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        api_key: payload.apiKey,
+        base_url: payload.baseUrl,
+        chat_model: payload.chatModel,
+        embedding_model: payload.embeddingModel,
+      }),
+    },
+  );
+}
+
+export function deleteProjectProviderKey(payload: {
+  projectId: string;
+  provider: string;
+}): Promise<ApiSuccess<ProviderSettingData>> {
+  return requestJson<ProviderSettingData>(
+    `/projects/${payload.projectId}/providers/${payload.provider}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export function discoverProjectProviderModels(payload: {
+  projectId: string;
+  provider: string;
+  apiKey?: string;
+  baseUrl?: string;
+}): Promise<ApiSuccess<ProviderModelsData>> {
+  return requestJson<ProviderModelsData>(
+    `/projects/${payload.projectId}/providers/${payload.provider}/models/discover`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        api_key: payload.apiKey,
+        base_url: payload.baseUrl,
+      }),
+    },
+  );
 }
