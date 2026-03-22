@@ -6,6 +6,10 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.services.provider_model_service import (
+    ProviderModelDiscoveryError,
+    discover_provider_models,
+)
 from app.storage.models import ProviderCredential
 from app.storage.repositories.provider_credential_repository import ProviderCredentialRepository
 
@@ -14,15 +18,11 @@ SUPPORTED_PROVIDERS: dict[str, dict[str, Any]] = {
         "display_name": "OpenAI",
         "supports": ["embeddings", "chat"],
         "supports_base_url": True,
-        "chat_models": ["gpt-4o", "gpt-4o-mini"],
-        "embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
     },
     "gemini": {
         "display_name": "Gemini",
         "supports": ["chat"],
         "supports_base_url": False,
-        "chat_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
-        "embedding_models": [],
     },
 }
 
@@ -37,13 +37,29 @@ def list_provider_statuses(db: Session, project_id: uuid.UUID) -> list[dict[str,
         credential.provider: credential
         for credential in repository.list_by_project(project_id)
     }
-    return [
-        _serialize_provider_status(
-            provider=provider,
-            credential=credentials.get(provider),
+    items: list[dict[str, Any]] = []
+    for provider in SUPPORTED_PROVIDERS:
+        credential = credentials.get(provider)
+        discovered_models: dict[str, list[str]] | None = None
+        model_discovery_error: str | None = None
+        if credential is not None and credential.api_key.strip():
+            try:
+                discovered_models = discover_provider_models(
+                    provider=provider,
+                    api_key=credential.api_key,
+                    base_url=credential.base_url,
+                )
+            except ProviderModelDiscoveryError as exc:
+                model_discovery_error = str(exc)
+        items.append(
+            _serialize_provider_status(
+                provider=provider,
+                credential=credential,
+                discovered_models=discovered_models,
+                model_discovery_error=model_discovery_error,
+            )
         )
-        for provider in SUPPORTED_PROVIDERS
-    ]
+    return items
 
 
 def upsert_provider_key(
@@ -60,8 +76,16 @@ def upsert_provider_key(
     if not cleaned_key:
         raise ProviderSettingsError("api_key must not be empty.")
     validated_base_url = validate_base_url(normalized_provider, base_url)
-    validated_chat_model = validate_chat_model(normalized_provider, chat_model)
-    validated_embedding_model = validate_embedding_model(normalized_provider, embedding_model)
+    discovered_models = _discover_models_for_provider(
+        provider=normalized_provider,
+        api_key=cleaned_key,
+        base_url=validated_base_url,
+    )
+    validated_chat_model = validate_chat_model(chat_model, discovered_models["chat_models"])
+    validated_embedding_model = validate_embedding_model(
+        embedding_model,
+        discovered_models["embedding_models"],
+    )
 
     credential = ProviderCredentialRepository(db).upsert(
         project_id=project_id,
@@ -71,7 +95,12 @@ def upsert_provider_key(
         chat_model=validated_chat_model,
         embedding_model=validated_embedding_model,
     )
-    return _serialize_provider_status(provider=normalized_provider, credential=credential)
+    return _serialize_provider_status(
+        provider=normalized_provider,
+        credential=credential,
+        discovered_models=discovered_models,
+        model_discovery_error=None,
+    )
 
 
 def delete_provider_key(
@@ -166,21 +195,61 @@ def normalize_provider(provider: str) -> str:
     return normalized
 
 
-def validate_chat_model(provider: str, chat_model: str | None) -> str:
+def discover_provider_models_for_request(
+    db: Session,
+    project_id: uuid.UUID,
+    provider: str,
+    api_key: str | None,
+    base_url: str | None,
+) -> dict[str, Any]:
+    normalized_provider = normalize_provider(provider)
+    credential = ProviderCredentialRepository(db).get_by_project_provider(
+        project_id=project_id,
+        provider=normalized_provider,
+    )
+
+    payload_key = (api_key or "").strip()
+    resolved_api_key = payload_key or (credential.api_key.strip() if credential else "")
+    if not resolved_api_key:
+        raise ProviderSettingsError(
+            f"{SUPPORTED_PROVIDERS[normalized_provider]['display_name']} API key is required "
+            "to load models.",
+        )
+
+    payload_base_url = (base_url or "").strip()
+    resolved_base_url = payload_base_url or (credential.base_url if credential else None)
+    validated_base_url = validate_base_url(normalized_provider, resolved_base_url)
+    discovered_models = _discover_models_for_provider(
+        provider=normalized_provider,
+        api_key=resolved_api_key,
+        base_url=validated_base_url,
+    )
+    return {
+        "provider": normalized_provider,
+        "display_name": SUPPORTED_PROVIDERS[normalized_provider]["display_name"],
+        "supports_base_url": SUPPORTED_PROVIDERS[normalized_provider]["supports_base_url"],
+        "base_url": validated_base_url,
+        "available_chat_models": discovered_models["chat_models"],
+        "available_embedding_models": discovered_models["embedding_models"],
+        "source": "payload" if payload_key or payload_base_url else "project",
+    }
+
+
+def validate_chat_model(chat_model: str | None, available_chat_models: list[str]) -> str:
     cleaned = (chat_model or "").strip()
     if not cleaned:
         raise ProviderSettingsError("chat_model must not be empty.")
-
-    available_chat_models = SUPPORTED_PROVIDERS[provider]["chat_models"]
     if cleaned not in available_chat_models:
         raise ProviderSettingsError(
-            f"Unsupported chat model '{cleaned}' for provider '{provider}'.",
+            f"Selected chat model '{cleaned}' is not available for this provider.",
         )
     return cleaned
 
 
-def validate_embedding_model(provider: str, embedding_model: str | None) -> str | None:
-    available_embedding_models = SUPPORTED_PROVIDERS[provider]["embedding_models"]
+def validate_embedding_model(
+    embedding_model: str | None,
+    available_embedding_models: list[str],
+) -> str | None:
     cleaned = (embedding_model or "").strip()
     if not available_embedding_models:
         return None
@@ -188,7 +257,7 @@ def validate_embedding_model(provider: str, embedding_model: str | None) -> str 
         raise ProviderSettingsError("embedding_model must not be empty.")
     if cleaned not in available_embedding_models:
         raise ProviderSettingsError(
-            f"Unsupported embedding model '{cleaned}' for provider '{provider}'.",
+            f"Selected embedding model '{cleaned}' is not available for this provider.",
         )
     return cleaned
 
@@ -213,6 +282,8 @@ def validate_base_url(provider: str, base_url: str | None) -> str | None:
 def _serialize_provider_status(
     provider: str,
     credential: ProviderCredential | None,
+    discovered_models: dict[str, list[str]] | None = None,
+    model_discovery_error: str | None = None,
 ) -> dict[str, Any]:
     provider_config = SUPPORTED_PROVIDERS[provider]
     configured_source = "missing"
@@ -222,10 +293,14 @@ def _serialize_provider_status(
     chat_model: str | None = None
     embedding_model: str | None = None
     base_url: str | None = None
+    available_chat_models = discovered_models["chat_models"] if discovered_models else []
+    available_embedding_models = (
+        discovered_models["embedding_models"] if discovered_models else []
+    )
 
     if credential is not None and credential.api_key.strip():
         has_chat_model = bool(credential.chat_model)
-        requires_embedding_model = bool(provider_config["embedding_models"])
+        requires_embedding_model = "embeddings" in provider_config["supports"]
         has_embedding_model = bool(credential.embedding_model) if requires_embedding_model else True
         configured = has_chat_model and has_embedding_model
         configured_source = "project"
@@ -246,8 +321,9 @@ def _serialize_provider_status(
         "base_url": base_url,
         "chat_model": chat_model,
         "embedding_model": embedding_model,
-        "available_chat_models": provider_config["chat_models"],
-        "available_embedding_models": provider_config["embedding_models"],
+        "available_chat_models": available_chat_models,
+        "available_embedding_models": available_embedding_models,
+        "model_discovery_error": model_discovery_error,
         "updated_at": updated_at,
     }
 
@@ -257,3 +333,18 @@ def mask_api_key(api_key: str) -> str:
     if len(cleaned) <= 8:
         return "*" * len(cleaned)
     return f"{cleaned[:4]}...{cleaned[-4:]}"
+
+
+def _discover_models_for_provider(
+    provider: str,
+    api_key: str,
+    base_url: str | None,
+) -> dict[str, list[str]]:
+    try:
+        return discover_provider_models(
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+        )
+    except ProviderModelDiscoveryError as exc:
+        raise ProviderSettingsError(str(exc)) from exc

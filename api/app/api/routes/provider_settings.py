@@ -9,6 +9,7 @@ from app.contracts.common import error_response, success_response
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     delete_provider_key,
+    discover_provider_models_for_request,
     list_provider_statuses,
     upsert_provider_key,
 )
@@ -22,6 +23,11 @@ class UpsertProviderKeyRequest(BaseModel):
     base_url: str | None = None
     chat_model: str
     embedding_model: str | None = None
+
+
+class DiscoverProviderModelsRequest(BaseModel):
+    api_key: str | None = None
+    base_url: str | None = None
 
 
 @router.get("")
@@ -79,6 +85,41 @@ def save_project_provider_key(
         )
 
     return success_response(request, status_payload)
+
+
+@router.post("/{provider}/models/discover")
+def discover_project_provider_models(
+    project_id: uuid.UUID,
+    provider: str,
+    payload: DiscoverProviderModelsRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    if not ProjectRepository(db).get(project_id):
+        return error_response(
+            request,
+            code="PROJECT_NOT_FOUND",
+            message="Project does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        models_payload = discover_provider_models_for_request(
+            db=db,
+            project_id=project_id,
+            provider=provider,
+            api_key=payload.api_key,
+            base_url=payload.base_url,
+        )
+    except ProviderSettingsError as exc:
+        return error_response(
+            request,
+            code="PROVIDER_SETTINGS_INVALID",
+            message=str(exc),
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+    return success_response(request, models_payload)
 
 
 @router.delete("/{provider}")
