@@ -10,12 +10,13 @@ import fitz
 import pdfplumber
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
-from app.services.chroma_service import get_collection
-from app.services.embedding_service import chunk_text, count_tokens, embed_texts_with_config
-from app.services.provider_settings_service import (
-    ProviderSettingsError,
-    resolve_embedding_provider_config,
+from app.services.chroma_service import get_retrieval_collection
+from app.services.embedding_service import (
+    LOCAL_EMBEDDING_MODEL,
+    LOCAL_EMBEDDING_PROVIDER,
+    chunk_text,
+    count_tokens,
+    embed_texts_with_local_model,
 )
 from app.storage.models import Chunk, Document, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
@@ -34,19 +35,13 @@ def process_sources(
     chunk_overlap: int,
 ) -> dict[str, int | str]:
     run_repo = ProcessingRunRepository(db)
-    try:
-        embedding_config = resolve_embedding_provider_config(db, project_id, "openai")
-    except ProviderSettingsError as exc:
-        raise ProcessingError(str(exc)) from exc
-    openai_api_key = embedding_config["api_key"]
-    embedding_model = embedding_config["embedding_model"]
-    openai_base_url = embedding_config.get("base_url")
+    embedding_model = LOCAL_EMBEDDING_MODEL
     run_metadata = {
         "source_ids": [str(source.id) for source in sources],
         "source_count": len(sources),
         "chunk_size": chunk_size,
         "chunk_overlap": chunk_overlap,
-        "provider": "openai",
+        "provider": LOCAL_EMBEDDING_PROVIDER,
         "embedding_model": embedding_model,
     }
     config_hash = hashlib.sha256(
@@ -97,11 +92,9 @@ def process_sources(
             chunk_overlap=chunk_overlap,
             embedding_model=embedding_model,
         )
-        vectors = embed_texts_with_config(
+        vectors = embed_texts_with_local_model(
             [item["content"] for item in chunk_payloads],
-            api_key=openai_api_key,
-            model=embedding_model,
-            base_url=openai_base_url,
+            model_name=embedding_model,
         )
         chunk_models: list[Chunk] = []
         for item in chunk_payloads:
@@ -116,7 +109,7 @@ def process_sources(
                     chunk_metadata=item["metadata"],
                 )
             )
-        collection = get_collection()
+        collection = get_retrieval_collection(embedding_model)
         collection.add(
             ids=[chunk.chroma_id for chunk in chunk_models if chunk.chroma_id],
             documents=[chunk.content for chunk in chunk_models],
@@ -155,7 +148,7 @@ def _replace_source_documents(db: Session, source: Source) -> None:
     existing_chunks = db.query(Chunk).filter(Chunk.document_id.in_(document_ids)).all()
     chroma_ids = [chunk.chroma_id for chunk in existing_chunks if chunk.chroma_id]
     if chroma_ids:
-        get_collection().delete(ids=chroma_ids)
+        get_retrieval_collection(LOCAL_EMBEDDING_MODEL).delete(ids=chroma_ids)
 
     for chunk in existing_chunks:
         db.delete(chunk)

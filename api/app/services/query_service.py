@@ -7,15 +7,18 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from app.services.chroma_service import get_collection
-from app.services.embedding_service import embed_texts_with_config
+from app.services.chroma_service import get_retrieval_collection
+from app.services.embedding_service import (
+    LOCAL_EMBEDDING_MODEL,
+    LOCAL_EMBEDDING_PROVIDER,
+    embed_texts_with_local_model,
+)
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     normalize_provider,
     resolve_chat_provider_config,
-    resolve_embedding_provider_config,
 )
-from app.storage.models import QueryRun
+from app.storage.models import Chunk, Document, QueryRun, Source
 
 
 class QueryError(Exception):
@@ -48,34 +51,28 @@ def search_knowledge_base(
         raise QueryError(str(exc)) from exc
 
     try:
-        openai_embedding_config = resolve_embedding_provider_config(db, project_id, "openai")
-    except ProviderSettingsError as exc:
-        if answer_provider == "gemini":
-            raise QueryError(
-                "OpenAI API key is still required for retrieval because this project "
-                "is indexed with OpenAI embeddings.",
-            ) from exc
-        raise QueryError(str(exc)) from exc
-
-    try:
         generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
     except ProviderSettingsError as exc:
         raise QueryError(str(exc)) from exc
 
     try:
-        query_embedding = embed_texts_with_config(
+        query_embedding = embed_texts_with_local_model(
             [query],
-            api_key=openai_embedding_config["api_key"],
-            model=openai_embedding_config["embedding_model"],
-            base_url=openai_embedding_config.get("base_url"),
+            model_name=LOCAL_EMBEDDING_MODEL,
         )[0]
     except Exception as exc:
-        raise _provider_query_error(
-            provider="openai",
-            stage="retrieval",
-            exc=exc,
+        raise QueryError(
+            "Local embedding backend is unavailable during retrieval.",
+            code="QUERY_RETRIEVAL_ERROR",
+            status_code=503,
+            details={
+                "provider": LOCAL_EMBEDDING_PROVIDER,
+                "stage": "retrieval",
+                "model": LOCAL_EMBEDDING_MODEL,
+                "reason": _sanitize_exception_reason(exc) or "Local embedding backend failed.",
+            },
         ) from exc
-    collection = get_collection()
+    collection = get_retrieval_collection(LOCAL_EMBEDDING_MODEL)
     try:
         result = collection.query(
             query_embeddings=[query_embedding],
@@ -87,13 +84,28 @@ def search_knowledge_base(
             "Failed to retrieve context from the vector store.",
             code="QUERY_RETRIEVAL_ERROR",
             status_code=503,
-            details={"stage": "retrieval"},
+            details={
+                "provider": LOCAL_EMBEDDING_PROVIDER,
+                "stage": "retrieval",
+                "model": LOCAL_EMBEDDING_MODEL,
+            },
         ) from exc
 
     documents = result.get("documents", [[]])[0]
     metadatas = result.get("metadatas", [[]])[0]
     ids = result.get("ids", [[]])[0]
     if not documents:
+        if _project_has_non_local_chunks(db, project_id):
+            raise QueryError(
+                "This project must be reprocessed to use the local multilingual embedding backend.",
+                code="QUERY_REINDEX_REQUIRED",
+                status_code=409,
+                details={
+                    "provider": LOCAL_EMBEDDING_PROVIDER,
+                    "stage": "retrieval",
+                    "model": LOCAL_EMBEDDING_MODEL,
+                },
+            )
         answer = "I don't know based on the indexed documents."
         run = _store_query_run(db, project_id, query, top_k, filters, answer)
         return {
@@ -169,9 +181,10 @@ def _generate_answer_with_openai(
     base_url: str | None,
     model: str,
 ) -> str:
-    client_kwargs = {"api_key": api_key}
+    client_kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
         client_kwargs["base_url"] = base_url
+    client_kwargs["max_retries"] = 0
     client = OpenAI(**client_kwargs)
     context_blocks: list[str] = []
     for index, (document, metadata) in enumerate(zip(documents, metadatas, strict=False), start=1):
@@ -294,6 +307,20 @@ def _provider_query_error(provider: str, stage: str, exc: Exception) -> QueryErr
         code="QUERY_UPSTREAM_ERROR",
         status_code=502,
         details=details,
+    )
+
+
+def _project_has_non_local_chunks(db: Session, project_id: uuid.UUID) -> bool:
+    return (
+        db.query(Chunk)
+        .join(Document, Chunk.document_id == Document.id)
+        .join(Source, Document.source_id == Source.id)
+        .filter(
+            Source.project_id == project_id,
+            Chunk.embedding_model != LOCAL_EMBEDDING_MODEL,
+        )
+        .count()
+        > 0
     )
 
 

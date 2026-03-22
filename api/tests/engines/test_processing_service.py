@@ -44,11 +44,15 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(
     db_session.refresh(source)
 
     fake_collection = FakeCollection()
-    monkeypatch.setattr(processing_service, "get_collection", lambda: fake_collection)
     monkeypatch.setattr(
         processing_service,
-        "embed_texts",
-        lambda texts: [[float(index + 1)] * 3 for index, _ in enumerate(texts)],
+        "get_retrieval_collection",
+        lambda embedding_model: fake_collection,
+    )
+    monkeypatch.setattr(
+        processing_service,
+        "embed_texts_with_local_model",
+        lambda texts, model_name=None: [[float(index + 1)] * 3 for index, _ in enumerate(texts)],
     )
 
     first_job = Job(

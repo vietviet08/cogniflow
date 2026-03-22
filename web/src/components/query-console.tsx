@@ -94,7 +94,6 @@ export function QueryConsole() {
   }
 
   const providerState = providerSettings.find((item) => item.provider === provider);
-  const openaiState = providerSettings.find((item) => item.provider === "openai");
 
   return (
     <PageWrapper
@@ -161,15 +160,13 @@ export function QueryConsole() {
                 disabled={busy}
               />
             </div>
-            {provider === "gemini" ? (
-              <p className="text-xs text-muted-foreground">
-                Gemini is used for answer generation. Retrieval still depends on this project being
-                indexed with OpenAI embeddings, so an OpenAI key must also be configured.
-                {openaiState
-                  ? ` Current OpenAI status: ${openaiState.configured ? "configured" : "missing"}.`
-                  : ""}
-              </p>
-            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Retrieval uses the local multilingual embedding model{" "}
+              <span className="font-mono">
+                sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+              </span>
+              . The selected provider below is only used for answer generation.
+            </p>
             {providerState?.chat_model ? (
               <p className="text-xs text-muted-foreground">
                 Selected model from settings:{" "}

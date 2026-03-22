@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import lru_cache
+from importlib import import_module
+from typing import Any
 
 import tiktoken
 from openai import OpenAI
 
+LOCAL_EMBEDDING_PROVIDER = "local_sentence_transformers"
+LOCAL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_TOKENIZER_MODEL = "text-embedding-3-small"
 
 
@@ -47,9 +51,10 @@ def embed_texts_with_config(
     if not texts:
         return []
 
-    client_kwargs = {"api_key": api_key}
+    client_kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
         client_kwargs["base_url"] = base_url
+    client_kwargs["max_retries"] = 0
     client = OpenAI(**client_kwargs)
     vectors: list[list[float]] = []
     batch_size = 32
@@ -62,6 +67,23 @@ def embed_texts_with_config(
     return vectors
 
 
+def embed_texts_with_local_model(
+    texts: Sequence[str],
+    model_name: str = LOCAL_EMBEDDING_MODEL,
+) -> list[list[float]]:
+    if not texts:
+        return []
+
+    model = _local_embedding_model(model_name)
+    encoded = model.encode(
+        list(texts),
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    return [vector.tolist() for vector in encoded]
+
+
 @lru_cache(maxsize=8)
 def _encoding(model_name: str | None):
     resolved_model = model_name or DEFAULT_TOKENIZER_MODEL
@@ -69,3 +91,9 @@ def _encoding(model_name: str | None):
         return tiktoken.encoding_for_model(resolved_model)
     except KeyError:
         return tiktoken.get_encoding("cl100k_base")
+
+
+@lru_cache(maxsize=2)
+def _local_embedding_model(model_name: str) -> Any:
+    sentence_transformers = import_module("sentence_transformers")
+    return sentence_transformers.SentenceTransformer(model_name)

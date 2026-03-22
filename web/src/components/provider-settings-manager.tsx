@@ -396,10 +396,8 @@ export function ProviderSettingsManager() {
                 <div className="min-w-0">
                   <CardTitle className="text-base">{providerSetting.display_name}</CardTitle>
                   <CardDescription>
-                    {providerSetting.provider === "openai"
-                      ? "Currently used for embeddings and answer generation "
-                        + "in the RAG pipeline."
-                      : "Stored now for future multi-provider query and insight flows."}
+                    Retrieval now uses a local multilingual embedding backend. This provider is
+                    used only for answer generation.
                   </CardDescription>
                 </div>
                 <Badge
