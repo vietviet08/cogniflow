@@ -132,7 +132,7 @@ def generate_insight(
             "page_number": metadata.get("page_number"),
             "quote": document,
         }
-        for chunk_id, metadata in zip(ids, metadatas, strict=False)
+        for chunk_id, metadata, document in zip(ids, metadatas, documents, strict=False)
     ])
 
     if not documents:
