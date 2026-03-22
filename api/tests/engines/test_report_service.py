@@ -128,3 +128,50 @@ def test_generate_action_items_report_persists_structured_payload(db_session, mo
     assert persisted is not None
     assert persisted.structured_payload is not None
     assert persisted.structured_payload["items"][0]["owner_suggested"] == "Alice"
+
+
+def test_update_action_item_status_updates_payload_and_markdown(db_session):
+    project = Project(name="Action item status", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    report = Report(
+        project_id=project.id,
+        query="What should the team do next?",
+        title="Action Items: Launch checklist",
+        report_type="action_items",
+        format="markdown",
+        content="# Action Items",
+        structured_payload={
+            "overview": "One key follow-up was detected.",
+            "items": [
+                {
+                    "id": "item-1",
+                    "title": "Confirm launch date",
+                    "description": "Validate the launch date with operations.",
+                    "priority": "high",
+                    "owner_suggested": "Ops",
+                    "due_date_suggested": None,
+                    "status": "open",
+                    "citations": [],
+                }
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    updated = report_service.update_action_item_status(
+        db=db_session,
+        report_id=report.id,
+        item_id="item-1",
+        status="done",
+    )
+
+    assert updated["query"] == "What should the team do next?"
+    assert updated["structured_payload"]["items"][0]["status"] == "done"
+    assert "Status: done" in updated["content"]
