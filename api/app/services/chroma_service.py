@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import re
 from typing import Any
 
 import chromadb
@@ -18,3 +19,15 @@ def get_collection() -> Any:
     settings = get_settings()
     client = get_chroma_client()
     return client.get_or_create_collection(name=settings.chroma_collection)
+
+
+def get_named_collection(name: str) -> Any:
+    client = get_chroma_client()
+    return client.get_or_create_collection(name=name)
+
+
+def get_retrieval_collection(embedding_model: str) -> Any:
+    settings = get_settings()
+    suffix = re.sub(r"[^a-z0-9]+", "-", embedding_model.lower()).strip("-")
+    collection_name = f"{settings.chroma_collection}-{suffix}"
+    return get_named_collection(collection_name)

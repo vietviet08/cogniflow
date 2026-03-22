@@ -16,7 +16,7 @@ from app.storage.repositories.provider_credential_repository import ProviderCred
 SUPPORTED_PROVIDERS: dict[str, dict[str, Any]] = {
     "openai": {
         "display_name": "OpenAI",
-        "supports": ["embeddings", "chat"],
+        "supports": ["chat"],
         "supports_base_url": True,
     },
     "gemini": {
@@ -82,10 +82,13 @@ def upsert_provider_key(
         base_url=validated_base_url,
     )
     validated_chat_model = validate_chat_model(chat_model, discovered_models["chat_models"])
-    validated_embedding_model = validate_embedding_model(
-        embedding_model,
-        discovered_models["embedding_models"],
-    )
+    if "embeddings" in SUPPORTED_PROVIDERS[normalized_provider]["supports"]:
+        validated_embedding_model = validate_embedding_model(
+            embedding_model,
+            discovered_models["embedding_models"],
+        )
+    else:
+        validated_embedding_model = None
 
     credential = ProviderCredentialRepository(db).upsert(
         project_id=project_id,
@@ -155,36 +158,6 @@ def resolve_chat_provider_config(
     return payload
 
 
-def resolve_embedding_provider_config(
-    db: Session,
-    project_id: uuid.UUID,
-    provider: str,
-) -> dict[str, str]:
-    normalized_provider = normalize_provider(provider)
-    credential = ProviderCredentialRepository(db).get_by_project_provider(
-        project_id=project_id,
-        provider=normalized_provider,
-    )
-    if credential is None or not credential.api_key.strip():
-        raise ProviderSettingsError(
-            f"{SUPPORTED_PROVIDERS[normalized_provider]['display_name']} API key is required. "
-            "Configure it in project settings.",
-        )
-    if not credential.embedding_model:
-        raise ProviderSettingsError(
-            f"{SUPPORTED_PROVIDERS[normalized_provider]['display_name']} "
-            "embedding model is required. "
-            "Configure it in project settings.",
-        )
-    payload = {
-        "api_key": credential.api_key.strip(),
-        "embedding_model": credential.embedding_model,
-    }
-    if credential.base_url:
-        payload["base_url"] = credential.base_url
-    return payload
-
-
 def normalize_provider(provider: str) -> str:
     normalized = provider.strip().lower()
     if normalized not in SUPPORTED_PROVIDERS:
@@ -230,7 +203,11 @@ def discover_provider_models_for_request(
         "supports_base_url": SUPPORTED_PROVIDERS[normalized_provider]["supports_base_url"],
         "base_url": validated_base_url,
         "available_chat_models": discovered_models["chat_models"],
-        "available_embedding_models": discovered_models["embedding_models"],
+        "available_embedding_models": (
+            discovered_models["embedding_models"]
+            if "embeddings" in SUPPORTED_PROVIDERS[normalized_provider]["supports"]
+            else []
+        ),
         "source": "payload" if payload_key or payload_base_url else "project",
     }
 
@@ -295,7 +272,9 @@ def _serialize_provider_status(
     base_url: str | None = None
     available_chat_models = discovered_models["chat_models"] if discovered_models else []
     available_embedding_models = (
-        discovered_models["embedding_models"] if discovered_models else []
+        discovered_models["embedding_models"]
+        if discovered_models and "embeddings" in provider_config["supports"]
+        else []
     )
 
     if credential is not None and credential.api_key.strip():
@@ -307,7 +286,8 @@ def _serialize_provider_status(
         masked_api_key = mask_api_key(credential.api_key)
         updated_at = credential.updated_at.isoformat() if credential.updated_at else None
         chat_model = credential.chat_model
-        embedding_model = credential.embedding_model
+        if requires_embedding_model:
+            embedding_model = credential.embedding_model
         base_url = credential.base_url
 
     return {

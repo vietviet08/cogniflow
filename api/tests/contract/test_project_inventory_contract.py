@@ -1,5 +1,6 @@
 import uuid
 
+from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.storage.models import Chunk, Document, Job, ProcessingRun, Source
 
 
@@ -50,7 +51,7 @@ def test_list_processing_runs_returns_reproducibility_metadata(client, db_sessio
     item = body["data"]["items"][0]
     assert item["run_id"] == str(run.id)
     assert item["run_type"] == "processing"
-    assert item["model_id"] == "text-embedding-3-small"
+    assert item["model_id"] == LOCAL_EMBEDDING_MODEL
     assert item["run_metadata"]["chunks_created"] == 1
 
 
@@ -83,7 +84,7 @@ def _seed_processed_artifacts(db_session, project_id):
         chunk_index=0,
         content="chunk text",
         chroma_id=str(uuid.uuid4()),
-        embedding_model="text-embedding-3-small",
+        embedding_model=LOCAL_EMBEDDING_MODEL,
         chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
     )
     db_session.add(chunk)
@@ -103,7 +104,7 @@ def _seed_processed_artifacts(db_session, project_id):
         project_id=project_id,
         job_id=job.id,
         run_type="processing",
-        model_id="text-embedding-3-small",
+        model_id=LOCAL_EMBEDDING_MODEL,
         config_hash="config-hash",
         run_metadata={"documents_created": 1, "chunks_created": 1},
     )

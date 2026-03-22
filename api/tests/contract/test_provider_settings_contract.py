@@ -38,7 +38,6 @@ def test_save_provider_key_and_models_masks_secret_in_response(client, monkeypat
             "api_key": "sk-test-openai-1234",
             "base_url": "https://proxy.example.com/v1",
             "chat_model": "gpt-4o",
-            "embedding_model": "text-embedding-3-small",
         },
     )
 
@@ -50,8 +49,9 @@ def test_save_provider_key_and_models_masks_secret_in_response(client, monkeypat
     assert body["data"]["masked_api_key"] == "sk-t...1234"
     assert body["data"]["base_url"] == "https://proxy.example.com/v1"
     assert body["data"]["chat_model"] == "gpt-4o"
-    assert body["data"]["embedding_model"] == "text-embedding-3-small"
+    assert body["data"]["embedding_model"] is None
     assert body["data"]["available_chat_models"] == ["gpt-4o", "gpt-4.1-mini"]
+    assert body["data"]["available_embedding_models"] == []
 
 
 def test_delete_provider_key_removes_project_override(client, monkeypatch):
@@ -107,7 +107,7 @@ def test_discover_provider_models_uses_payload_credentials(client, monkeypatch):
     assert body["data"]["source"] == "payload"
     assert body["data"]["base_url"] == "https://proxy.example.com/v1"
     assert body["data"]["available_chat_models"] == ["gpt-4.1", "gpt-4o-mini"]
-    assert body["data"]["available_embedding_models"] == ["text-embedding-3-large"]
+    assert body["data"]["available_embedding_models"] == []
 
 
 def _create_project(client):
