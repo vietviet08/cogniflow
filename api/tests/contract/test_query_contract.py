@@ -6,9 +6,10 @@ from app.api.routes import query as query_route_module
 def test_query_search_returns_answer_and_citations(client, monkeypatch):
     project = _create_project(client)
 
-    def fake_search_knowledge_base(db, project_id, query, top_k, filters):
+    def fake_search_knowledge_base(db, project_id, query, provider, top_k, filters):
         assert str(project_id) == project["id"]
         assert query == "What is the main idea?"
+        assert provider == "gemini"
         assert top_k == 3
         return {
             "answer": "The main idea is retrieval grounded on indexed chunks.",
@@ -23,6 +24,7 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
                 }
             ],
             "run_id": "run-1",
+            "provider": "gemini",
         }
 
     monkeypatch.setattr(query_route_module, "search_knowledge_base", fake_search_knowledge_base)
@@ -32,6 +34,7 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
         json={
             "project_id": project["id"],
             "query": "What is the main idea?",
+            "provider": "gemini",
             "top_k": 3,
             "filters": {"source_types": ["arxiv"]},
         },
@@ -41,6 +44,7 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
     body = response.json()
     assert body["data"]["answer"] == "The main idea is retrieval grounded on indexed chunks."
     assert body["data"]["run_id"] == "run-1"
+    assert body["data"]["provider"] == "gemini"
     assert len(body["data"]["citations"]) == 1
     assert body["data"]["citations"][0]["chunk_id"] == "chunk-1"
 

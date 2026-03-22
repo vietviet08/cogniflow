@@ -15,6 +15,7 @@ router = APIRouter(prefix="/query")
 class SearchRequest(BaseModel):
     project_id: uuid.UUID
     query: str
+    provider: str = "openai"
     filters: dict | None = None
     top_k: int = 8
 
@@ -35,6 +36,7 @@ def search_knowledge(payload: SearchRequest, request: Request, db: Session = Dep
             db=db,
             project_id=payload.project_id,
             query=payload.query,
+            provider=payload.provider,
             top_k=payload.top_k,
             filters=payload.filters,
         )
