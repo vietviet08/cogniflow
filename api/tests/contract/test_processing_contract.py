@@ -24,11 +24,13 @@ def test_start_processing_returns_completed_job_with_counts(client, db_session, 
         status="completed",
     )
 
-    def fake_process_sources(db, sources, chunk_size, chunk_overlap):
+    def fake_process_sources(db, project_id, job_id, sources, chunk_size, chunk_overlap):
+        assert project_id == uuid.UUID(project["id"])
+        assert job_id
         assert len(sources) == 2
         assert chunk_size == 800
         assert chunk_overlap == 120
-        return {"documents_created": 2, "chunks_created": 6}
+        return {"run_id": str(uuid.uuid4()), "documents_created": 2, "chunks_created": 6}
 
     monkeypatch.setattr(processing_route_module, "process_sources", fake_process_sources)
 
@@ -45,6 +47,7 @@ def test_start_processing_returns_completed_job_with_counts(client, db_session, 
     body = response.json()
 
     assert body["data"]["status"] == "completed"
+    assert "run_id" in body["data"]
     assert body["data"]["documents_created"] == 2
     assert body["data"]["chunks_created"] == 6
     assert "job_id" in body["data"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from pathlib import Path
@@ -13,6 +14,7 @@ from app.core.config import get_settings
 from app.services.chroma_service import get_collection
 from app.services.embedding_service import chunk_text, count_tokens, embed_texts
 from app.storage.models import Chunk, Document, Source
+from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
 
 class ProcessingError(Exception):
@@ -21,14 +23,46 @@ class ProcessingError(Exception):
 
 def process_sources(
     db: Session,
+    project_id: uuid.UUID,
+    job_id: uuid.UUID,
     sources: list[Source],
     chunk_size: int,
     chunk_overlap: int,
-) -> dict[str, int]:
+) -> dict[str, int | str]:
+    settings = get_settings()
+    run_repo = ProcessingRunRepository(db)
+    run_metadata = {
+        "source_ids": [str(source.id) for source in sources],
+        "source_count": len(sources),
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap,
+    }
+    config_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "embedding_model": settings.embedding_model,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    run = run_repo.create(
+        project_id=project_id,
+        job_id=job_id,
+        run_type="processing",
+        model_id=settings.embedding_model,
+        prompt_hash=None,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata=run_metadata,
+    )
+
     documents_created = 0
     chunks_created = 0
 
     for source in sources:
+        _replace_source_documents(db, source)
         title, text, source_url = _extract_source_content(source)
         document = Document(
             source_id=source.id,
@@ -78,7 +112,38 @@ def process_sources(
 
         db.commit()
 
-    return {"documents_created": documents_created, "chunks_created": chunks_created}
+    run = run_repo.update_metadata(
+        run,
+        {
+            **run_metadata,
+            "documents_created": documents_created,
+            "chunks_created": chunks_created,
+        },
+    )
+
+    return {
+        "run_id": str(run.id),
+        "documents_created": documents_created,
+        "chunks_created": chunks_created,
+    }
+
+
+def _replace_source_documents(db: Session, source: Source) -> None:
+    existing_documents = db.query(Document).filter(Document.source_id == source.id).all()
+    if not existing_documents:
+        return
+
+    document_ids = [document.id for document in existing_documents]
+    existing_chunks = db.query(Chunk).filter(Chunk.document_id.in_(document_ids)).all()
+    chroma_ids = [chunk.chroma_id for chunk in existing_chunks if chunk.chroma_id]
+    if chroma_ids:
+        get_collection().delete(ids=chroma_ids)
+
+    for chunk in existing_chunks:
+        db.delete(chunk)
+    for document in existing_documents:
+        db.delete(document)
+    db.commit()
 
 
 def _extract_source_content(source: Source) -> tuple[str, str, str]:

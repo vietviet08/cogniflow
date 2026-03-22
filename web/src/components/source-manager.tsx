@@ -94,7 +94,7 @@ export function SourceManager() {
         sourceIds: sources.map((source) => source.id),
       });
       setStatus(
-        `Processing complete: ${response.data.documents_created} documents and ${response.data.chunks_created} chunks indexed.`,
+        `Processing complete: ${response.data.documents_created} documents and ${response.data.chunks_created} chunks indexed. Run ${response.data.run_id} recorded.`,
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Failed to process sources.");

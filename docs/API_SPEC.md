@@ -131,9 +131,96 @@ Response data:
 ```json
 {
   "job_id": "job_process_001",
+  "run_id": "run_process_001",
   "status": "completed",
   "documents_created": 2,
   "chunks_created": 14
+}
+```
+
+### List Processed Documents
+
+`GET /projects/{project_id}/documents`
+
+Response data:
+
+```json
+{
+  "items": [
+    {
+      "document_id": "doc_001",
+      "source_id": "src_001",
+      "title": "Paper A",
+      "source_type": "file",
+      "original_uri": "paper.pdf",
+      "token_count": 1420,
+      "chunk_count": 4,
+      "created_at": "2026-03-22T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+### List Indexed Chunks
+
+`GET /projects/{project_id}/chunks`
+
+Query params:
+- `source_id` (optional)
+- `document_id` (optional)
+- `limit` (optional, default `50`)
+
+Response data:
+
+```json
+{
+  "items": [
+    {
+      "chunk_id": "chk_001",
+      "document_id": "doc_001",
+      "source_id": "src_001",
+      "chunk_index": 0,
+      "embedding_model": "text-embedding-3-small",
+      "metadata": {
+        "project_id": "prj_001",
+        "source_id": "src_001",
+        "document_id": "doc_001",
+        "chunk_id": "chk_001"
+      },
+      "preview": "Transformer agents rely on retrieval...",
+      "title": "Paper A"
+    }
+  ],
+  "total": 1,
+  "limit": 50
+}
+```
+
+### List Processing Runs
+
+`GET /projects/{project_id}/processing-runs`
+
+Response data:
+
+```json
+{
+  "items": [
+    {
+      "run_id": "run_process_001",
+      "job_id": "job_process_001",
+      "run_type": "processing",
+      "model_id": "text-embedding-3-small",
+      "config_hash": "cfg_abc123",
+      "run_metadata": {
+        "source_count": 2,
+        "documents_created": 2,
+        "chunks_created": 14
+      },
+      "created_at": "2026-03-22T10:00:00Z"
+    }
+  ],
+  "total": 1
 }
 ```
 
