@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { ChevronLeft, ChevronRight, ExternalLink, GripVertical, X } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
 
 import { getSourceArtifactUrl } from "@/lib/api/client";
@@ -14,9 +21,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
 
 export function CitationPdfPanel({
   citation,
+  width,
+  onWidthChange,
   onClose,
 }: {
   citation: CitationData;
+  width: number;
+  onWidthChange: (width: number) => void;
   onClose: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -103,13 +114,46 @@ export function CitationPdfPanel({
     ? getSourceArtifactUrl(citation.source_id)
     : "";
 
+  function handleResizeStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (typeof window === "undefined" || window.innerWidth < 768) {
+      return;
+    }
+
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const viewportWidth = window.innerWidth;
+      const nextWidth = clampPanelWidth(viewportWidth - moveEvent.clientX, viewportWidth);
+      onWidthChange(nextWidth);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize, { once: true });
+  }
+
   return (
     <aside
-      className={
-        "fixed bottom-0 right-0 top-0 z-40 flex w-full flex-col border-l border-border bg-background shadow-2xl " +
-        "md:w-[calc((100vw-15rem)/2)]"
-      }
+      className="fixed bottom-0 right-0 top-0 z-40 flex w-full flex-col border-l border-border bg-background shadow-2xl md:w-[var(--citation-panel-width)]"
+      style={{ "--citation-panel-width": `${width}px` } as CSSProperties}
     >
+      <div
+        role="separator"
+        aria-label="Resize PDF preview"
+        aria-orientation="vertical"
+        className="absolute left-0 top-0 hidden h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center md:flex"
+        onPointerDown={handleResizeStart}
+      >
+        <div className="flex h-16 w-2 items-center justify-center rounded-full border border-border bg-background/95 shadow-sm">
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
       <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">
@@ -236,4 +280,10 @@ function buildHighlightTargets(quote?: string) {
 
 function normalizeText(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function clampPanelWidth(width: number, viewportWidth: number) {
+  const minWidth = 380;
+  const maxWidth = Math.max(520, Math.floor(viewportWidth * 0.72));
+  return Math.min(Math.max(Math.floor(width), minWidth), maxWidth);
 }

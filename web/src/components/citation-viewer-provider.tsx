@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 
 import type { CitationData } from "@/lib/api/types";
@@ -36,6 +36,7 @@ export function CitationViewerProvider({
   children: React.ReactNode;
 }) {
   const [activeCitation, setActiveCitation] = useState<CitationData | null>(null);
+  const [panelWidth, setPanelWidth] = useState(640);
 
   const value = useMemo(
     () => ({
@@ -51,14 +52,21 @@ export function CitationViewerProvider({
       <div
         className={cn(
           "min-h-full transition-[padding] duration-200",
-          activeCitation ? "md:pr-[calc((100vw-15rem)/2)]" : "",
+          activeCitation ? "md:pr-[var(--citation-panel-width)]" : "",
         )}
+        style={
+          activeCitation
+            ? ({ "--citation-panel-width": `${panelWidth}px` } as CSSProperties)
+            : undefined
+        }
       >
         {children}
       </div>
       {activeCitation && canOpenPdfCitation(activeCitation) ? (
         <CitationPdfPanel
           citation={activeCitation}
+          width={panelWidth}
+          onWidthChange={setPanelWidth}
           onClose={() => setActiveCitation(null)}
         />
       ) : null}
