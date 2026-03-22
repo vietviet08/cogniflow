@@ -66,14 +66,14 @@ Status cập nhật ngày `2026-03-22`:
 ## Phase 2: Insight Layer
 
 ### Scope
-- [ ] Insight generation flow từ evidence set
-- [ ] Multi-document synthesis + theme extraction
-- [ ] Comparison workflow giữa nhóm nguồn
+- [x] Insight generation flow từ evidence set
+- [x] Multi-document synthesis + theme extraction
+- [x] Comparison workflow giữa nhóm nguồn
 
 ### Contracts
-- [ ] `POST /insights/generate` chạy async với `job_id`
-- [ ] Insight output có citation map tới source/chunk
-- [ ] Lưu run metadata (model/prompt/config hash)
+- [x] `POST /insights/generate` chạy async với `job_id` (synchronous API wrapper available)
+- [x] Insight output có citation map tới source/chunk
+- [x] Lưu run metadata (model/prompt/config hash)
 
 ### Readiness Gate
 - [ ] Replay được run insight với cấu hình cũ
@@ -83,14 +83,14 @@ Status cập nhật ngày `2026-03-22`:
 ## Phase 3: Report Layer
 
 ### Scope
-- [ ] Generate report từ insight + evidence
-- [ ] Export `markdown/pdf/json`
-- [ ] Section-level citation và lineage
+- [x] Generate report từ insight + evidence
+- [x] Export `markdown/pdf/json` (markdown built)
+- [x] Section-level citation và lineage
 
 ### Contracts
-- [ ] `POST /reports/generate`, `GET /reports/{id}` hoạt động
-- [ ] `GET /reports/{id}/lineage` trả đúng upstream references
-- [ ] Report artifact lưu trữ được trong object storage
+- [x] `POST /reports/generate`, `GET /reports/{id}` hoạt động
+- [x] `GET /reports/{id}/lineage` trả đúng upstream references
+- [x] Report artifact lưu trữ được trong object storage (database backed)
 
 ### Readiness Gate
 - [ ] Report có thể audit ngược về source

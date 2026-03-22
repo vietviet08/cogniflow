@@ -164,3 +164,75 @@ def list_processing_runs(project_id: uuid.UUID, request: Request, db: Session = 
             "total": len(runs),
         },
     )
+
+
+@router.get("/{project_id}/insights")
+def list_project_insights(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    project = ProjectRepository(db).get(project_id)
+    if not project:
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            "Project does not exist",
+            status_code=404,
+        )
+
+    from app.storage.repositories.insight_repository import InsightRepository
+
+    insights = InsightRepository(db).list_by_project(project_id)
+    return success_response(
+        request,
+        {
+            "items": [
+                {
+                    "insight_id": str(i.id),
+                    "query": i.query,
+                    "summary": i.summary,
+                    "provider": i.provider,
+                    "model": i.model_id,
+                    "status": i.status,
+                    "created_at": i.created_at.isoformat() if i.created_at else None,
+                }
+                for i in insights
+            ],
+            "total": len(insights),
+        },
+    )
+
+
+@router.get("/{project_id}/reports")
+def list_project_reports(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    from app.storage.models import Report
+
+    project = ProjectRepository(db).get(project_id)
+    if not project:
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            "Project does not exist",
+            status_code=404,
+        )
+
+    reports = (
+        db.query(Report)
+        .filter(Report.project_id == project_id)
+        .order_by(Report.created_at.desc())
+        .all()
+    )
+    return success_response(
+        request,
+        {
+            "items": [
+                {
+                    "report_id": str(r.id),
+                    "title": r.title,
+                    "type": r.report_type,
+                    "format": r.format,
+                    "status": r.status,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in reports
+            ],
+            "total": len(reports),
+        },
+    )

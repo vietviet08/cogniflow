@@ -146,4 +146,44 @@ class Report(Base):
     format: Mapped[str] = mapped_column(String(50), default="markdown")
     content: Mapped[str | None] = mapped_column(Text())
     status: Mapped[str] = mapped_column(String(20), default="completed")
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("processing_runs.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Insight(Base):
+    __tablename__ = "insights"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    query: Mapped[str] = mapped_column(Text())
+    summary: Mapped[str | None] = mapped_column(Text())
+    findings: Mapped[dict | None] = mapped_column(JSON())  # list of {theme, points}
+    provider: Mapped[str | None] = mapped_column(String(50))
+    model_id: Mapped[str | None] = mapped_column(String(128))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("processing_runs.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InsightCitation(Base):
+    __tablename__ = "insight_citations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    insight_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("insights.id"), nullable=False)
+    source_id: Mapped[str | None] = mapped_column(Text())
+    document_id: Mapped[str | None] = mapped_column(Text())
+    chunk_id: Mapped[str | None] = mapped_column(Text())
+    title: Mapped[str | None] = mapped_column(Text())
+    url: Mapped[str | None] = mapped_column(Text())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReportInsight(Base):
+    """Junction table connecting a Report to the Insights it was generated from."""
+
+    __tablename__ = "report_insights"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reports.id"), nullable=False)
+    insight_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("insights.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
