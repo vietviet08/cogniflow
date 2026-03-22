@@ -10,6 +10,7 @@ Status cập nhật ngày `2026-03-22`:
 - Theo phase naming trong docs repo: `Phase 1 complete`, `Phase 2 Insight Layer chưa bắt đầu`
 - Đã có happy path MVP: `project -> ingest -> process -> query + citations`
 - Processing runtime hiện có `processing_runs`, reprocess không nhân bản dữ liệu, và có API inventory cho `documents/chunks/runs`
+- Retrieval embedding đã chuyển sang local `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 - Chưa đóng hoàn toàn theo nghĩa production: chưa có worker async thật, chưa có latency metrics, chưa có hybrid retrieval
 
 ## Roadmap Mapping
@@ -24,7 +25,7 @@ Status cập nhật ngày `2026-03-22`:
 
 ### Scope
 - [x] Chunking theo token với cấu hình nằm trong vùng `500-1000` token dùng được cho demo
-- [x] OpenAI embedding model mặc định là `text-embedding-3-small`
+- [x] Local embedding model mặc định là `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 - [x] ChromaDB lưu vector + metadata `project_id/source_id/document_id/chunk_id`
 - [x] Processing run lưu `model_id`, `config_hash`, `run_metadata`
 - [x] Reprocessing cùng source thay thế document/chunk cũ thay vì nhân bản

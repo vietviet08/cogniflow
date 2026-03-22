@@ -79,16 +79,16 @@ Response data:
     {
       "provider": "openai",
       "display_name": "OpenAI",
-      "supports": ["embeddings", "chat"],
+      "supports": ["chat"],
       "supports_base_url": true,
       "configured": true,
       "configured_source": "project",
       "masked_api_key": "sk-t...1234",
       "base_url": "https://proxy.example.com/v1",
       "chat_model": "gpt-4o",
-      "embedding_model": "text-embedding-3-small",
+      "embedding_model": null,
       "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-      "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+      "available_embedding_models": [],
       "model_discovery_error": null,
       "updated_at": "2026-03-22T18:30:00Z"
     },
@@ -122,8 +122,7 @@ Request:
 {
   "api_key": "sk-test-openai-1234",
   "base_url": "https://proxy.example.com/v1",
-  "chat_model": "gpt-4o",
-  "embedding_model": "text-embedding-3-small"
+  "chat_model": "gpt-4o"
 }
 ```
 
@@ -133,16 +132,16 @@ Response data:
 {
   "provider": "openai",
   "display_name": "OpenAI",
-  "supports": ["embeddings", "chat"],
+  "supports": ["chat"],
   "supports_base_url": true,
   "configured": true,
   "configured_source": "project",
   "masked_api_key": "sk-t...1234",
   "base_url": "https://proxy.example.com/v1",
   "chat_model": "gpt-4o",
-  "embedding_model": "text-embedding-3-small",
+  "embedding_model": null,
   "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-  "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+  "available_embedding_models": [],
   "model_discovery_error": null,
   "updated_at": "2026-03-22T18:30:00Z"
 }
@@ -174,7 +173,7 @@ Response data:
   "supports_base_url": true,
   "base_url": "https://proxy.example.com/v1",
   "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
-  "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+  "available_embedding_models": [],
   "source": "payload"
 }
 ```
@@ -189,7 +188,7 @@ Response data:
 {
   "provider": "openai",
   "display_name": "OpenAI",
-  "supports": ["embeddings", "chat"],
+  "supports": ["chat"],
   "supports_base_url": true,
   "configured": false,
   "configured_source": "missing",
@@ -325,7 +324,7 @@ Response data:
       "document_id": "doc_001",
       "source_id": "src_001",
       "chunk_index": 0,
-      "embedding_model": "text-embedding-3-small",
+      "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
       "metadata": {
         "project_id": "prj_001",
         "source_id": "src_001",
@@ -354,7 +353,7 @@ Response data:
       "run_id": "run_process_001",
       "job_id": "job_process_001",
       "run_type": "processing",
-      "model_id": "text-embedding-3-small",
+      "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
       "config_hash": "cfg_abc123",
       "run_metadata": {
         "source_count": 2,
