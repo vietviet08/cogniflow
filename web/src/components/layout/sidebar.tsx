@@ -9,6 +9,7 @@ import {
   Search,
   Lightbulb,
   FileText,
+  KeyRound,
   Moon,
   Sun,
   BrainCircuit,
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/projects", label: "Projects", icon: FolderOpen },
   { href: "/sources", label: "Sources", icon: Database },
   { href: "/query", label: "Query", icon: Search },
+  { href: "/settings", label: "Settings", icon: KeyRound },
   { href: "/insights", label: "Insights", icon: Lightbulb },
   { href: "/reports", label: "Reports", icon: FileText },
 ];

@@ -3,6 +3,8 @@ import type {
   ApiSuccess,
   HealthData,
   ProcessingResultData,
+  ProviderSettingData,
+  ProviderSettingsListData,
   ProjectData,
   QueryResultData,
   SourceIngestionData,
@@ -119,4 +121,36 @@ export function queryKnowledge(payload: {
       top_k: payload.topK ?? 5,
     }),
   });
+}
+
+export function listProjectProviderSettings(
+  projectId: string,
+): Promise<ApiSuccess<ProviderSettingsListData>> {
+  return requestJson<ProviderSettingsListData>(`/projects/${projectId}/providers`);
+}
+
+export function saveProjectProviderKey(payload: {
+  projectId: string;
+  provider: string;
+  apiKey: string;
+}): Promise<ApiSuccess<ProviderSettingData>> {
+  return requestJson<ProviderSettingData>(
+    `/projects/${payload.projectId}/providers/${payload.provider}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ api_key: payload.apiKey }),
+    },
+  );
+}
+
+export function deleteProjectProviderKey(payload: {
+  projectId: string;
+  provider: string;
+}): Promise<ApiSuccess<ProviderSettingData>> {
+  return requestJson<ProviderSettingData>(
+    `/projects/${payload.projectId}/providers/${payload.provider}`,
+    {
+      method: "DELETE",
+    },
+  );
 }

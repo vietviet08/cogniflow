@@ -48,6 +48,14 @@ const quickLinks = [
     bg: "bg-amber-500/10",
   },
   {
+    href: "/settings",
+    label: "Settings",
+    description: "Attach OpenAI, Gemini, and future provider keys per project",
+    icon: Sparkles,
+    color: "text-cyan-500",
+    bg: "bg-cyan-500/10",
+  },
+  {
     href: "/insights",
     label: "Insights",
     description: "Discover patterns and key concepts",

@@ -59,3 +59,18 @@ export interface QueryResultData {
   citations: CitationData[];
   run_id: string;
 }
+
+export interface ProviderSettingData {
+  provider: string;
+  display_name: string;
+  supports: string[];
+  configured: boolean;
+  configured_source: "project" | "environment" | "missing";
+  masked_api_key: string | null;
+  updated_at: string | null;
+  removed?: boolean;
+}
+
+export interface ProviderSettingsListData {
+  items: ProviderSettingData[];
+}
