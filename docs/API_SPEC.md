@@ -344,6 +344,7 @@ Request:
 {
   "project_id": "prj_001",
   "query": "What are major trends in AI agent infrastructure?",
+  "provider": "gemini",
   "filters": {
     "source_types": ["url", "pdf"]
   },
@@ -356,6 +357,7 @@ Response data:
 ```json
 {
   "answer": "...",
+  "provider": "gemini",
   "citations": [
     {
       "citation_id": "chk_045",
@@ -369,6 +371,11 @@ Response data:
   "run_id": "run_query_001"
 }
 ```
+
+Notes:
+- `provider` supports `openai` and `gemini`
+- retrieval still uses the project OpenAI embedding pipeline, so Gemini query mode also requires
+  the project to have an OpenAI key configured for query embedding lookup
 
 ## Insights
 

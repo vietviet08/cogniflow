@@ -37,7 +37,9 @@ Research assistant scaffold organized as two top-level services:
 - API keys can now be configured per project in the frontend at `/settings`.
 - Runtime uses a project-scoped provider key first, then falls back to `OPENAI_API_KEY` or
   `GEMINI_API_KEY` from `api/.env`.
-- Current RAG processing and query flow uses the OpenAI key immediately; Gemini keys are stored and
-  ready for future multi-provider query or insight flows.
+- Processing and indexing currently use OpenAI embeddings.
+- Query answer generation can run with `OpenAI` or `Gemini` from the query UI.
+- Gemini query mode still depends on the project OpenAI key for retrieval embeddings, because the
+  current vector store is indexed with OpenAI embeddings.
 
 Detailed commands: `docs/DEVELOPMENT_COMMANDS.md`.
