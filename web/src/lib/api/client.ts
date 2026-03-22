@@ -135,12 +135,18 @@ export function saveProjectProviderKey(payload: {
   projectId: string;
   provider: string;
   apiKey: string;
+  chatModel: string;
+  embeddingModel?: string;
 }): Promise<ApiSuccess<ProviderSettingData>> {
   return requestJson<ProviderSettingData>(
     `/projects/${payload.projectId}/providers/${payload.provider}`,
     {
       method: "PUT",
-      body: JSON.stringify({ api_key: payload.apiKey }),
+      body: JSON.stringify({
+        api_key: payload.apiKey,
+        chat_model: payload.chatModel,
+        embedding_model: payload.embeddingModel,
+      }),
     },
   );
 }

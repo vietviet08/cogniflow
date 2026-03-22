@@ -30,6 +30,8 @@ export function ProviderSettingsManager() {
   const [activeProjectName, setActiveProjectName] = useState("");
   const [settings, setSettings] = useState<ProviderSettingData[]>([]);
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
+  const [draftChatModels, setDraftChatModels] = useState<Record<string, string>>({});
+  const [draftEmbeddingModels, setDraftEmbeddingModels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
@@ -55,6 +57,22 @@ export function ProviderSettingsManager() {
       .then((response) => {
         if (!ignore) {
           setSettings(response.data.items);
+          setDraftChatModels(
+            Object.fromEntries(
+              response.data.items.map((item) => [
+                item.provider,
+                item.chat_model ?? item.available_chat_models[0] ?? "",
+              ]),
+            ),
+          );
+          setDraftEmbeddingModels(
+            Object.fromEntries(
+              response.data.items.map((item) => [
+                item.provider,
+                item.embedding_model ?? item.available_embedding_models[0] ?? "",
+              ]),
+            ),
+          );
         }
       })
       .catch((error) => {
@@ -93,6 +111,8 @@ export function ProviderSettingsManager() {
       toast.error("Enter an API key before saving.");
       return;
     }
+    const chatModel = draftChatModels[provider]?.trim() ?? "";
+    const embeddingModel = draftEmbeddingModels[provider]?.trim() ?? "";
 
     setSavingProvider(provider);
     const toastId = toast.loading(`Saving ${provider} key...`);
@@ -101,11 +121,21 @@ export function ProviderSettingsManager() {
         projectId: activeProjectId,
         provider,
         apiKey,
+        chatModel,
+        embeddingModel: embeddingModel || undefined,
       });
       setSettings((current) =>
         current.map((item) => (item.provider === provider ? response.data : item)),
       );
       setDraftKeys((current) => ({ ...current, [provider]: "" }));
+      setDraftChatModels((current) => ({
+        ...current,
+        [provider]: response.data.chat_model ?? current[provider] ?? "",
+      }));
+      setDraftEmbeddingModels((current) => ({
+        ...current,
+        [provider]: response.data.embedding_model ?? current[provider] ?? "",
+      }));
       toast.success(`${response.data.display_name} key saved for this project.`, { id: toastId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save provider key.", {
@@ -149,7 +179,8 @@ export function ProviderSettingsManager() {
       description={
         activeProjectName
           ? `Manage API keys for ${activeProjectName}`
-          : "Select a project, then configure provider API keys without hardcoding them in env files."
+          : "Select a project, then configure provider API keys "
+            + "without hardcoding them in env files."
       }
     >
       {!activeProjectId ? (
@@ -176,7 +207,12 @@ export function ProviderSettingsManager() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
+            <div
+              className={
+                "flex items-center gap-3 rounded-xl border border-border "
+                + "bg-muted/40 px-4 py-3"
+              }
+            >
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
                 <KeyRound className="h-4 w-4 text-primary" />
               </div>
@@ -206,14 +242,17 @@ export function ProviderSettingsManager() {
           <Card key={providerSetting.provider}>
             <CardHeader>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <div
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10"
+                >
                   <ProviderIcon className="h-5 w-5 text-primary" />
                 </div>
                 <div className="min-w-0">
                   <CardTitle className="text-base">{providerSetting.display_name}</CardTitle>
                   <CardDescription>
                     {providerSetting.provider === "openai"
-                      ? "Currently used for embeddings and answer generation in the RAG pipeline."
+                      ? "Currently used for embeddings and answer generation "
+                        + "in the RAG pipeline."
                       : "Stored now for future multi-provider query and insight flows."}
                   </CardDescription>
                 </div>
@@ -240,10 +279,25 @@ export function ProviderSettingsManager() {
                 <p className="text-muted-foreground">
                   {providerSetting.configured_source === "project" && providerSetting.masked_api_key
                     ? `Project override saved as ${providerSetting.masked_api_key}.`
-                    : providerSetting.configured_source === "environment"
-                      ? "Using environment fallback from backend runtime."
-                      : "No key configured yet for this provider."}
+                    : "No key configured yet for this provider."}
                 </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
+                  <p className="font-medium">Current chat model</p>
+                  <p className="text-muted-foreground">
+                    {providerSetting.chat_model ?? "Not configured"}
+                  </p>
+                </div>
+                {providerSetting.available_embedding_models.length > 0 ? (
+                  <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
+                    <p className="font-medium">Current embedding model</p>
+                    <p className="text-muted-foreground">
+                      {providerSetting.embedding_model ?? "Not configured"}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               <form
@@ -269,6 +323,66 @@ export function ProviderSettingsManager() {
                     disabled={isSaving || isRemoving}
                   />
                 </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`${providerSetting.provider}-chat-model`}>
+                    {providerSetting.display_name} chat model
+                  </Label>
+                  <select
+                    id={`${providerSetting.provider}-chat-model`}
+                    value={draftChatModels[providerSetting.provider] ?? ""}
+                    onChange={(event) =>
+                      setDraftChatModels((current) => ({
+                        ...current,
+                        [providerSetting.provider]: event.target.value,
+                      }))
+                    }
+                    disabled={isSaving || isRemoving}
+                    className={
+                      "flex h-9 w-full rounded-md border border-input "
+                      + "bg-transparent px-3 py-1 text-sm shadow-sm "
+                      + "transition-colors focus-visible:outline-none focus-visible:ring-2 "
+                      + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    }
+                  >
+                    {providerSetting.available_chat_models.map((modelName) => (
+                      <option key={modelName} value={modelName}>
+                        {modelName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {providerSetting.available_embedding_models.length > 0 ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`${providerSetting.provider}-embedding-model`}>
+                      {providerSetting.display_name} embedding model
+                    </Label>
+                    <select
+                      id={`${providerSetting.provider}-embedding-model`}
+                      value={draftEmbeddingModels[providerSetting.provider] ?? ""}
+                      onChange={(event) =>
+                        setDraftEmbeddingModels((current) => ({
+                          ...current,
+                          [providerSetting.provider]: event.target.value,
+                        }))
+                      }
+                      disabled={isSaving || isRemoving}
+                      className={
+                        "flex h-9 w-full rounded-md border border-input "
+                        + "bg-transparent px-3 py-1 text-sm shadow-sm "
+                        + "transition-colors focus-visible:outline-none focus-visible:ring-2 "
+                        + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      }
+                    >
+                      {providerSetting.available_embedding_models.map((modelName) => (
+                        <option key={modelName} value={modelName}>
+                          {modelName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
 
                 <div className="flex flex-wrap gap-3">
                   <Button

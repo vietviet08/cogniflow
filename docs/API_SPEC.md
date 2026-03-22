@@ -63,9 +63,9 @@ Request:
 
 ## Provider Settings
 
-Project-scoped provider settings let users save API keys in the application instead of hardcoding
-them into local env files. Runtime falls back to environment variables only when a project override
-does not exist.
+Project-scoped provider settings let users save API keys and model choices in the application
+instead of hardcoding them into local env files. If a provider is not configured for the project,
+the backend refuses processing or query requests that depend on it.
 
 ### List Provider Settings
 
@@ -83,6 +83,10 @@ Response data:
       "configured": true,
       "configured_source": "project",
       "masked_api_key": "sk-t...1234",
+      "chat_model": "gpt-4o",
+      "embedding_model": "text-embedding-3-small",
+      "available_chat_models": ["gpt-4o", "gpt-4o-mini"],
+      "available_embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
       "updated_at": "2026-03-22T18:30:00Z"
     },
     {
@@ -92,6 +96,10 @@ Response data:
       "configured": false,
       "configured_source": "missing",
       "masked_api_key": null,
+      "chat_model": null,
+      "embedding_model": null,
+      "available_chat_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+      "available_embedding_models": [],
       "updated_at": null
     }
   ]
@@ -106,7 +114,9 @@ Request:
 
 ```json
 {
-  "api_key": "sk-test-openai-1234"
+  "api_key": "sk-test-openai-1234",
+  "chat_model": "gpt-4o",
+  "embedding_model": "text-embedding-3-small"
 }
 ```
 
@@ -120,6 +130,10 @@ Response data:
   "configured": true,
   "configured_source": "project",
   "masked_api_key": "sk-t...1234",
+  "chat_model": "gpt-4o",
+  "embedding_model": "text-embedding-3-small",
+  "available_chat_models": ["gpt-4o", "gpt-4o-mini"],
+  "available_embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
   "updated_at": "2026-03-22T18:30:00Z"
 }
 ```
@@ -138,6 +152,10 @@ Response data:
   "configured": false,
   "configured_source": "missing",
   "masked_api_key": null,
+  "chat_model": null,
+  "embedding_model": null,
+  "available_chat_models": ["gpt-4o", "gpt-4o-mini"],
+  "available_embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
   "updated_at": null,
   "removed": true
 }
@@ -358,6 +376,7 @@ Response data:
 {
   "answer": "...",
   "provider": "gemini",
+  "model": "gemini-2.5-flash",
   "citations": [
     {
       "citation_id": "chk_045",
@@ -374,8 +393,9 @@ Response data:
 
 Notes:
 - `provider` supports `openai` and `gemini`
+- the answer model comes from the project provider settings UI/API
 - retrieval still uses the project OpenAI embedding pipeline, so Gemini query mode also requires
-  the project to have an OpenAI key configured for query embedding lookup
+  the project OpenAI provider to have both an API key and embedding model configured
 
 ## Insights
 

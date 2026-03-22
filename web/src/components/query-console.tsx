@@ -26,6 +26,7 @@ export function QueryConsole() {
   const [citations, setCitations] = useState<CitationData[]>([]);
   const [provider, setProvider] = useState("openai");
   const [answerProvider, setAnswerProvider] = useState("");
+  const [answerModel, setAnswerModel] = useState("");
   const [providerSettings, setProviderSettings] = useState<ProviderSettingData[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -78,6 +79,7 @@ export function QueryConsole() {
       setAnswer(response.data.answer);
       setCitations(response.data.citations);
       setAnswerProvider(response.data.provider);
+      setAnswerModel(response.data.model);
       toast.success(`Run ${response.data.run_id} completed with ${response.data.provider}.`, {
         id: toastId,
       });
@@ -123,8 +125,9 @@ export function QueryConsole() {
                   onChange={(event) => setProvider(event.target.value)}
                   disabled={busy}
                   className={
-                    "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm "
-                    + "shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 "
+                    "flex h-9 w-full rounded-md border border-input bg-transparent "
+                    + "px-3 py-1 text-sm shadow-sm transition-colors "
+                    + "focus-visible:outline-none focus-visible:ring-2 "
                     + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   }
                 >
@@ -167,6 +170,12 @@ export function QueryConsole() {
                   : ""}
               </p>
             ) : null}
+            {providerState?.chat_model ? (
+              <p className="text-xs text-muted-foreground">
+                Selected model from settings:{" "}
+                <span className="font-mono">{providerState.chat_model}</span>
+              </p>
+            ) : null}
             <Button type="submit" disabled={busy || !activeProjectId} className="w-fit gap-2">
               {busy ? <Spinner size="sm" /> : <Send className="h-4 w-4" />}
               {busy ? "Searching..." : "Ask"}
@@ -187,6 +196,7 @@ export function QueryConsole() {
                   {answerProvider}
                 </Badge>
               ) : null}
+              {answerModel ? <Badge variant="outline">{answerModel}</Badge> : null}
             </div>
           </CardHeader>
           <CardContent>

@@ -59,6 +59,7 @@ export interface QueryResultData {
   citations: CitationData[];
   run_id: string;
   provider: string;
+  model: string;
 }
 
 export interface ProviderSettingData {
@@ -66,8 +67,12 @@ export interface ProviderSettingData {
   display_name: string;
   supports: string[];
   configured: boolean;
-  configured_source: "project" | "environment" | "missing";
+  configured_source: "project" | "missing";
   masked_api_key: string | null;
+  chat_model: string | null;
+  embedding_model: string | null;
+  available_chat_models: string[];
+  available_embedding_models: string[];
   updated_at: string | null;
   removed?: boolean;
 }

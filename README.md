@@ -35,10 +35,12 @@ Research assistant scaffold organized as two top-level services:
 ## Provider Keys
 
 - API keys can now be configured per project in the frontend at `/settings`.
-- Runtime uses a project-scoped provider key first, then falls back to `OPENAI_API_KEY` or
-  `GEMINI_API_KEY` from `api/.env`.
-- Processing and indexing currently use OpenAI embeddings.
-- Query answer generation can run with `OpenAI` or `Gemini` from the query UI.
+- Model selection is also configured per project in the frontend at `/settings`.
+- There is no AI-provider fallback in `api/.env`; if a project is not configured, processing/query
+  requests fail until the user adds the provider settings in UI.
+- Processing and indexing currently use the OpenAI provider config plus its selected embedding model.
+- Query answer generation can run with `OpenAI` or `Gemini` from the query UI, using the selected
+  model for that provider.
 - Gemini query mode still depends on the project OpenAI key for retrieval embeddings, because the
   current vector store is indexed with OpenAI embeddings.
 

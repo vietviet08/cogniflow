@@ -28,6 +28,8 @@ CREATE TABLE provider_credentials (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     provider TEXT NOT NULL, -- openai | gemini
     api_key TEXT NOT NULL,
+    chat_model TEXT,
+    embedding_model TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
