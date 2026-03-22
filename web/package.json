@@ -9,9 +9,7 @@
         "lint": "eslint .",
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
-        "format": "prettier --check .",
-        "sync:pdf-worker": "node scripts/sync-pdf-worker.mjs",
-        "postinstall": "npm run sync:pdf-worker"
+        "format": "prettier --check ."
     },
     "dependencies": {
         "@radix-ui/react-checkbox": "^1.3.3",
