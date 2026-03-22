@@ -61,6 +61,88 @@ Request:
 }
 ```
 
+## Provider Settings
+
+Project-scoped provider settings let users save API keys in the application instead of hardcoding
+them into local env files. Runtime falls back to environment variables only when a project override
+does not exist.
+
+### List Provider Settings
+
+`GET /projects/{project_id}/providers`
+
+Response data:
+
+```json
+{
+  "items": [
+    {
+      "provider": "openai",
+      "display_name": "OpenAI",
+      "supports": ["embeddings", "chat"],
+      "configured": true,
+      "configured_source": "project",
+      "masked_api_key": "sk-t...1234",
+      "updated_at": "2026-03-22T18:30:00Z"
+    },
+    {
+      "provider": "gemini",
+      "display_name": "Gemini",
+      "supports": ["chat"],
+      "configured": false,
+      "configured_source": "missing",
+      "masked_api_key": null,
+      "updated_at": null
+    }
+  ]
+}
+```
+
+### Save Provider Key
+
+`PUT /projects/{project_id}/providers/{provider}`
+
+Request:
+
+```json
+{
+  "api_key": "sk-test-openai-1234"
+}
+```
+
+Response data:
+
+```json
+{
+  "provider": "openai",
+  "display_name": "OpenAI",
+  "supports": ["embeddings", "chat"],
+  "configured": true,
+  "configured_source": "project",
+  "masked_api_key": "sk-t...1234",
+  "updated_at": "2026-03-22T18:30:00Z"
+}
+```
+
+### Delete Provider Key Override
+
+`DELETE /projects/{project_id}/providers/{provider}`
+
+Response data:
+
+```json
+{
+  "provider": "openai",
+  "display_name": "OpenAI",
+  "supports": ["embeddings", "chat"],
+  "configured": false,
+  "configured_source": "missing",
+  "masked_api_key": null,
+  "updated_at": null,
+  "removed": true
+}
+```
+
 ## Ingestion
 
 ### Upload Source File

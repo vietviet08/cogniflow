@@ -23,6 +23,15 @@ CREATE TABLE sources (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE provider_credentials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL, -- openai | gemini
+    api_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -149,6 +158,8 @@ CREATE TABLE audit_events (
 );
 
 CREATE INDEX idx_sources_project_id ON sources(project_id);
+CREATE UNIQUE INDEX uq_provider_credentials_project ON provider_credentials(project_id, provider);
+CREATE INDEX idx_provider_credentials_project_id ON provider_credentials(project_id);
 CREATE INDEX idx_jobs_project_status ON jobs(project_id, status);
 CREATE UNIQUE INDEX idx_jobs_idempotency_key ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX idx_documents_source_id ON documents(source_id);

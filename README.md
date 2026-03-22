@@ -32,4 +32,12 @@ Research assistant scaffold organized as two top-level services:
 7. Run the frontend:
    - `cd web && npm run dev`
 
+## Provider Keys
+
+- API keys can now be configured per project in the frontend at `/settings`.
+- Runtime uses a project-scoped provider key first, then falls back to `OPENAI_API_KEY` or
+  `GEMINI_API_KEY` from `api/.env`.
+- Current RAG processing and query flow uses the OpenAI key immediately; Gemini keys are stored and
+  ready for future multi-provider query or insight flows.
+
 Detailed commands: `docs/DEVELOPMENT_COMMANDS.md`.
