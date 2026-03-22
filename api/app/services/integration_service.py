@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import re
+import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.services.ingestion_service import save_source_bytes, save_source_snapshot
 from app.storage.models import IntegrationConnection
 from app.storage.repositories.integration_connection_repository import (
@@ -28,24 +34,28 @@ INTEGRATION_PROVIDERS: dict[str, dict[str, Any]] = {
     "google_drive": {
         "display_name": "Google Drive",
         "supports_base_url": False,
+        "supports_oauth": True,
         "reference_label": "File URL or ID",
         "description": "Import a Drive PDF or Google Doc snapshot into this project.",
     },
     "notion": {
         "display_name": "Notion",
         "supports_base_url": False,
+        "supports_oauth": False,
         "reference_label": "Page URL or ID",
         "description": "Import a Notion page as a text snapshot.",
     },
     "slack": {
         "display_name": "Slack",
         "supports_base_url": False,
+        "supports_oauth": False,
         "reference_label": "Thread permalink",
         "description": "Import a Slack thread transcript into this project.",
     },
     "confluence": {
         "display_name": "Confluence",
         "supports_base_url": True,
+        "supports_oauth": False,
         "reference_label": "Page URL or ID",
         "description": "Import a Confluence page snapshot using the site API.",
     },
@@ -53,6 +63,13 @@ INTEGRATION_PROVIDERS: dict[str, dict[str, Any]] = {
 
 GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
 GOOGLE_PDF_MIME = "application/pdf"
+GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_OAUTH_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+GOOGLE_OAUTH_SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/userinfo.email",
+]
 
 
 class IntegrationError(Exception):
@@ -79,6 +96,12 @@ class ImportedSourcePayload:
     file_bytes: bytes | None
     snapshot_payload: dict[str, Any] | None
     source_metadata: dict[str, Any]
+
+
+@dataclass
+class OAuthCallbackResult:
+    redirect_url: str
+    provider: str
 
 
 def list_integration_statuses(db: Session, project_id: uuid.UUID) -> list[dict[str, Any]]:
@@ -234,6 +257,130 @@ def import_integration_source(
         "filename": source.original_uri,
         "provider": normalized_provider,
     }
+
+
+def build_google_drive_oauth_start_url(
+    *,
+    project_id: uuid.UUID,
+    callback_url: str,
+) -> str:
+    settings = get_settings()
+    if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
+        raise IntegrationError(
+            "Google OAuth is not configured on the server.",
+            code="INTEGRATION_OAUTH_NOT_CONFIGURED",
+            status_code=503,
+        )
+
+    state = _encode_oauth_state(
+        {
+            "project_id": str(project_id),
+            "provider": "google_drive",
+            "exp": int(datetime.now(timezone.utc).timestamp()) + 600,
+            "nonce": secrets.token_urlsafe(12),
+        }
+    )
+    return f"{GOOGLE_OAUTH_AUTHORIZE_URL}?{urlencode({
+        'client_id': settings.google_oauth_client_id,
+        'redirect_uri': callback_url,
+        'response_type': 'code',
+        'scope': ' '.join(GOOGLE_OAUTH_SCOPES),
+        'access_type': 'offline',
+        'prompt': 'consent',
+        'state': state,
+    })}"
+
+
+def complete_google_drive_oauth_callback(
+    db: Session,
+    *,
+    code: str | None,
+    state: str | None,
+    callback_url: str,
+) -> OAuthCallbackResult:
+    settings = get_settings()
+    if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
+        raise IntegrationError(
+            "Google OAuth is not configured on the server.",
+            code="INTEGRATION_OAUTH_NOT_CONFIGURED",
+            status_code=503,
+        )
+    if not code or not state:
+        raise IntegrationError(
+            "Google OAuth callback is missing required parameters.",
+            code="INTEGRATION_OAUTH_INVALID_CALLBACK",
+        )
+
+    state_payload = _decode_oauth_state(state)
+    if state_payload.get("provider") != "google_drive":
+        raise IntegrationError(
+            "OAuth state provider mismatch.",
+            code="INTEGRATION_OAUTH_INVALID_STATE",
+        )
+    if int(state_payload.get("exp") or 0) < int(datetime.now(timezone.utc).timestamp()):
+        raise IntegrationError(
+            "OAuth state has expired. Please try connecting again.",
+            code="INTEGRATION_OAUTH_STATE_EXPIRED",
+        )
+
+    project_id = uuid.UUID(str(state_payload["project_id"]))
+    token_response = requests.post(
+        GOOGLE_OAUTH_TOKEN_URL,
+        data={
+            "code": code,
+            "client_id": settings.google_oauth_client_id,
+            "client_secret": settings.google_oauth_client_secret,
+            "redirect_uri": callback_url,
+            "grant_type": "authorization_code",
+        },
+        timeout=20,
+    )
+    _raise_for_status(token_response, "Google OAuth token exchange failed.")
+    token_payload = token_response.json()
+    access_token = str(token_payload.get("access_token") or "").strip()
+    refresh_token = str(token_payload.get("refresh_token") or "").strip()
+    if not access_token:
+        raise IntegrationError(
+            "Google OAuth token exchange returned no access token.",
+            code="INTEGRATION_OAUTH_TOKEN_MISSING",
+            status_code=502,
+        )
+
+    account_label = "Google Drive"
+    try:
+        userinfo_response = requests.get(
+            GOOGLE_OAUTH_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=20,
+        )
+        _raise_for_status(userinfo_response, "Google userinfo request failed.")
+        userinfo = userinfo_response.json()
+        account_label = str(userinfo.get("email") or userinfo.get("name") or account_label)
+    except IntegrationError:
+        pass
+
+    upsert_integration_connection(
+        db=db,
+        project_id=project_id,
+        provider="google_drive",
+        access_token=access_token,
+        account_label=account_label,
+        base_url=None,
+        connection_metadata={
+            "refresh_token": refresh_token or None,
+            "scope": token_payload.get("scope"),
+            "token_type": token_payload.get("token_type"),
+            "oauth_connected_at": _utc_iso_now(),
+        },
+    )
+
+    return OAuthCallbackResult(
+        provider="google_drive",
+        redirect_url=_build_frontend_redirect_url(
+            status="connected",
+            provider="google_drive",
+        ),
+    )
 
 
 def _fetch_imported_source(
@@ -611,6 +758,7 @@ def _serialize_connection_status(
         "provider": provider,
         "display_name": provider_metadata["display_name"],
         "supports_base_url": provider_metadata["supports_base_url"],
+        "supports_oauth": provider_metadata["supports_oauth"],
         "reference_label": provider_metadata["reference_label"],
         "description": provider_metadata["description"],
         "configured": connection is not None,
@@ -674,3 +822,65 @@ def _raise_for_status(response: requests.Response, default_message: str) -> None
                 "body": response.text[:240],
             },
         ) from exc
+
+
+def _encode_oauth_state(payload: dict[str, Any]) -> str:
+    settings = get_settings()
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(
+        settings.integration_oauth_state_secret.encode("utf-8"),
+        raw,
+        hashlib.sha256,
+    ).hexdigest()
+    return base64.urlsafe_b64encode(raw + b"." + signature.encode("utf-8")).decode("utf-8")
+
+
+def _decode_oauth_state(state: str) -> dict[str, Any]:
+    settings = get_settings()
+    try:
+        decoded = base64.urlsafe_b64decode(state.encode("utf-8"))
+        raw, signature = decoded.rsplit(b".", 1)
+    except Exception as exc:
+        raise IntegrationError(
+            "OAuth state is invalid.",
+            code="INTEGRATION_OAUTH_INVALID_STATE",
+        ) from exc
+
+    expected = hmac.new(
+        settings.integration_oauth_state_secret.encode("utf-8"),
+        raw,
+        hashlib.sha256,
+    ).hexdigest().encode("utf-8")
+    if not hmac.compare_digest(signature, expected):
+        raise IntegrationError(
+            "OAuth state signature is invalid.",
+            code="INTEGRATION_OAUTH_INVALID_STATE",
+        )
+
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise IntegrationError(
+            "OAuth state payload is invalid.",
+            code="INTEGRATION_OAUTH_INVALID_STATE",
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise IntegrationError(
+            "OAuth state payload is invalid.",
+            code="INTEGRATION_OAUTH_INVALID_STATE",
+        )
+    return payload
+
+
+def _build_frontend_redirect_url(
+    *,
+    status: str,
+    provider: str,
+    message: str | None = None,
+) -> str:
+    settings = get_settings()
+    params = {"integration": provider, "status": status}
+    if message:
+        params["message"] = message
+    return f"{settings.web_app_url.rstrip('/')}/sources?{urlencode(params)}"
