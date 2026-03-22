@@ -173,10 +173,12 @@ class InsightCitation(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     insight_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("insights.id"), nullable=False)
     source_id: Mapped[str | None] = mapped_column(Text())
+    source_type: Mapped[str | None] = mapped_column(String(50))
     document_id: Mapped[str | None] = mapped_column(Text())
     chunk_id: Mapped[str | None] = mapped_column(Text())
     title: Mapped[str | None] = mapped_column(Text())
     url: Mapped[str | None] = mapped_column(Text())
+    page_number: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

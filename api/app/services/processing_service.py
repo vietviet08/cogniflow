@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,14 @@ from app.storage.repositories.processing_run_repository import ProcessingRunRepo
 
 class ProcessingError(Exception):
     pass
+
+
+@dataclass
+class ExtractedSourceContent:
+    title: str
+    text: str
+    source_url: str
+    page_texts: list[str] | None = None
 
 
 def process_sources(
@@ -70,13 +79,13 @@ def process_sources(
 
     for source in sources:
         _replace_source_documents(db, source)
-        title, text, source_url = _extract_source_content(source)
+        extracted = _extract_source_content(source)
         document = Document(
             source_id=source.id,
-            title=title,
+            title=extracted.title,
             raw_path=source.storage_path,
-            clean_text=text,
-            token_count=count_tokens(text, model_name=embedding_model),
+            clean_text=extracted.text,
+            token_count=count_tokens(extracted.text, model_name=embedding_model),
         )
         db.add(document)
         db.commit()
@@ -86,8 +95,9 @@ def process_sources(
         chunk_payloads = _build_chunk_payloads(
             source=source,
             document=document,
-            text=text,
-            source_url=source_url,
+            text=extracted.text,
+            source_url=extracted.source_url,
+            page_texts=extracted.page_texts,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             embedding_model=embedding_model,
@@ -157,7 +167,7 @@ def _replace_source_documents(db: Session, source: Source) -> None:
     db.commit()
 
 
-def _extract_source_content(source: Source) -> tuple[str, str, str]:
+def _extract_source_content(source: Source) -> ExtractedSourceContent:
     if not source.storage_path:
         raise ProcessingError(f"Source '{source.id}' does not have a stored artifact.")
 
@@ -172,10 +182,19 @@ def _extract_source_content(source: Source) -> tuple[str, str, str]:
     raise ProcessingError(f"Unsupported source type '{source.type}'.")
 
 
-def _extract_file_content(path: Path) -> tuple[str, str, str]:
+def _extract_file_content(path: Path) -> ExtractedSourceContent:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        text = _extract_pdf_text(path)
+        page_texts = _extract_pdf_pages(path)
+        text = "\n".join(page.strip() for page in page_texts if page.strip())
+        if not text.strip():
+            raise ProcessingError(f"No readable text found in '{path.name}'.")
+        return ExtractedSourceContent(
+            title=path.name,
+            text=text.strip(),
+            source_url="",
+            page_texts=page_texts,
+        )
     else:
         text = path.read_text(encoding="utf-8")
 
@@ -183,33 +202,32 @@ def _extract_file_content(path: Path) -> tuple[str, str, str]:
     if not clean_text:
         raise ProcessingError(f"No readable text found in '{path.name}'.")
 
-    return path.name, clean_text, ""
+    return ExtractedSourceContent(title=path.name, text=clean_text, source_url="")
 
 
-def _extract_pdf_text(path: Path) -> str:
+def _extract_pdf_pages(path: Path) -> list[str]:
     extracted_pages: list[str] = []
 
     with fitz.open(path) as document:
         for page in document:
             extracted_pages.append(page.get_text("text"))
 
-    text = "\n".join(page.strip() for page in extracted_pages if page.strip())
-    if text.strip():
-        return text
+    if any(page.strip() for page in extracted_pages):
+        return [page.strip() for page in extracted_pages]
 
     with pdfplumber.open(path) as pdf:
         plumber_pages = [page.extract_text() or "" for page in pdf.pages]
-    return "\n".join(page.strip() for page in plumber_pages if page.strip())
+    return [page.strip() for page in plumber_pages]
 
 
-def _extract_remote_payload(path: Path) -> tuple[str, str, str]:
+def _extract_remote_payload(path: Path) -> ExtractedSourceContent:
     payload = json.loads(path.read_text(encoding="utf-8"))
     title = str(payload.get("title") or path.name)
     content = str(payload.get("content") or "").strip()
     source_url = str(payload.get("url") or payload.get("ingested_from") or "")
     if not content:
         raise ProcessingError(f"No readable content found in '{path.name}'.")
-    return title, content, source_url
+    return ExtractedSourceContent(title=title, text=content, source_url=source_url)
 
 
 def _build_chunk_payloads(
@@ -217,10 +235,21 @@ def _build_chunk_payloads(
     document: Document,
     text: str,
     source_url: str,
+    page_texts: list[str] | None,
     chunk_size: int,
     chunk_overlap: int,
     embedding_model: str,
 ) -> list[dict[str, Any]]:
+    if page_texts:
+        return _build_pdf_chunk_payloads(
+            source=source,
+            document=document,
+            page_texts=page_texts,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            embedding_model=embedding_model,
+        )
+
     chunks = chunk_text(
         text,
         chunk_size=chunk_size,
@@ -249,5 +278,52 @@ def _build_chunk_payloads(
                 },
             }
         )
+
+    return payloads
+
+
+def _build_pdf_chunk_payloads(
+    *,
+    source: Source,
+    document: Document,
+    page_texts: list[str],
+    chunk_size: int,
+    chunk_overlap: int,
+    embedding_model: str,
+) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    chunk_index = 0
+
+    for page_number, page_text in enumerate(page_texts, start=1):
+        if not page_text.strip():
+            continue
+        page_chunks = chunk_text(
+            page_text,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            model_name=embedding_model,
+        )
+        for chunk in page_chunks:
+            chunk_uuid = str(uuid.uuid4())
+            payloads.append(
+                {
+                    "chunk_id": chunk_uuid,
+                    "chroma_id": chunk_uuid,
+                    "chunk_index": chunk_index,
+                    "content": chunk,
+                    "metadata": {
+                        "project_id": str(source.project_id),
+                        "source_id": str(source.id),
+                        "document_id": str(document.id),
+                        "chunk_id": chunk_uuid,
+                        "chunk_index": chunk_index,
+                        "source_type": source.type,
+                        "title": document.title or "",
+                        "url": "",
+                        "page_number": page_number,
+                    },
+                }
+            )
+            chunk_index += 1
 
     return payloads

@@ -81,10 +81,12 @@ def get_insight(
             "citations": [
                 {
                     "source_id": c.source_id,
+                    "source_type": c.source_type,
                     "document_id": c.document_id,
                     "chunk_id": c.chunk_id,
                     "title": c.title,
                     "url": c.url,
+                    "page_number": c.page_number,
                 }
                 for c in citations
             ],

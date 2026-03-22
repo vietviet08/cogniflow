@@ -123,10 +123,12 @@ def generate_insight(
         {
             "citation_id": metadata.get("chunk_id", chunk_id),
             "source_id": metadata.get("source_id"),
+            "source_type": metadata.get("source_type"),
             "document_id": metadata.get("document_id"),
             "chunk_id": metadata.get("chunk_id", chunk_id),
             "title": metadata.get("title", ""),
             "url": metadata.get("url", ""),
+            "page_number": metadata.get("page_number"),
         }
         for chunk_id, metadata in zip(ids, metadatas, strict=False)
     ]
