@@ -87,8 +87,9 @@ Response data:
       "base_url": "https://proxy.example.com/v1",
       "chat_model": "gpt-4o",
       "embedding_model": "text-embedding-3-small",
-      "available_chat_models": ["gpt-4o", "gpt-4o-mini"],
-      "available_embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
+      "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+      "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+      "model_discovery_error": null,
       "updated_at": "2026-03-22T18:30:00Z"
     },
     {
@@ -102,8 +103,9 @@ Response data:
       "base_url": null,
       "chat_model": null,
       "embedding_model": null,
-      "available_chat_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+      "available_chat_models": [],
       "available_embedding_models": [],
+      "model_discovery_error": null,
       "updated_at": null
     }
   ]
@@ -139,9 +141,41 @@ Response data:
   "base_url": "https://proxy.example.com/v1",
   "chat_model": "gpt-4o",
   "embedding_model": "text-embedding-3-small",
-  "available_chat_models": ["gpt-4o", "gpt-4o-mini"],
-  "available_embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
+  "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+  "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+  "model_discovery_error": null,
   "updated_at": "2026-03-22T18:30:00Z"
+}
+```
+
+### Discover Provider Models
+
+`POST /projects/{project_id}/providers/{provider}/models/discover`
+
+Request:
+
+```json
+{
+  "api_key": "sk-test-openai-1234",
+  "base_url": "https://proxy.example.com/v1"
+}
+```
+
+Notes:
+- `api_key` and `base_url` are optional.
+- If omitted, the backend falls back to the saved project-scoped provider config.
+
+Response data:
+
+```json
+{
+  "provider": "openai",
+  "display_name": "OpenAI",
+  "supports_base_url": true,
+  "base_url": "https://proxy.example.com/v1",
+  "available_chat_models": ["gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+  "available_embedding_models": ["text-embedding-3-large", "text-embedding-3-small"],
+  "source": "payload"
 }
 ```
 
@@ -163,8 +197,9 @@ Response data:
   "base_url": null,
   "chat_model": null,
   "embedding_model": null,
-  "available_chat_models": ["gpt-4o", "gpt-4o-mini"],
-  "available_embedding_models": ["text-embedding-3-small", "text-embedding-3-large"],
+  "available_chat_models": [],
+  "available_embedding_models": [],
+  "model_discovery_error": null,
   "updated_at": null,
   "removed": true
 }

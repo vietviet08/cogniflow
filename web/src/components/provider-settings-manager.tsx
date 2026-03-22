@@ -2,10 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { KeyRound, Sparkles, Trash2, Save, Bot, Brain } from "lucide-react";
+import { Bot, Brain, KeyRound, RefreshCw, Save, Sparkles, Trash2 } from "lucide-react";
 
 import {
   deleteProjectProviderKey,
+  discoverProjectProviderModels,
   listProjectProviderSettings,
   saveProjectProviderKey,
 } from "@/lib/api/client";
@@ -25,6 +26,11 @@ const providerIcons = {
   gemini: Bot,
 } as const;
 
+type ModelCatalog = {
+  chatModels: string[];
+  embeddingModels: string[];
+};
+
 export function ProviderSettingsManager() {
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeProjectName, setActiveProjectName] = useState("");
@@ -33,7 +39,10 @@ export function ProviderSettingsManager() {
   const [draftBaseUrls, setDraftBaseUrls] = useState<Record<string, string>>({});
   const [draftChatModels, setDraftChatModels] = useState<Record<string, string>>({});
   const [draftEmbeddingModels, setDraftEmbeddingModels] = useState<Record<string, string>>({});
+  const [modelCatalogs, setModelCatalogs] = useState<Record<string, ModelCatalog>>({});
+  const [modelErrors, setModelErrors] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
+  const [loadingModelsProvider, setLoadingModelsProvider] = useState<string | null>(null);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
 
@@ -56,30 +65,48 @@ export function ProviderSettingsManager() {
     setLoading(true);
     listProjectProviderSettings(activeProjectId)
       .then((response) => {
-        if (!ignore) {
-          setSettings(response.data.items);
-          setDraftBaseUrls(
-            Object.fromEntries(
-              response.data.items.map((item) => [item.provider, item.base_url ?? ""]),
-            ),
-          );
-          setDraftChatModels(
-            Object.fromEntries(
-              response.data.items.map((item) => [
-                item.provider,
-                item.chat_model ?? item.available_chat_models[0] ?? "",
-              ]),
-            ),
-          );
-          setDraftEmbeddingModels(
-            Object.fromEntries(
-              response.data.items.map((item) => [
-                item.provider,
-                item.embedding_model ?? item.available_embedding_models[0] ?? "",
-              ]),
-            ),
-          );
+        if (ignore) {
+          return;
         }
+
+        setSettings(response.data.items);
+        setModelCatalogs(
+          Object.fromEntries(
+            response.data.items.map((item) => [
+              item.provider,
+              {
+                chatModels: item.available_chat_models,
+                embeddingModels: item.available_embedding_models,
+              },
+            ]),
+          ),
+        );
+        setModelErrors(
+          Object.fromEntries(
+            response.data.items.map((item) => [item.provider, item.model_discovery_error]),
+          ),
+        );
+        setDraftBaseUrls(
+          Object.fromEntries(
+            response.data.items.map((item) => [item.provider, item.base_url ?? ""]),
+          ),
+        );
+        setDraftChatModels(
+          Object.fromEntries(
+            response.data.items.map((item) => [
+              item.provider,
+              item.chat_model ?? item.available_chat_models[0] ?? "",
+            ]),
+          ),
+        );
+        setDraftEmbeddingModels(
+          Object.fromEntries(
+            response.data.items.map((item) => [
+              item.provider,
+              item.embedding_model ?? item.available_embedding_models[0] ?? "",
+            ]),
+          ),
+        );
       })
       .catch((error) => {
         if (!ignore) {
@@ -102,13 +129,74 @@ export function ProviderSettingsManager() {
     [settings],
   );
 
-  async function handleSave(
-    event: FormEvent<HTMLFormElement>,
-    provider: string,
-  ) {
+  function buildModelOptions(currentValue: string, values: string[]) {
+    const cleanedCurrentValue = currentValue.trim();
+    if (cleanedCurrentValue && !values.includes(cleanedCurrentValue)) {
+      return [cleanedCurrentValue, ...values];
+    }
+    return values;
+  }
+
+  async function handleLoadModels(provider: string) {
+    if (!activeProjectId) {
+      toast.error("Create or select a project first.");
+      return;
+    }
+
+    setLoadingModelsProvider(provider);
+    const toastId = toast.loading(`Loading ${provider} models...`);
+    try {
+      const response = await discoverProjectProviderModels({
+        projectId: activeProjectId,
+        provider,
+        apiKey: draftKeys[provider]?.trim() || undefined,
+        baseUrl: draftBaseUrls[provider]?.trim() || undefined,
+      });
+      setModelCatalogs((current) => ({
+        ...current,
+        [provider]: {
+          chatModels: response.data.available_chat_models,
+          embeddingModels: response.data.available_embedding_models,
+        },
+      }));
+      setModelErrors((current) => ({ ...current, [provider]: null }));
+      setDraftChatModels((current) => ({
+        ...current,
+        [provider]: resolveSelectedModel(
+          current[provider] ?? "",
+          response.data.available_chat_models,
+        ),
+      }));
+      setDraftEmbeddingModels((current) => ({
+        ...current,
+        [provider]: resolveSelectedModel(
+          current[provider] ?? "",
+          response.data.available_embedding_models,
+        ),
+      }));
+      toast.success(`${response.data.display_name} models loaded from ${response.data.source}.`, {
+        id: toastId,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to fetch provider models.";
+      setModelErrors((current) => ({ ...current, [provider]: message }));
+      toast.error(message, { id: toastId });
+    } finally {
+      setLoadingModelsProvider(null);
+    }
+  }
+
+  async function handleSave(event: FormEvent<HTMLFormElement>, provider: string) {
     event.preventDefault();
     if (!activeProjectId) {
       toast.error("Create or select a project first.");
+      return;
+    }
+
+    const providerSetting = settings.find((item) => item.provider === provider);
+    if (!providerSetting) {
+      toast.error("Provider settings are unavailable.");
       return;
     }
 
@@ -117,9 +205,18 @@ export function ProviderSettingsManager() {
       toast.error("Enter an API key before saving.");
       return;
     }
+
     const chatModel = draftChatModels[provider]?.trim() ?? "";
     const embeddingModel = draftEmbeddingModels[provider]?.trim() ?? "";
     const baseUrl = draftBaseUrls[provider]?.trim() ?? "";
+    if (!chatModel) {
+      toast.error("Load models and choose a chat model before saving.");
+      return;
+    }
+    if (providerSetting.supports.includes("embeddings") && !embeddingModel) {
+      toast.error("Load models and choose an embedding model before saving.");
+      return;
+    }
 
     setSavingProvider(provider);
     const toastId = toast.loading(`Saving ${provider} key...`);
@@ -135,6 +232,17 @@ export function ProviderSettingsManager() {
       setSettings((current) =>
         current.map((item) => (item.provider === provider ? response.data : item)),
       );
+      setModelCatalogs((current) => ({
+        ...current,
+        [provider]: {
+          chatModels: response.data.available_chat_models,
+          embeddingModels: response.data.available_embedding_models,
+        },
+      }));
+      setModelErrors((current) => ({
+        ...current,
+        [provider]: response.data.model_discovery_error,
+      }));
       setDraftKeys((current) => ({ ...current, [provider]: "" }));
       setDraftBaseUrls((current) => ({
         ...current,
@@ -174,8 +282,18 @@ export function ProviderSettingsManager() {
       setSettings((current) =>
         current.map((item) => (item.provider === provider ? response.data : item)),
       );
+      setModelCatalogs((current) => ({
+        ...current,
+        [provider]: {
+          chatModels: [],
+          embeddingModels: [],
+        },
+      }));
+      setModelErrors((current) => ({ ...current, [provider]: null }));
       setDraftKeys((current) => ({ ...current, [provider]: "" }));
       setDraftBaseUrls((current) => ({ ...current, [provider]: "" }));
+      setDraftChatModels((current) => ({ ...current, [provider]: "" }));
+      setDraftEmbeddingModels((current) => ({ ...current, [provider]: "" }));
       toast.success(`${response.data.display_name} override removed.`, { id: toastId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to remove provider key.", {
@@ -248,8 +366,23 @@ export function ProviderSettingsManager() {
       {sortedSettings.map((providerSetting) => {
         const ProviderIcon =
           providerIcons[providerSetting.provider as keyof typeof providerIcons] ?? Sparkles;
+        const isLoadingModels = loadingModelsProvider === providerSetting.provider;
         const isSaving = savingProvider === providerSetting.provider;
         const isRemoving = removingProvider === providerSetting.provider;
+        const modelCatalog = modelCatalogs[providerSetting.provider] ?? {
+          chatModels: providerSetting.available_chat_models,
+          embeddingModels: providerSetting.available_embedding_models,
+        };
+        const chatModelOptions = buildModelOptions(
+          draftChatModels[providerSetting.provider] ?? "",
+          modelCatalog.chatModels,
+        );
+        const embeddingModelOptions = buildModelOptions(
+          draftEmbeddingModels[providerSetting.provider] ?? "",
+          modelCatalog.embeddingModels,
+        );
+        const modelError =
+          modelErrors[providerSetting.provider] ?? providerSetting.model_discovery_error;
 
         return (
           <Card key={providerSetting.provider}>
@@ -296,6 +429,15 @@ export function ProviderSettingsManager() {
                 </p>
               </div>
 
+              {modelError ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                    Model discovery issue
+                  </p>
+                  <p className="text-sm text-amber-800/80 dark:text-amber-200/80">{modelError}</p>
+                </div>
+              ) : null}
+
               <div
                 className={
                   providerSetting.supports_base_url
@@ -309,7 +451,7 @@ export function ProviderSettingsManager() {
                     {providerSetting.chat_model ?? "Not configured"}
                   </p>
                 </div>
-                {providerSetting.available_embedding_models.length > 0 ? (
+                {providerSetting.supports.includes("embeddings") ? (
                   <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
                     <p className="font-medium">Current embedding model</p>
                     <p className="text-muted-foreground">
@@ -347,7 +489,7 @@ export function ProviderSettingsManager() {
                       }))
                     }
                     placeholder={`Paste ${providerSetting.display_name} API key`}
-                    disabled={isSaving || isRemoving}
+                    disabled={isSaving || isRemoving || isLoadingModels}
                   />
                 </div>
 
@@ -368,13 +510,27 @@ export function ProviderSettingsManager() {
                         }))
                       }
                       placeholder="https://proxy.example.com/v1"
-                      disabled={isSaving || isRemoving}
+                      disabled={isSaving || isRemoving || isLoadingModels}
                     />
                     <p className="text-xs text-muted-foreground">
                       Optional. Leave blank to use the default OpenAI API base URL.
                     </p>
                   </div>
                 ) : null}
+
+                <div className="flex flex-col gap-1.5 md:self-start">
+                  <Label className="opacity-0">Load models</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSaving || isRemoving || isLoadingModels}
+                    onClick={() => void handleLoadModels(providerSetting.provider)}
+                    className="gap-2"
+                  >
+                    {isLoadingModels ? <Spinner size="sm" /> : <RefreshCw className="h-4 w-4" />}
+                    {isLoadingModels ? "Loading..." : "Load models"}
+                  </Button>
+                </div>
 
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor={`${providerSetting.provider}-chat-model`}>
@@ -389,7 +545,7 @@ export function ProviderSettingsManager() {
                         [providerSetting.provider]: event.target.value,
                       }))
                     }
-                    disabled={isSaving || isRemoving}
+                    disabled={isSaving || isRemoving || isLoadingModels}
                     className={
                       "flex h-9 w-full rounded-md border border-input "
                       + "bg-transparent px-3 py-1 text-sm shadow-sm "
@@ -397,7 +553,10 @@ export function ProviderSettingsManager() {
                       + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     }
                   >
-                    {providerSetting.available_chat_models.map((modelName) => (
+                    {chatModelOptions.length === 0 ? (
+                      <option value="">Load models first</option>
+                    ) : null}
+                    {chatModelOptions.map((modelName) => (
                       <option key={modelName} value={modelName}>
                         {modelName}
                       </option>
@@ -405,7 +564,7 @@ export function ProviderSettingsManager() {
                   </select>
                 </div>
 
-                {providerSetting.available_embedding_models.length > 0 ? (
+                {providerSetting.supports.includes("embeddings") ? (
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor={`${providerSetting.provider}-embedding-model`}>
                       {providerSetting.display_name} embedding model
@@ -419,7 +578,7 @@ export function ProviderSettingsManager() {
                           [providerSetting.provider]: event.target.value,
                         }))
                       }
-                      disabled={isSaving || isRemoving}
+                      disabled={isSaving || isRemoving || isLoadingModels}
                       className={
                         "flex h-9 w-full rounded-md border border-input "
                         + "bg-transparent px-3 py-1 text-sm shadow-sm "
@@ -427,7 +586,10 @@ export function ProviderSettingsManager() {
                         + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                       }
                     >
-                      {providerSetting.available_embedding_models.map((modelName) => (
+                      {embeddingModelOptions.length === 0 ? (
+                        <option value="">Load models first</option>
+                      ) : null}
+                      {embeddingModelOptions.map((modelName) => (
                         <option key={modelName} value={modelName}>
                           {modelName}
                         </option>
@@ -439,7 +601,7 @@ export function ProviderSettingsManager() {
                 <div className="flex flex-wrap gap-3">
                   <Button
                     type="submit"
-                    disabled={isSaving || isRemoving}
+                    disabled={isSaving || isRemoving || isLoadingModels}
                     className="gap-2"
                   >
                     {isSaving ? <Spinner size="sm" /> : <Save className="h-4 w-4" />}
@@ -449,9 +611,10 @@ export function ProviderSettingsManager() {
                     type="button"
                     variant="outline"
                     disabled={
-                      isSaving ||
-                      isRemoving ||
-                      providerSetting.configured_source !== "project"
+                      isSaving
+                      || isRemoving
+                      || isLoadingModels
+                      || providerSetting.configured_source !== "project"
                     }
                     onClick={() => void handleDelete(providerSetting.provider)}
                     className="gap-2"
@@ -467,4 +630,12 @@ export function ProviderSettingsManager() {
       })}
     </PageWrapper>
   );
+}
+
+function resolveSelectedModel(currentValue: string, availableModels: string[]) {
+  const cleanedCurrentValue = currentValue.trim();
+  if (cleanedCurrentValue && availableModels.includes(cleanedCurrentValue)) {
+    return cleanedCurrentValue;
+  }
+  return availableModels[0] ?? "";
 }

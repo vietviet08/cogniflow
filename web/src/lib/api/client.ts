@@ -3,6 +3,7 @@ import type {
   ApiSuccess,
   HealthData,
   ProcessingResultData,
+  ProviderModelsData,
   ProviderSettingData,
   ProviderSettingsListData,
   ProjectData,
@@ -161,6 +162,24 @@ export function deleteProjectProviderKey(payload: {
     `/projects/${payload.projectId}/providers/${payload.provider}`,
     {
       method: "DELETE",
+    },
+  );
+}
+
+export function discoverProjectProviderModels(payload: {
+  projectId: string;
+  provider: string;
+  apiKey?: string;
+  baseUrl?: string;
+}): Promise<ApiSuccess<ProviderModelsData>> {
+  return requestJson<ProviderModelsData>(
+    `/projects/${payload.projectId}/providers/${payload.provider}/models/discover`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        api_key: payload.apiKey,
+        base_url: payload.baseUrl,
+      }),
     },
   );
 }

@@ -75,10 +75,21 @@ export interface ProviderSettingData {
   embedding_model: string | null;
   available_chat_models: string[];
   available_embedding_models: string[];
+  model_discovery_error: string | null;
   updated_at: string | null;
   removed?: boolean;
 }
 
 export interface ProviderSettingsListData {
   items: ProviderSettingData[];
+}
+
+export interface ProviderModelsData {
+  provider: string;
+  display_name: string;
+  supports_base_url: boolean;
+  base_url: string | null;
+  available_chat_models: string[];
+  available_embedding_models: string[];
+  source: "payload" | "project";
 }
