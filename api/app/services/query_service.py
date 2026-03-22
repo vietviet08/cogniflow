@@ -7,6 +7,7 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.services.citation_service import hydrate_citations
 from app.services.chroma_service import get_retrieval_collection
 from app.services.embedding_service import (
     LOCAL_EMBEDDING_MODEL,
@@ -116,7 +117,7 @@ def search_knowledge_base(
             "model": generation_config["chat_model"],
         }
 
-    citations = [
+    citations = hydrate_citations(db, [
         {
             "citation_id": metadata.get("chunk_id", chunk_id),
             "source_id": metadata.get("source_id"),
@@ -126,9 +127,10 @@ def search_knowledge_base(
             "title": metadata.get("title", ""),
             "url": metadata.get("url", ""),
             "page_number": metadata.get("page_number"),
+            "quote": document,
         }
         for chunk_id, metadata in zip(ids, metadatas, strict=False)
-    ]
+    ])
     answer = _generate_answer(
         query,
         documents,

@@ -11,6 +11,7 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.services.citation_service import hydrate_citations
 from app.services.chroma_service import get_retrieval_collection
 from app.services.embedding_service import (
     LOCAL_EMBEDDING_MODEL,
@@ -119,7 +120,7 @@ def generate_insight(
     metadatas: list[dict] = result.get("metadatas", [[]])[0]
     ids: list[str] = result.get("ids", [[]])[0]
 
-    citations: list[dict] = [
+    citations = hydrate_citations(db, [
         {
             "citation_id": metadata.get("chunk_id", chunk_id),
             "source_id": metadata.get("source_id"),
@@ -129,9 +130,10 @@ def generate_insight(
             "title": metadata.get("title", ""),
             "url": metadata.get("url", ""),
             "page_number": metadata.get("page_number"),
+            "quote": document,
         }
         for chunk_id, metadata in zip(ids, metadatas, strict=False)
-    ]
+    ])
 
     if not documents:
         # No evidence — return empty insight.

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.services.citation_service import hydrate_citations
 from app.services.query_service import QueryError, search_knowledge_base
 from app.storage.models import ChatMessage, ChatSession
 from app.storage.repositories.project_repository import ProjectRepository
@@ -94,7 +95,7 @@ def list_chat_messages(session_id: uuid.UUID, request: Request, db: Session = De
                     "session_id": str(m.session_id),
                     "role": m.role,
                     "content": m.content,
-                    "citations": m.citations,
+                    "citations": hydrate_citations(db, m.citations or []),
                     "is_bookmarked": m.is_bookmarked,
                     "rating": m.rating,
                     "created_at": m.created_at.isoformat() if m.created_at else None,

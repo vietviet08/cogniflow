@@ -11,6 +11,7 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.services.citation_service import hydrate_citations, hydrate_report_payload_citations
 from app.services.insight_service import InsightError, generate_insight
 from app.storage.models import Chunk, Report, ReportInsight
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
@@ -301,6 +302,9 @@ def generate_report(
     # Collect unique source ids from insight citations
     source_ids = list({c["source_id"] for c in insight_result["citations"] if c.get("source_id")})
 
+    structured_payload = hydrate_report_payload_citations(db, structured_payload)
+    citations = hydrate_citations(db, insight_result["citations"])
+
     return {
         "report_id": str(report.id),
         "query": query,
@@ -313,7 +317,7 @@ def generate_report(
         "run_id": str(run.id),
         "insight_id": insight_result["insight_id"],
         "source_ids": source_ids,
-        "citations": insight_result["citations"],
+        "citations": citations,
     }
 
 
@@ -389,7 +393,7 @@ def update_action_item_status(
         payload=payload,
     )
     report = report_repo.save(report)
-    return serialize_report(report)
+    return serialize_report(report, db)
 
 
 def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
@@ -421,7 +425,10 @@ def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-def serialize_report(report: Report) -> dict[str, Any]:
+def serialize_report(report: Report, db: Session | None = None) -> dict[str, Any]:
+    structured_payload = report.structured_payload
+    if db is not None:
+        structured_payload = hydrate_report_payload_citations(db, structured_payload)
     return {
         "report_id": str(report.id),
         "project_id": str(report.project_id),
@@ -430,7 +437,7 @@ def serialize_report(report: Report) -> dict[str, Any]:
         "type": report.report_type,
         "format": report.format,
         "content": report.content,
-        "structured_payload": report.structured_payload,
+        "structured_payload": structured_payload,
         "status": report.status,
         "run_id": str(report.run_id) if report.run_id else None,
         "created_at": report.created_at.isoformat() if report.created_at else None,
