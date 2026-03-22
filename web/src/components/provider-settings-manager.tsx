@@ -30,6 +30,7 @@ export function ProviderSettingsManager() {
   const [activeProjectName, setActiveProjectName] = useState("");
   const [settings, setSettings] = useState<ProviderSettingData[]>([]);
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
+  const [draftBaseUrls, setDraftBaseUrls] = useState<Record<string, string>>({});
   const [draftChatModels, setDraftChatModels] = useState<Record<string, string>>({});
   const [draftEmbeddingModels, setDraftEmbeddingModels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -57,6 +58,11 @@ export function ProviderSettingsManager() {
       .then((response) => {
         if (!ignore) {
           setSettings(response.data.items);
+          setDraftBaseUrls(
+            Object.fromEntries(
+              response.data.items.map((item) => [item.provider, item.base_url ?? ""]),
+            ),
+          );
           setDraftChatModels(
             Object.fromEntries(
               response.data.items.map((item) => [
@@ -113,6 +119,7 @@ export function ProviderSettingsManager() {
     }
     const chatModel = draftChatModels[provider]?.trim() ?? "";
     const embeddingModel = draftEmbeddingModels[provider]?.trim() ?? "";
+    const baseUrl = draftBaseUrls[provider]?.trim() ?? "";
 
     setSavingProvider(provider);
     const toastId = toast.loading(`Saving ${provider} key...`);
@@ -121,6 +128,7 @@ export function ProviderSettingsManager() {
         projectId: activeProjectId,
         provider,
         apiKey,
+        baseUrl: baseUrl || undefined,
         chatModel,
         embeddingModel: embeddingModel || undefined,
       });
@@ -128,6 +136,10 @@ export function ProviderSettingsManager() {
         current.map((item) => (item.provider === provider ? response.data : item)),
       );
       setDraftKeys((current) => ({ ...current, [provider]: "" }));
+      setDraftBaseUrls((current) => ({
+        ...current,
+        [provider]: response.data.base_url ?? "",
+      }));
       setDraftChatModels((current) => ({
         ...current,
         [provider]: response.data.chat_model ?? current[provider] ?? "",
@@ -163,6 +175,7 @@ export function ProviderSettingsManager() {
         current.map((item) => (item.provider === provider ? response.data : item)),
       );
       setDraftKeys((current) => ({ ...current, [provider]: "" }));
+      setDraftBaseUrls((current) => ({ ...current, [provider]: "" }));
       toast.success(`${response.data.display_name} override removed.`, { id: toastId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to remove provider key.", {
@@ -283,7 +296,13 @@ export function ProviderSettingsManager() {
                 </p>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
+              <div
+                className={
+                  providerSetting.supports_base_url
+                    ? "grid gap-3 md:grid-cols-3"
+                    : "grid gap-3 md:grid-cols-2"
+                }
+              >
                 <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
                   <p className="font-medium">Current chat model</p>
                   <p className="text-muted-foreground">
@@ -295,6 +314,14 @@ export function ProviderSettingsManager() {
                     <p className="font-medium">Current embedding model</p>
                     <p className="text-muted-foreground">
                       {providerSetting.embedding_model ?? "Not configured"}
+                    </p>
+                  </div>
+                ) : null}
+                {providerSetting.supports_base_url ? (
+                  <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
+                    <p className="font-medium">Current base URL</p>
+                    <p className="break-all text-muted-foreground">
+                      {providerSetting.base_url ?? "Default OpenAI API URL"}
                     </p>
                   </div>
                 ) : null}
@@ -323,6 +350,31 @@ export function ProviderSettingsManager() {
                     disabled={isSaving || isRemoving}
                   />
                 </div>
+
+                {providerSetting.supports_base_url ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`${providerSetting.provider}-base-url`}>
+                      {providerSetting.display_name} base URL
+                    </Label>
+                    <Input
+                      id={`${providerSetting.provider}-base-url`}
+                      type="url"
+                      autoComplete="off"
+                      value={draftBaseUrls[providerSetting.provider] ?? ""}
+                      onChange={(event) =>
+                        setDraftBaseUrls((current) => ({
+                          ...current,
+                          [providerSetting.provider]: event.target.value,
+                        }))
+                      }
+                      placeholder="https://proxy.example.com/v1"
+                      disabled={isSaving || isRemoving}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional. Leave blank to use the default OpenAI API base URL.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor={`${providerSetting.provider}-chat-model`}>

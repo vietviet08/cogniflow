@@ -135,6 +135,7 @@ export function saveProjectProviderKey(payload: {
   projectId: string;
   provider: string;
   apiKey: string;
+  baseUrl?: string;
   chatModel: string;
   embeddingModel?: string;
 }): Promise<ApiSuccess<ProviderSettingData>> {
@@ -144,6 +145,7 @@ export function saveProjectProviderKey(payload: {
       method: "PUT",
       body: JSON.stringify({
         api_key: payload.apiKey,
+        base_url: payload.baseUrl,
         chat_model: payload.chatModel,
         embedding_model: payload.embeddingModel,
       }),

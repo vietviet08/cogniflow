@@ -66,9 +66,11 @@ export interface ProviderSettingData {
   provider: string;
   display_name: string;
   supports: string[];
+  supports_base_url: boolean;
   configured: boolean;
   configured_source: "project" | "missing";
   masked_api_key: string | null;
+  base_url: string | null;
   chat_model: string | null;
   embedding_model: string | null;
   available_chat_models: string[];
