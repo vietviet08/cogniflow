@@ -258,6 +258,7 @@ def list_project_reports(project_id: uuid.UUID, request: Request, db: Session = 
                     "title": r.title,
                     "type": r.report_type,
                     "format": r.format,
+                    "structured_payload": r.structured_payload,
                     "status": r.status,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }

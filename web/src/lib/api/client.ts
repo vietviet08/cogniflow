@@ -8,6 +8,7 @@ import type {
   ProviderSettingsListData,
   ProjectData,
   QueryResultData,
+  ReportType,
   SourceIngestionData,
 } from "./types";
 
@@ -223,7 +224,7 @@ export function listInsights(projectId: string): Promise<ApiSuccess<InsightListD
 export function generateReport(payload: {
   projectId: string;
   query: string;
-  type?: "research_brief" | "summary" | "comparison";
+  type?: ReportType;
   format?: string;
   provider?: string;
 }): Promise<ApiSuccess<ReportResult>> {

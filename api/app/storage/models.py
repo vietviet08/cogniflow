@@ -145,6 +145,7 @@ class Report(Base):
     report_type: Mapped[str] = mapped_column(String(50))
     format: Mapped[str] = mapped_column(String(50), default="markdown")
     content: Mapped[str | None] = mapped_column(Text())
+    structured_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON())
     status: Mapped[str] = mapped_column(String(20), default="completed")
     run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("processing_runs.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -214,4 +215,3 @@ class ChatMessage(Base):
     is_bookmarked: Mapped[bool] = mapped_column(default=False)
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1 for up, -1 for down
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-

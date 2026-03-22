@@ -65,6 +65,7 @@ def get_report(report_id: uuid.UUID, request: Request, db: Session = Depends(get
             "type": report.report_type,
             "format": report.format,
             "content": report.content,
+            "structured_payload": report.structured_payload,
             "status": report.status,
             "run_id": str(report.run_id) if report.run_id else None,
             "created_at": report.created_at.isoformat(),
