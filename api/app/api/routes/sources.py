@@ -11,6 +11,7 @@ from app.services.ingestion_service import IngestionError, ingest_remote_source,
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
 from app.storage.repositories.source_repository import SourceRepository
+from app.storage.models import Source, Job
 
 router = APIRouter(prefix="/sources")
 
@@ -154,3 +155,42 @@ def ingest_url(payload: IngestUrlRequest, request: Request, db: Session = Depend
         },
         status_code=201,
     )
+
+
+@router.get("/project/{project_id}")
+def list_sources(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    # Return sources with their latest job status
+    sources = db.query(Source).filter(Source.project_id == project_id).order_by(Source.created_at.desc()).all()
+    
+    items = []
+    for s in sources:
+        # get latest job status for this source
+        latest_job = db.query(Job).filter(Job.source_id == s.id).order_by(Job.created_at.desc()).first()
+        status = latest_job.status if latest_job else s.status
+        items.append({
+            "id": str(s.id),
+            "file_name": s.original_uri,
+            "type": s.type,
+            "status": status,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+        
+    return success_response(request, {"items": items, "total": len(items)})
+
+
+class BulkDeleteSourceRequest(BaseModel):
+    source_ids: list[str]
+
+
+@router.delete("/bulk")
+def bulk_delete_sources(payload: BulkDeleteSourceRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        source_uuids = [uuid.UUID(sid) for sid in payload.source_ids]
+        # In a real app we'd need to cascade delete chunks, documents, jobs etc.
+        # SQLite with no pragmas might leave orphans, but for prototype we just delete the Source 
+        db.query(Source).filter(Source.id.in_(source_uuids)).delete(synchronize_session=False)
+        db.commit()
+        return success_response(request, {"success": True, "deleted_count": len(source_uuids)})
+    except Exception as e:
+        db.rollback()
+        return error_response(request, "DELETE_FAILED", str(e), status_code=500)

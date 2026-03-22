@@ -187,3 +187,31 @@ class ReportInsight(Base):
     report_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reports.id"), nullable=False)
     insight_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("insights.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_sessions.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(50))  # 'user' or 'assistant'
+    content: Mapped[str] = mapped_column(Text())
+    citations: Mapped[list[dict] | None] = mapped_column(JSON())
+    is_bookmarked: Mapped[bool] = mapped_column(default=False)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1 for up, -1 for down
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
