@@ -250,3 +250,91 @@ export function getReportLineage(reportId: string): Promise<ApiSuccess<ReportLin
 export function listReports(projectId: string): Promise<ApiSuccess<ReportListData>> {
   return requestJson<ReportListData>(`/projects/${projectId}/reports`);
 }
+
+// ---- Phase 4: UX Polish (Projects & Chat) ----
+import type {
+  ProjectListData,
+  ChatSessionData,
+  ChatSessionListData,
+  ChatMessageListData,
+  ChatSendResponse,
+} from "./types";
+
+export function listProjects(): Promise<ApiSuccess<ProjectListData>> {
+  return requestJson<ProjectListData>("/projects");
+}
+
+export function updateProject(
+  projectId: string,
+  payload: { name: string; description?: string }
+): Promise<ApiSuccess<ProjectData>> {
+  return requestJson<ProjectData>(`/projects/${projectId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProject(projectId: string): Promise<ApiSuccess<{ success: boolean }>> {
+  return requestJson<{ success: boolean }>(`/projects/${projectId}`, {
+    method: "DELETE",
+  });
+}
+
+export function listSources(projectId: string): Promise<ApiSuccess<import("./types").SourceListData>> {
+  return requestJson<import("./types").SourceListData>(`/sources/project/${projectId}`);
+}
+
+export function deleteSources(sourceIds: string[]): Promise<ApiSuccess<{ success: boolean; deleted_count: number }>> {
+  return requestJson<{ success: boolean; deleted_count: number }>("/sources/bulk", {
+    method: "DELETE",
+    body: JSON.stringify({ source_ids: sourceIds }),
+  });
+}
+
+export function createChatSession(payload: {
+  projectId: string;
+  title?: string;
+}): Promise<ApiSuccess<ChatSessionData>> {
+  return requestJson<ChatSessionData>(`/projects/${payload.projectId}/chat/sessions`, {
+    method: "POST",
+    body: JSON.stringify({ title: payload.title }),
+  });
+}
+
+export function listChatSessions(projectId: string): Promise<ApiSuccess<ChatSessionListData>> {
+  return requestJson<ChatSessionListData>(`/projects/${projectId}/chat/sessions`);
+}
+
+export function listChatMessages(sessionId: string): Promise<ApiSuccess<ChatMessageListData>> {
+  return requestJson<ChatMessageListData>(`/chat/sessions/${sessionId}/messages`);
+}
+
+export function sendChatMessage(payload: {
+  sessionId: string;
+  content: string;
+  provider?: string;
+  topK?: number;
+}): Promise<ApiSuccess<ChatSendResponse>> {
+  return requestJson<ChatSendResponse>(`/chat/sessions/${payload.sessionId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({
+      content: payload.content,
+      provider: payload.provider ?? "openai",
+      top_k: payload.topK ?? 5,
+    }),
+  });
+}
+
+export function updateChatMessage(payload: {
+  messageId: string;
+  isBookmarked?: boolean;
+  rating?: number;
+}): Promise<ApiSuccess<{ success: boolean }>> {
+  return requestJson<{ success: boolean }>(`/chat/messages/${payload.messageId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      is_bookmarked: payload.isBookmarked,
+      rating: payload.rating,
+    }),
+  });
+}

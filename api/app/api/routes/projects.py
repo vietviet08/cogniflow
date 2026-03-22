@@ -35,6 +35,36 @@ def create_project(payload: CreateProjectRequest, request: Request, db: Session 
     )
 
 
+@router.get("")
+def list_projects(request: Request, db: Session = Depends(get_db)):
+    repo = ProjectRepository(db)
+    projects = repo.list_with_stats()
+    return success_response(request, {"items": projects, "total": len(projects)})
+
+
+class UpdateProjectRequest(BaseModel):
+    name: str
+    description: str | None = None
+
+
+@router.put("/{project_id}")
+def update_project(project_id: uuid.UUID, payload: UpdateProjectRequest, request: Request, db: Session = Depends(get_db)):
+    repo = ProjectRepository(db)
+    project = repo.update(project_id, name=payload.name, description=payload.description)
+    if not project:
+        return error_response(request, "PROJECT_NOT_FOUND", "Project does not exist", status_code=404)
+    return success_response(request, {"id": str(project.id), "name": project.name, "description": project.description})
+
+
+@router.delete("/{project_id}")
+def delete_project(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    repo = ProjectRepository(db)
+    success = repo.delete(project_id)
+    if not success:
+        return error_response(request, "PROJECT_NOT_FOUND", "Project does not exist or deletion failed", status_code=404)
+    return success_response(request, {"success": True})
+
+
 @router.get("/{project_id}/documents")
 def list_project_documents(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
     project = ProjectRepository(db).get(project_id)

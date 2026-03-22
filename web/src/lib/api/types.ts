@@ -45,6 +45,19 @@ export interface ProcessingResultData {
   chunks_created: number;
 }
 
+export interface SourceListItemData {
+  id: string;
+  file_name: string;
+  type: string;
+  status: string;
+  created_at: string | null;
+}
+
+export interface SourceListData {
+  items: SourceListItemData[];
+  total: number;
+}
+
 export interface CitationData {
   citation_id: string;
   source_id: string;
@@ -165,4 +178,58 @@ export interface ReportListItem {
 export interface ReportListData {
   items: ReportListItem[];
   total: number;
+}
+
+// ---- Phase 4: UX Polish (Projects & Chat) ----
+
+export interface ProjectListItemData extends ProjectData {
+  source_count?: number;
+  report_count?: number;
+}
+
+export interface ProjectListData {
+  items: ProjectListItemData[];
+  total: number;
+}
+
+export interface ChatSessionData {
+  id: string;
+  project_id: string;
+  title: string | null;
+  created_at: string;
+}
+
+export interface ChatSessionListData {
+  items: ChatSessionData[];
+  total: number;
+}
+
+export interface ChatMessageData {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: CitationData[] | null;
+  is_bookmarked: boolean;
+  rating: number | null;
+  created_at: string;
+}
+
+export interface ChatMessageListData {
+  items: ChatMessageData[];
+  total: number;
+}
+
+export interface ChatSendResponse {
+  user_message: {
+    id: string;
+    role: string;
+    content: string;
+  };
+  assistant_message: {
+    id: string;
+    role: string;
+    content: string;
+    citations: CitationData[] | null;
+  };
 }
