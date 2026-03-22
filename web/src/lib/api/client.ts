@@ -2,12 +2,15 @@ import type {
   ApiError,
   ApiSuccess,
   HealthData,
+  IntegrationConnectionData,
+  IntegrationConnectionListData,
   ProcessingResultData,
   ProviderModelsData,
   ProviderSettingData,
   ProviderSettingsListData,
   ProjectData,
   QueryResultData,
+  IntegrationProvider,
   ReportType,
   SourceIngestionData,
 } from "./types";
@@ -184,6 +187,62 @@ export function discoverProjectProviderModels(payload: {
       body: JSON.stringify({
         api_key: payload.apiKey,
         base_url: payload.baseUrl,
+      }),
+    },
+  );
+}
+
+export function listProjectIntegrations(
+  projectId: string,
+): Promise<ApiSuccess<IntegrationConnectionListData>> {
+  return requestJson<IntegrationConnectionListData>(
+    `/projects/${projectId}/integrations`,
+  );
+}
+
+export function saveProjectIntegrationConnection(payload: {
+  projectId: string;
+  provider: IntegrationProvider;
+  accessToken?: string;
+  accountLabel?: string;
+  baseUrl?: string;
+}): Promise<ApiSuccess<IntegrationConnectionData>> {
+  return requestJson<IntegrationConnectionData>(
+    `/projects/${payload.projectId}/integrations/${payload.provider}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        access_token: payload.accessToken,
+        account_label: payload.accountLabel,
+        base_url: payload.baseUrl,
+      }),
+    },
+  );
+}
+
+export function deleteProjectIntegrationConnection(payload: {
+  projectId: string;
+  provider: IntegrationProvider;
+}): Promise<ApiSuccess<IntegrationConnectionData>> {
+  return requestJson<IntegrationConnectionData>(
+    `/projects/${payload.projectId}/integrations/${payload.provider}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export function importProjectIntegrationSource(payload: {
+  projectId: string;
+  provider: IntegrationProvider;
+  itemReference: string;
+}): Promise<ApiSuccess<SourceIngestionData>> {
+  return requestJson<SourceIngestionData>(
+    `/projects/${payload.projectId}/integrations/${payload.provider}/import`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        item_reference: payload.itemReference,
       }),
     },
   );
