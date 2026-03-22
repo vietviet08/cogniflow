@@ -12,3 +12,9 @@ class ReportRepository(BaseRepository[Report]):
 
     def get(self, report_id: uuid.UUID) -> Report | None:
         return self.db.get(Report, report_id)
+
+    def save(self, report: Report) -> Report:
+        self.db.add(report)
+        self.db.commit()
+        self.db.refresh(report)
+        return report

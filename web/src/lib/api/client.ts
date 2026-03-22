@@ -8,6 +8,7 @@ import type {
   ProviderSettingsListData,
   ProjectData,
   QueryResultData,
+  ReportType,
   SourceIngestionData,
 } from "./types";
 
@@ -223,7 +224,7 @@ export function listInsights(projectId: string): Promise<ApiSuccess<InsightListD
 export function generateReport(payload: {
   projectId: string;
   query: string;
-  type?: "research_brief" | "summary" | "comparison";
+  type?: ReportType;
   format?: string;
   provider?: string;
 }): Promise<ApiSuccess<ReportResult>> {
@@ -241,6 +242,20 @@ export function generateReport(payload: {
 
 export function getReport(reportId: string): Promise<ApiSuccess<ReportResult>> {
   return requestJson<ReportResult>(`/reports/${reportId}`);
+}
+
+export function updateActionItemStatus(payload: {
+  reportId: string;
+  itemId: string;
+  status: "open" | "needs_review" | "done";
+}): Promise<ApiSuccess<ReportResult>> {
+  return requestJson<ReportResult>(
+    `/reports/${payload.reportId}/action-items/${payload.itemId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ status: payload.status }),
+    },
+  );
 }
 
 export function getReportLineage(reportId: string): Promise<ApiSuccess<ReportLineage>> {

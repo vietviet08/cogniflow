@@ -67,6 +67,67 @@ export interface CitationData {
   url?: string;
 }
 
+export type ReportType =
+  | "research_brief"
+  | "summary"
+  | "comparison"
+  | "action_items"
+  | "risk_analysis"
+  | "executive_brief";
+
+export interface ActionItemData {
+  id: string;
+  title: string;
+  description: string;
+  priority: "high" | "medium" | "low";
+  owner_suggested: string | null;
+  due_date_suggested: string | null;
+  status: "open" | "needs_review" | "done";
+  citations: CitationData[];
+}
+
+export interface RiskItemData {
+  id: string;
+  title: string;
+  severity: "high" | "medium" | "low";
+  why_it_matters: string;
+  recommended_action: string;
+  status: "open" | "needs_review" | "accepted";
+  citations: CitationData[];
+}
+
+export interface ExecutiveBriefData {
+  summary: string;
+  key_points: string[];
+  decisions_needed: string[];
+  next_steps: string[];
+  citations: CitationData[];
+}
+
+export interface ActionItemsPayload {
+  overview: string;
+  items: ActionItemData[];
+}
+
+export interface RiskAnalysisPayload {
+  overview: string;
+  items: RiskItemData[];
+}
+
+export interface ExecutiveBriefPayload {
+  summary: string;
+  key_points: string[];
+  decisions_needed: string[];
+  next_steps: string[];
+  citations: CitationData[];
+}
+
+export type StructuredReportPayload =
+  | ActionItemsPayload
+  | RiskAnalysisPayload
+  | ExecutiveBriefPayload
+  | Record<string, unknown>;
+
 export interface QueryResultData {
   answer: string;
   citations: CitationData[];
@@ -147,15 +208,17 @@ export interface InsightListData {
 
 export interface ReportResult {
   report_id: string;
+  query: string;
   title: string;
-  type: string;
+  type: ReportType;
   format: string;
   content: string;
+  structured_payload?: StructuredReportPayload | null;
   status: string;
   run_id: string | null;
-  insight_id: string;
-  source_ids: string[];
-  citations: CitationData[];
+  insight_id?: string;
+  source_ids?: string[];
+  citations?: CitationData[];
   created_at?: string;
 }
 
@@ -168,9 +231,11 @@ export interface ReportLineage {
 
 export interface ReportListItem {
   report_id: string;
+  query: string;
   title: string;
-  type: string;
+  type: ReportType;
   format: string;
+  structured_payload?: StructuredReportPayload | null;
   status: string;
   created_at: string;
 }
