@@ -7,4 +7,4 @@ router = APIRouter()
 
 @router.get("/health")
 def health_check(request: Request):
-    return success_response(request, {"status": "ok", "service": "notemesh-api"})
+    return success_response(request, {"status": "ok", "service": "cogniflow-api"})

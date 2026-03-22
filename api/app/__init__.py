@@ -1,1 +1,1 @@
-"""NoteMesh API package."""
+"""Cogniflow API package."""

@@ -1,4 +1,4 @@
-# NoteMesh
+# Cogniflow
 
 Research assistant scaffold organized as two top-level services:
 

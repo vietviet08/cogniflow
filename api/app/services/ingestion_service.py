@@ -104,7 +104,7 @@ def fetch_arxiv_record(arxiv_id: str) -> dict[str, Any]:
 
 
 def fetch_web_article(url: str) -> dict[str, Any]:
-    response = requests.get(url, timeout=20, headers={"User-Agent": "NoteMesh/0.1"})
+    response = requests.get(url, timeout=20, headers={"User-Agent": "Cogniflow/0.1"})
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
