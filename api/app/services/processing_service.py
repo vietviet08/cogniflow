@@ -95,7 +95,7 @@ def process_sources(
                     content=item["content"],
                     chroma_id=item["chroma_id"],
                     embedding_model=get_settings().embedding_model,
-                    metadata=item["metadata"],
+                    chunk_metadata=item["metadata"],
                 )
             )
         collection = get_collection()
@@ -103,7 +103,7 @@ def process_sources(
             ids=[chunk.chroma_id for chunk in chunk_models if chunk.chroma_id],
             documents=[chunk.content for chunk in chunk_models],
             embeddings=vectors,
-            metadatas=[chunk.metadata for chunk in chunk_models],
+            metadatas=[chunk.chunk_metadata for chunk in chunk_models],
         )
 
         for chunk in chunk_models:

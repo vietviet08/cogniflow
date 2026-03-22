@@ -84,7 +84,7 @@ def _seed_processed_artifacts(db_session, project_id):
         content="chunk text",
         chroma_id=str(uuid.uuid4()),
         embedding_model="text-embedding-3-small",
-        metadata={"source_id": str(source.id), "document_id": str(document.id)},
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
     )
     db_session.add(chunk)
 

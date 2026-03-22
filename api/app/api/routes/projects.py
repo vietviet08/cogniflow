@@ -122,7 +122,7 @@ def list_project_chunks(
                     "source_id": str(source.id),
                     "chunk_index": chunk.chunk_index,
                     "embedding_model": chunk.embedding_model,
-                    "metadata": chunk.metadata or {},
+                    "metadata": chunk.chunk_metadata or {},
                     "preview": chunk.content[:240],
                     "title": document.title,
                 }

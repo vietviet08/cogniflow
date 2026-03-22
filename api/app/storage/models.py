@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -98,7 +99,7 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text())
     chroma_id: Mapped[str | None] = mapped_column(Text())
     embedding_model: Mapped[str | None] = mapped_column(String(128))
-    metadata: Mapped[dict | None] = mapped_column(JSON())
+    chunk_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
