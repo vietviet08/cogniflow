@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.services.chroma_service import get_collection
-from app.services.embedding_service import chunk_text, count_tokens, embed_texts
+from app.services.embedding_service import chunk_text, count_tokens, embed_texts_with_config
+from app.services.provider_settings_service import ProviderSettingsError, resolve_provider_api_key
 from app.storage.models import Chunk, Document, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
@@ -31,11 +32,16 @@ def process_sources(
 ) -> dict[str, int | str]:
     settings = get_settings()
     run_repo = ProcessingRunRepository(db)
+    try:
+        openai_api_key = resolve_provider_api_key(db, project_id, "openai")
+    except ProviderSettingsError as exc:
+        raise ProcessingError(str(exc)) from exc
     run_metadata = {
         "source_ids": [str(source.id) for source in sources],
         "source_count": len(sources),
         "chunk_size": chunk_size,
         "chunk_overlap": chunk_overlap,
+        "provider": "openai",
     }
     config_hash = hashlib.sha256(
         json.dumps(
@@ -84,7 +90,11 @@ def process_sources(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         )
-        vectors = embed_texts([item["content"] for item in chunk_payloads])
+        vectors = embed_texts_with_config(
+            [item["content"] for item in chunk_payloads],
+            api_key=openai_api_key,
+            model=settings.embedding_model,
+        )
         chunk_models: list[Chunk] = []
         for item in chunk_payloads:
             chunk_models.append(

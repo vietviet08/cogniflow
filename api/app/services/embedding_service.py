@@ -33,20 +33,30 @@ def chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
 
 
 def embed_texts(texts: Sequence[str]) -> list[list[float]]:
+    return embed_texts_with_config(texts=texts)
+
+
+def embed_texts_with_config(
+    texts: Sequence[str],
+    api_key: str | None = None,
+    model: str | None = None,
+) -> list[list[float]]:
     if not texts:
         return []
 
     settings = get_settings()
-    if not settings.openai_api_key:
+    resolved_api_key = api_key or settings.openai_api_key
+    resolved_model = model or settings.embedding_model
+    if not resolved_api_key:
         raise ValueError("OPENAI_API_KEY is required to create embeddings.")
 
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=resolved_api_key)
     vectors: list[list[float]] = []
     batch_size = 32
 
     for start in range(0, len(texts), batch_size):
         batch = list(texts[start : start + batch_size])
-        response = client.embeddings.create(model=settings.embedding_model, input=batch)
+        response = client.embeddings.create(model=resolved_model, input=batch)
         vectors.extend(item.embedding for item in response.data)
 
     return vectors

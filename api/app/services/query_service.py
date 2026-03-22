@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.services.chroma_service import get_collection
-from app.services.embedding_service import embed_texts
+from app.services.embedding_service import embed_texts_with_config
+from app.services.provider_settings_service import ProviderSettingsError, resolve_provider_api_key
 from app.storage.models import QueryRun
 
 
@@ -24,10 +25,16 @@ def search_knowledge_base(
     filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
-    if not settings.openai_api_key:
-        raise QueryError("OPENAI_API_KEY is required to search the knowledge base.")
+    try:
+        openai_api_key = resolve_provider_api_key(db, project_id, "openai")
+    except ProviderSettingsError as exc:
+        raise QueryError(str(exc)) from exc
 
-    query_embedding = embed_texts([query])[0]
+    query_embedding = embed_texts_with_config(
+        [query],
+        api_key=openai_api_key,
+        model=settings.embedding_model,
+    )[0]
     collection = get_collection()
     result = collection.query(
         query_embeddings=[query_embedding],
@@ -54,14 +61,19 @@ def search_knowledge_base(
         }
         for chunk_id, metadata in zip(ids, metadatas, strict=False)
     ]
-    answer = _generate_answer(query, documents, metadatas)
+    answer = _generate_answer(query, documents, metadatas, api_key=openai_api_key)
     run = _store_query_run(db, project_id, query, top_k, filters, answer)
     return {"answer": answer, "citations": citations, "run_id": str(run.id)}
 
 
-def _generate_answer(query: str, documents: list[str], metadatas: list[dict[str, Any]]) -> str:
+def _generate_answer(
+    query: str,
+    documents: list[str],
+    metadatas: list[dict[str, Any]],
+    api_key: str,
+) -> str:
     settings = get_settings()
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=api_key)
     context_blocks: list[str] = []
     for index, (document, metadata) in enumerate(zip(documents, metadatas, strict=False), start=1):
         title = metadata.get("title", f"Source {index}")
