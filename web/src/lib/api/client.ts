@@ -31,6 +31,13 @@ export function getSourceArtifactUrl(sourceId: string): string {
   return createApiUrl(`/sources/${sourceId}/artifact`);
 }
 
+export function getProjectIntegrationOAuthStartUrl(
+  projectId: string,
+  provider: IntegrationProvider,
+): string {
+  return createApiUrl(`/projects/${projectId}/integrations/${provider}/oauth/start`);
+}
+
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<ApiSuccess<T>> {
   const response = await fetch(createApiUrl(path), {
     ...init,

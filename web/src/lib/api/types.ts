@@ -182,6 +182,7 @@ export interface IntegrationConnectionData {
   provider: IntegrationProvider;
   display_name: string;
   supports_base_url: boolean;
+  supports_oauth: boolean;
   reference_label: string;
   description: string;
   configured: boolean;

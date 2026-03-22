@@ -14,6 +14,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+    getProjectIntegrationOAuthStartUrl,
     deleteProjectIntegrationConnection,
     ingestSourceUrl,
     importProjectIntegrationSource,
@@ -79,6 +80,32 @@ export function SourceManager() {
             setActiveProjectId(active.id);
             setActiveProjectName(active.name);
         }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const provider = params.get("integration");
+        const status = params.get("status");
+        const message = params.get("message");
+        if (!provider || !status) {
+            return;
+        }
+
+        if (status === "connected") {
+            toast.success(`${provider.replace("_", " ")} connected.`);
+        } else if (status === "error") {
+            toast.error(message || "Integration connection failed.");
+        }
+
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete("integration");
+        nextUrl.searchParams.delete("status");
+        nextUrl.searchParams.delete("message");
+        window.history.replaceState({}, "", nextUrl.toString());
     }, []);
 
     const {
@@ -393,6 +420,16 @@ export function SourceManager() {
         }
     }
 
+    function handleOAuthConnect(integration: IntegrationConnectionData) {
+        if (!activeProjectId) {
+            return;
+        }
+        window.location.href = getProjectIntegrationOAuthStartUrl(
+            activeProjectId,
+            integration.provider,
+        );
+    }
+
     if (!activeProjectId) {
         return (
             <PageWrapper
@@ -577,84 +614,117 @@ export function SourceManager() {
                                             </div>
 
                                             <div className="mt-4 grid gap-3">
-                                                <div className="grid gap-1.5">
-                                                    <Label htmlFor={`${integration.provider}-account`}>
-                                                        Account label
-                                                    </Label>
-                                                    <Input
-                                                        id={`${integration.provider}-account`}
-                                                        value={draft.accountLabel}
-                                                        onChange={(event) =>
-                                                            updateIntegrationDraft(
-                                                                integration.provider,
-                                                                "accountLabel",
-                                                                event.target.value,
-                                                            )
-                                                        }
-                                                        placeholder={`${integration.display_name} workspace`}
-                                                    />
-                                                </div>
-                                                {integration.supports_base_url ? (
-                                                    <div className="grid gap-1.5">
-                                                        <Label htmlFor={`${integration.provider}-base-url`}>
-                                                            Base URL
-                                                        </Label>
-                                                        <Input
-                                                            id={`${integration.provider}-base-url`}
-                                                            value={draft.baseUrl}
-                                                            onChange={(event) =>
-                                                                updateIntegrationDraft(
-                                                                    integration.provider,
-                                                                    "baseUrl",
-                                                                    event.target.value,
-                                                                )
-                                                            }
-                                                            placeholder="https://your-domain.atlassian.net"
-                                                        />
+                                                {integration.supports_oauth ? (
+                                                    <div className="rounded-lg border border-dashed border-border bg-background/70 p-3 text-sm">
+                                                        <p className="font-medium">
+                                                            OAuth connection
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-muted-foreground">
+                                                            Click connect to authorize {integration.display_name} with your Google account. Tokens are stored automatically after approval.
+                                                        </p>
+                                                        {integration.configured ? (
+                                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                                Connected as{" "}
+                                                                <span className="font-medium text-foreground">
+                                                                    {integration.account_label ||
+                                                                        integration.display_name}
+                                                                </span>
+                                                            </p>
+                                                        ) : null}
                                                     </div>
-                                                ) : null}
-                                                <div className="grid gap-1.5">
-                                                    <Label htmlFor={`${integration.provider}-token`}>
-                                                        Access token
-                                                    </Label>
-                                                    <Input
-                                                        id={`${integration.provider}-token`}
-                                                        type="password"
-                                                        value={draft.accessToken}
-                                                        onChange={(event) =>
-                                                            updateIntegrationDraft(
-                                                                integration.provider,
-                                                                "accessToken",
-                                                                event.target.value,
-                                                            )
-                                                        }
-                                                        placeholder={
-                                                            integration.configured
-                                                                ? `Saved token: ${integration.masked_access_token || "configured"}`
-                                                                : "Paste access token"
-                                                        }
-                                                    />
-                                                </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor={`${integration.provider}-account`}>
+                                                                Account label
+                                                            </Label>
+                                                            <Input
+                                                                id={`${integration.provider}-account`}
+                                                                value={draft.accountLabel}
+                                                                onChange={(event) =>
+                                                                    updateIntegrationDraft(
+                                                                        integration.provider,
+                                                                        "accountLabel",
+                                                                        event.target.value,
+                                                                    )
+                                                                }
+                                                                placeholder={`${integration.display_name} workspace`}
+                                                            />
+                                                        </div>
+                                                        {integration.supports_base_url ? (
+                                                            <div className="grid gap-1.5">
+                                                                <Label htmlFor={`${integration.provider}-base-url`}>
+                                                                    Base URL
+                                                                </Label>
+                                                                <Input
+                                                                    id={`${integration.provider}-base-url`}
+                                                                    value={draft.baseUrl}
+                                                                    onChange={(event) =>
+                                                                        updateIntegrationDraft(
+                                                                            integration.provider,
+                                                                            "baseUrl",
+                                                                            event.target.value,
+                                                                        )
+                                                                    }
+                                                                    placeholder="https://your-domain.atlassian.net"
+                                                                />
+                                                            </div>
+                                                        ) : null}
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor={`${integration.provider}-token`}>
+                                                                Access token
+                                                            </Label>
+                                                            <Input
+                                                                id={`${integration.provider}-token`}
+                                                                type="password"
+                                                                value={draft.accessToken}
+                                                                onChange={(event) =>
+                                                                    updateIntegrationDraft(
+                                                                        integration.provider,
+                                                                        "accessToken",
+                                                                        event.target.value,
+                                                                    )
+                                                                }
+                                                                placeholder={
+                                                                    integration.configured
+                                                                        ? `Saved token: ${integration.masked_access_token || "configured"}`
+                                                                        : "Paste access token"
+                                                                }
+                                                            />
+                                                        </div>
+                                                    </>
+                                                )}
                                                 <div className="flex flex-wrap gap-2">
                                                     <Button
                                                         type="button"
                                                         size="sm"
                                                         onClick={() =>
-                                                            void handleSaveIntegration(
-                                                                integration,
-                                                            )
+                                                            integration.supports_oauth
+                                                                ? handleOAuthConnect(
+                                                                      integration,
+                                                                  )
+                                                                : void handleSaveIntegration(
+                                                                      integration,
+                                                                  )
                                                         }
                                                         disabled={
+                                                            integration.supports_oauth
+                                                                ? false
+                                                                :
                                                             integrationBusy ===
                                                             `${integration.provider}:connect`
                                                         }
                                                     >
-                                                        {integrationBusy ===
-                                                        `${integration.provider}:connect`
-                                                            ? "Saving..."
-                                                            : integration.configured
-                                                              ? "Update connection"
-                                                              : "Connect"}
+                                                        {integration.supports_oauth
+                                                            ? integration.configured
+                                                                ? "Reconnect with Google"
+                                                                : "Connect with Google"
+                                                            : integrationBusy ===
+                                                                `${integration.provider}:connect`
+                                                              ? "Saving..."
+                                                              : integration.configured
+                                                                ? "Update connection"
+                                                                : "Connect"}
                                                     </Button>
                                                     {integration.configured ? (
                                                         <Button
