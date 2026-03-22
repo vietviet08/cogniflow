@@ -19,6 +19,8 @@ router = APIRouter(prefix="/projects/{project_id}/providers")
 
 class UpsertProviderKeyRequest(BaseModel):
     api_key: str
+    chat_model: str
+    embedding_model: str | None = None
 
 
 @router.get("")
@@ -63,6 +65,8 @@ def save_project_provider_key(
             project_id=project_id,
             provider=provider,
             api_key=payload.api_key,
+            chat_model=payload.chat_model,
+            embedding_model=payload.embedding_model,
         )
     except ProviderSettingsError as exc:
         return error_response(

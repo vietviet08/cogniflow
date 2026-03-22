@@ -25,6 +25,7 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
             ],
             "run_id": "run-1",
             "provider": "gemini",
+            "model": "gemini-2.5-flash",
         }
 
     monkeypatch.setattr(query_route_module, "search_knowledge_base", fake_search_knowledge_base)
@@ -45,6 +46,7 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
     assert body["data"]["answer"] == "The main idea is retrieval grounded on indexed chunks."
     assert body["data"]["run_id"] == "run-1"
     assert body["data"]["provider"] == "gemini"
+    assert body["data"]["model"] == "gemini-2.5-flash"
     assert len(body["data"]["citations"]) == 1
     assert body["data"]["citations"][0]["chunk_id"] == "chunk-1"
 

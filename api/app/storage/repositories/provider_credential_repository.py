@@ -37,6 +37,8 @@ class ProviderCredentialRepository(BaseRepository[ProviderCredential]):
         project_id: uuid.UUID,
         provider: str,
         api_key: str,
+        chat_model: str | None,
+        embedding_model: str | None,
     ) -> ProviderCredential:
         credential = self.get_by_project_provider(project_id, provider)
         if credential is None:
@@ -44,9 +46,13 @@ class ProviderCredentialRepository(BaseRepository[ProviderCredential]):
                 project_id=project_id,
                 provider=provider,
                 api_key=api_key,
+                chat_model=chat_model,
+                embedding_model=embedding_model,
             )
         else:
             credential.api_key = api_key
+            credential.chat_model = chat_model
+            credential.embedding_model = embedding_model
 
         self.db.add(credential)
         self.db.commit()

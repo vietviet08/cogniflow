@@ -7,13 +7,13 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.services.chroma_service import get_collection
 from app.services.embedding_service import embed_texts_with_config
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     normalize_provider,
-    resolve_provider_api_key,
+    resolve_chat_provider_config,
+    resolve_embedding_provider_config,
 )
 from app.storage.models import QueryRun
 
@@ -30,14 +30,13 @@ def search_knowledge_base(
     top_k: int,
     filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    settings = get_settings()
     try:
         answer_provider = normalize_provider(provider)
     except ProviderSettingsError as exc:
         raise QueryError(str(exc)) from exc
 
     try:
-        openai_api_key = resolve_provider_api_key(db, project_id, "openai")
+        openai_embedding_config = resolve_embedding_provider_config(db, project_id, "openai")
     except ProviderSettingsError as exc:
         if answer_provider == "gemini":
             raise QueryError(
@@ -47,14 +46,14 @@ def search_knowledge_base(
         raise QueryError(str(exc)) from exc
 
     try:
-        generation_api_key = resolve_provider_api_key(db, project_id, answer_provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
     except ProviderSettingsError as exc:
         raise QueryError(str(exc)) from exc
 
     query_embedding = embed_texts_with_config(
         [query],
-        api_key=openai_api_key,
-        model=settings.embedding_model,
+        api_key=openai_embedding_config["api_key"],
+        model=openai_embedding_config["embedding_model"],
     )[0]
     collection = get_collection()
     result = collection.query(
@@ -74,6 +73,7 @@ def search_knowledge_base(
             "citations": [],
             "run_id": str(run.id),
             "provider": answer_provider,
+            "model": generation_config["chat_model"],
         }
 
     citations = [
@@ -92,7 +92,8 @@ def search_knowledge_base(
         documents,
         metadatas,
         provider=answer_provider,
-        api_key=generation_api_key,
+        api_key=generation_config["api_key"],
+        model=generation_config["chat_model"],
     )
     run = _store_query_run(db, project_id, query, top_k, filters, answer)
     return {
@@ -100,6 +101,7 @@ def search_knowledge_base(
         "citations": citations,
         "run_id": str(run.id),
         "provider": answer_provider,
+        "model": generation_config["chat_model"],
     }
 
 
@@ -109,10 +111,23 @@ def _generate_answer(
     metadatas: list[dict[str, Any]],
     provider: str,
     api_key: str,
+    model: str,
 ) -> str:
     if provider == "gemini":
-        return _generate_answer_with_gemini(query, documents, metadatas, api_key=api_key)
-    return _generate_answer_with_openai(query, documents, metadatas, api_key=api_key)
+        return _generate_answer_with_gemini(
+            query,
+            documents,
+            metadatas,
+            api_key=api_key,
+            model=model,
+        )
+    return _generate_answer_with_openai(
+        query,
+        documents,
+        metadatas,
+        api_key=api_key,
+        model=model,
+    )
 
 
 def _generate_answer_with_openai(
@@ -120,8 +135,8 @@ def _generate_answer_with_openai(
     documents: list[str],
     metadatas: list[dict[str, Any]],
     api_key: str,
+    model: str,
 ) -> str:
-    settings = get_settings()
     client = OpenAI(api_key=api_key)
     context_blocks: list[str] = []
     for index, (document, metadata) in enumerate(zip(documents, metadatas, strict=False), start=1):
@@ -134,20 +149,19 @@ def _generate_answer_with_openai(
         f"Context:\n{'\n\n'.join(context_blocks)}\n\nQuestion:\n{query}"
     )
 
-    for model in (settings.chat_model, settings.fallback_chat_model):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-            )
-            content = response.choices[0].message.content
-            if content:
-                return content.strip()
-        except Exception:
-            continue
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        content = response.choices[0].message.content
+        if content:
+            return content.strip()
+    except Exception as exc:
+        raise QueryError("Failed to generate an answer from OpenAI.") from exc
 
-    raise QueryError("Failed to generate an answer from the retrieved context.")
+    raise QueryError("OpenAI returned an empty answer.")
 
 
 def _generate_answer_with_gemini(
@@ -155,8 +169,8 @@ def _generate_answer_with_gemini(
     documents: list[str],
     metadatas: list[dict[str, Any]],
     api_key: str,
+    model: str,
 ) -> str:
-    settings = get_settings()
     context_blocks: list[str] = []
     for index, (document, metadata) in enumerate(zip(documents, metadatas, strict=False), start=1):
         title = metadata.get("title", f"Source {index}")
@@ -171,7 +185,7 @@ def _generate_answer_with_gemini(
     client = genai.Client(api_key=api_key)
     try:
         response = client.models.generate_content(
-            model=settings.gemini_chat_model,
+            model=model,
             contents=prompt,
         )
     except Exception as exc:

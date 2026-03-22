@@ -12,12 +12,6 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://postgres:postgres@localhost:5432/cogniflow",
         alias="DATABASE_URL",
     )
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
-    chat_model: str = Field(default="gpt-4o", alias="CHAT_MODEL")
-    fallback_chat_model: str = Field(default="gpt-4o-mini", alias="FALLBACK_CHAT_MODEL")
-    gemini_chat_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHAT_MODEL")
     chroma_host: str = Field(default="localhost", alias="CHROMA_HOST")
     chroma_port: int = Field(default=8001, alias="CHROMA_PORT")
     chroma_collection: str = Field(default="cogniflow-documents", alias="CHROMA_COLLECTION")
