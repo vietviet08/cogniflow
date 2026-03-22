@@ -88,7 +88,13 @@ def _seed_processed_artifacts(db_session, project_id):
     )
     db_session.add(chunk)
 
-    job = Job(project_id=project_id, source_id=source.id, job_type="processing", status="completed", progress=100)
+    job = Job(
+        project_id=project_id,
+        source_id=source.id,
+        job_type="processing",
+        status="completed",
+        progress=100,
+    )
     db_session.add(job)
     db_session.commit()
     db_session.refresh(job)

@@ -68,7 +68,8 @@ def _generate_answer(query: str, documents: list[str], metadatas: list[dict[str,
         context_blocks.append(f"[{index}] {title}\n{document}")
 
     prompt = (
-        "Answer based only on the context below. If the answer is not supported, say you don't know.\n\n"
+        "Answer based only on the context below. "
+        "If the answer is not supported, say you don't know.\n\n"
         f"Context:\n{'\n\n'.join(context_blocks)}\n\nQuestion:\n{query}"
     )
 

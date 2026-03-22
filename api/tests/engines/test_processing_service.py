@@ -1,5 +1,3 @@
-import uuid
-
 from app.services import processing_service
 from app.storage.models import Chunk, Document, Job, ProcessingRun, Project, Source
 
@@ -17,14 +15,21 @@ class FakeCollection:
         self.deleted_ids.extend(ids)
 
 
-def test_process_sources_persists_run_and_replaces_existing_chunks(db_session, monkeypatch, tmp_path):
+def test_process_sources_persists_run_and_replaces_existing_chunks(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
     project = Project(name="Phase 2", description="processing")
     db_session.add(project)
     db_session.commit()
     db_session.refresh(project)
 
     source_path = tmp_path / "notes.txt"
-    source_path.write_text("Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu.", encoding="utf-8")
+    source_path.write_text(
+        "Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu.",
+        encoding="utf-8",
+    )
 
     source = Source(
         project_id=project.id,
@@ -40,9 +45,19 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(db_session, m
 
     fake_collection = FakeCollection()
     monkeypatch.setattr(processing_service, "get_collection", lambda: fake_collection)
-    monkeypatch.setattr(processing_service, "embed_texts", lambda texts: [[float(index + 1)] * 3 for index, _ in enumerate(texts)])
+    monkeypatch.setattr(
+        processing_service,
+        "embed_texts",
+        lambda texts: [[float(index + 1)] * 3 for index, _ in enumerate(texts)],
+    )
 
-    first_job = Job(project_id=project.id, source_id=source.id, job_type="processing", status="running", progress=0)
+    first_job = Job(
+        project_id=project.id,
+        source_id=source.id,
+        job_type="processing",
+        status="running",
+        progress=0,
+    )
     db_session.add(first_job)
     db_session.commit()
     db_session.refresh(first_job)
@@ -56,9 +71,17 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(db_session, m
         chunk_overlap=2,
     )
 
-    first_chunk_ids = [chunk.chroma_id for chunk in db_session.query(Chunk).all() if chunk.chroma_id]
+    first_chunk_ids = [
+        chunk.chroma_id for chunk in db_session.query(Chunk).all() if chunk.chroma_id
+    ]
 
-    second_job = Job(project_id=project.id, source_id=source.id, job_type="processing", status="running", progress=0)
+    second_job = Job(
+        project_id=project.id,
+        source_id=source.id,
+        job_type="processing",
+        status="running",
+        progress=0,
+    )
     db_session.add(second_job)
     db_session.commit()
     db_session.refresh(second_job)

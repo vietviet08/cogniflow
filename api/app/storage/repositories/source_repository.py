@@ -37,7 +37,9 @@ class SourceRepository(BaseRepository[Source]):
 
     def list_by_project(self, project_id: uuid.UUID) -> list[Source]:
         return list(
-            self.db.query(Source).filter(Source.project_id == project_id).order_by(Source.created_at.asc())
+            self.db.query(Source)
+            .filter(Source.project_id == project_id)
+            .order_by(Source.created_at.asc())
         )
 
     def list_by_ids(self, project_id: uuid.UUID, source_ids: list[uuid.UUID]) -> list[Source]:
