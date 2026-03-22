@@ -67,6 +67,7 @@ export interface CitationData {
   title?: string;
   url?: string;
   page_number?: number | null;
+  quote?: string;
 }
 
 export type ReportType =

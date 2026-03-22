@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
 
@@ -20,9 +20,16 @@ export function CitationPdfPanel({
   onClose: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const pageWrapperRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(720);
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(citation.page_number || 1);
+  const [textLayerVersion, setTextLayerVersion] = useState(0);
+
+  const highlightTargets = useMemo(
+    () => buildHighlightTargets(citation.quote),
+    [citation.quote],
+  );
 
   useEffect(() => {
     setPageNumber(citation.page_number || 1);
@@ -43,6 +50,54 @@ export function CitationPdfPanel({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const layer = pageWrapperRef.current?.querySelector(
+      ".react-pdf__Page__textContent",
+    );
+    if (!layer) {
+      return;
+    }
+
+    const spans = Array.from(layer.querySelectorAll("span"));
+    let firstHighlighted: HTMLSpanElement | null = null;
+
+    for (const span of spans) {
+      if (!(span instanceof HTMLSpanElement)) {
+        continue;
+      }
+      if (span.dataset.notemeshHighlight === "true") {
+        span.dataset.notemeshHighlight = "false";
+        span.style.backgroundColor = "";
+        span.style.borderRadius = "";
+        span.style.boxShadow = "";
+      }
+      const text = normalizeText(span.textContent || "");
+      if (!text || text.length < 8) {
+        continue;
+      }
+      const isMatch = highlightTargets.some(
+        (target) => target.includes(text) || text.includes(target),
+      );
+      if (!isMatch) {
+        continue;
+      }
+      span.dataset.notemeshHighlight = "true";
+      span.style.backgroundColor = "rgba(250, 204, 21, 0.45)";
+      span.style.borderRadius = "0.2rem";
+      span.style.boxShadow = "0 0 0 1px rgba(202, 138, 4, 0.25)";
+      if (!firstHighlighted) {
+        firstHighlighted = span;
+      }
+    }
+
+    if (firstHighlighted) {
+      firstHighlighted.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    }
+  }, [highlightTargets, pageNumber, textLayerVersion]);
 
   const artifactUrl = citation.source_id
     ? getSourceArtifactUrl(citation.source_id)
@@ -135,14 +190,50 @@ export function CitationPdfPanel({
             setPageNumber((current) => Math.min(Math.max(current, 1), loadedPages));
           }}
         >
-          <Page
-            pageNumber={pageNumber}
-            width={Math.max(containerWidth - 32, 280)}
-            renderAnnotationLayer={false}
-            renderTextLayer={false}
-          />
+          <div ref={pageWrapperRef}>
+            <Page
+              pageNumber={pageNumber}
+              width={Math.max(containerWidth - 32, 280)}
+              renderAnnotationLayer={false}
+              renderTextLayer
+              onRenderTextLayerSuccess={() =>
+                setTextLayerVersion((current) => current + 1)
+              }
+            />
+          </div>
         </Document>
+        {citation.quote ? (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950">
+            <p className="font-medium">Highlighted evidence</p>
+            <p className="mt-1 leading-5">{citation.quote}</p>
+          </div>
+        ) : null}
       </div>
     </aside>
   );
+}
+
+function buildHighlightTargets(quote?: string) {
+  if (!quote) {
+    return [];
+  }
+
+  const compact = quote.replace(/\u2026/g, " ").replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return [];
+  }
+
+  const fragments = compact
+    .split(/[.!?]\s+/)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length >= 12);
+
+  const candidates = fragments.length > 0 ? fragments : [compact];
+  return Array.from(
+    new Set(candidates.map((fragment) => normalizeText(fragment)).filter(Boolean)),
+  ).slice(0, 6);
+}
+
+function normalizeText(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
