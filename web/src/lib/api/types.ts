@@ -58,6 +58,7 @@ export interface QueryResultData {
   answer: string;
   citations: CitationData[];
   run_id: string;
+  provider: string;
 }
 
 export interface ProviderSettingData {

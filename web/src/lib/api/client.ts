@@ -111,6 +111,7 @@ export function processSources(payload: {
 export function queryKnowledge(payload: {
   projectId: string;
   query: string;
+  provider?: string;
   topK?: number;
 }): Promise<ApiSuccess<QueryResultData>> {
   return requestJson<QueryResultData>("/query/search", {
@@ -118,6 +119,7 @@ export function queryKnowledge(payload: {
     body: JSON.stringify({
       project_id: payload.projectId,
       query: payload.query,
+      provider: payload.provider ?? "openai",
       top_k: payload.topK ?? 5,
     }),
   });

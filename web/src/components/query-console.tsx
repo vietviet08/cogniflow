@@ -4,12 +4,13 @@ import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Send, BookOpen, Quote, ExternalLink } from "lucide-react";
 
-import { queryKnowledge } from "@/lib/api/client";
-import type { CitationData } from "@/lib/api/types";
+import { listProjectProviderSettings, queryKnowledge } from "@/lib/api/client";
+import type { CitationData, ProviderSettingData } from "@/lib/api/types";
 import { getActiveProject } from "@/lib/project-store";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,9 @@ export function QueryConsole() {
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<CitationData[]>([]);
+  const [provider, setProvider] = useState("openai");
+  const [answerProvider, setAnswerProvider] = useState("");
+  const [providerSettings, setProviderSettings] = useState<ProviderSettingData[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -33,6 +37,29 @@ export function QueryConsole() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!activeProjectId) {
+      return;
+    }
+
+    let ignore = false;
+    listProjectProviderSettings(activeProjectId)
+      .then((response) => {
+        if (!ignore) {
+          setProviderSettings(response.data.items);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setProviderSettings([]);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [activeProjectId]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeProjectId) {
@@ -40,18 +67,32 @@ export function QueryConsole() {
       return;
     }
     setBusy(true);
-    const toastId = toast.loading("Retrieving context and generating answer...");
+    const toastId = toast.loading(`Retrieving context and generating answer with ${provider}...`);
     try {
-      const response = await queryKnowledge({ projectId: activeProjectId, query, topK: 5 });
+      const response = await queryKnowledge({
+        projectId: activeProjectId,
+        query,
+        provider,
+        topK: 5,
+      });
       setAnswer(response.data.answer);
       setCitations(response.data.citations);
-      toast.success(`Run ${response.data.run_id} completed.`, { id: toastId });
+      setAnswerProvider(response.data.provider);
+      toast.success(`Run ${response.data.run_id} completed with ${response.data.provider}.`, {
+        id: toastId,
+      });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to query the knowledge base.", { id: toastId });
+      toast.error(
+        error instanceof Error ? error.message : "Failed to query the knowledge base.",
+        { id: toastId },
+      );
     } finally {
       setBusy(false);
     }
   }
+
+  const providerState = providerSettings.find((item) => item.provider === provider);
+  const openaiState = providerSettings.find((item) => item.provider === "openai");
 
   return (
     <PageWrapper
@@ -66,10 +107,45 @@ export function QueryConsole() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Ask a Question</CardTitle>
-          <CardDescription>Use natural language to search across your indexed documents.</CardDescription>
+          <CardDescription>
+            Use natural language to search across your indexed documents, then choose which model
+            answers from the retrieved context.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="provider-select">Answer provider</Label>
+                <select
+                  id="provider-select"
+                  value={provider}
+                  onChange={(event) => setProvider(event.target.value)}
+                  disabled={busy}
+                  className={
+                    "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm "
+                    + "shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 "
+                    + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  }
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="provider-status">Provider status</Label>
+                <Input
+                  id="provider-status"
+                  value={
+                    providerState
+                      ? `${providerState.configured ? "Configured" : "Missing"} `
+                        + `via ${providerState.configured_source}`
+                      : "Unknown"
+                  }
+                  readOnly
+                />
+              </div>
+            </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="query-input">Question</Label>
               <Textarea
@@ -82,6 +158,15 @@ export function QueryConsole() {
                 disabled={busy}
               />
             </div>
+            {provider === "gemini" ? (
+              <p className="text-xs text-muted-foreground">
+                Gemini is used for answer generation. Retrieval still depends on this project being
+                indexed with OpenAI embeddings, so an OpenAI key must also be configured.
+                {openaiState
+                  ? ` Current OpenAI status: ${openaiState.configured ? "configured" : "missing"}.`
+                  : ""}
+              </p>
+            ) : null}
             <Button type="submit" disabled={busy || !activeProjectId} className="w-fit gap-2">
               {busy ? <Spinner size="sm" /> : <Send className="h-4 w-4" />}
               {busy ? "Searching..." : "Ask"}
@@ -97,6 +182,11 @@ export function QueryConsole() {
             <div className="flex items-center gap-2">
               <BookOpen className="h-4 w-4 text-primary" />
               <CardTitle className="text-base">Answer</CardTitle>
+              {answerProvider ? (
+                <Badge variant="secondary" className="ml-auto">
+                  {answerProvider}
+                </Badge>
+              ) : null}
             </div>
           </CardHeader>
           <CardContent>
