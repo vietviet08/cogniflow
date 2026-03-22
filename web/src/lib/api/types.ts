@@ -61,10 +61,12 @@ export interface SourceListData {
 export interface CitationData {
   citation_id: string;
   source_id: string;
+  source_type?: string;
   document_id: string;
   chunk_id: string;
   title?: string;
   url?: string;
+  page_number?: number | null;
 }
 
 export type ReportType =

@@ -38,6 +38,7 @@ import type {
 } from "@/lib/api/types";
 import { getActiveProject } from "@/lib/project-store";
 
+import { useCitationViewer } from "@/components/citation-viewer-provider";
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -154,6 +155,18 @@ function getStatusVariant(status: string) {
 }
 
 function CitationList({ citations }: { citations: CitationData[] }) {
+    const { openCitation } = useCitationViewer();
+
+    function handleCitationClick(citation: CitationData) {
+        if (citation.source_type === "file" && citation.source_id) {
+            openCitation(citation);
+            return;
+        }
+        if (citation.url) {
+            window.open(citation.url, "_blank", "noopener,noreferrer");
+        }
+    }
+
     if (!citations.length) {
         return (
             <p className="text-xs text-muted-foreground">
@@ -171,29 +184,20 @@ function CitationList({ citations }: { citations: CitationData[] }) {
                     citation.source_id ||
                     `Source ${index + 1}`;
 
-                if (citation.url) {
-                    return (
-                        <a
-                            key={`${citation.chunk_id}-${index}`}
-                            href={citation.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex"
-                        >
-                            <Badge variant="outline" className="cursor-pointer">
-                                {label}
-                            </Badge>
-                        </a>
-                    );
-                }
-
                 return (
-                    <Badge
+                    <button
                         key={`${citation.chunk_id}-${index}`}
-                        variant="outline"
+                        type="button"
+                        onClick={() => handleCitationClick(citation)}
+                        className="inline-flex"
                     >
-                        {label}
-                    </Badge>
+                        <Badge variant="outline" className="cursor-pointer">
+                            {label}
+                            {citation.page_number
+                                ? ` · p.${citation.page_number}`
+                                : ""}
+                        </Badge>
+                    </button>
                 );
             })}
         </div>
