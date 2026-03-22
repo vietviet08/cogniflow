@@ -183,3 +183,70 @@ export function discoverProjectProviderModels(payload: {
     },
   );
 }
+
+// ---- Phase 2: Insight Layer ----
+import type {
+  InsightResult,
+  InsightListData,
+  ReportResult,
+  ReportListData,
+  ReportLineage,
+} from "./types";
+
+export function generateInsight(payload: {
+  projectId: string;
+  query: string;
+  provider?: string;
+  maxSources?: number;
+}): Promise<ApiSuccess<InsightResult>> {
+  return requestJson<InsightResult>("/insights/generate", {
+    method: "POST",
+    body: JSON.stringify({
+      project_id: payload.projectId,
+      query: payload.query,
+      provider: payload.provider ?? "openai",
+      evidence_scope: { max_sources: payload.maxSources ?? 20 },
+    }),
+  });
+}
+
+export function getInsight(insightId: string): Promise<ApiSuccess<InsightResult>> {
+  return requestJson<InsightResult>(`/insights/${insightId}`);
+}
+
+export function listInsights(projectId: string): Promise<ApiSuccess<InsightListData>> {
+  return requestJson<InsightListData>(`/projects/${projectId}/insights`);
+}
+
+// ---- Phase 3: Report Layer ----
+
+export function generateReport(payload: {
+  projectId: string;
+  query: string;
+  type?: "research_brief" | "summary" | "comparison";
+  format?: string;
+  provider?: string;
+}): Promise<ApiSuccess<ReportResult>> {
+  return requestJson<ReportResult>("/reports/generate", {
+    method: "POST",
+    body: JSON.stringify({
+      project_id: payload.projectId,
+      query: payload.query,
+      type: payload.type ?? "research_brief",
+      format: payload.format ?? "markdown",
+      provider: payload.provider ?? "openai",
+    }),
+  });
+}
+
+export function getReport(reportId: string): Promise<ApiSuccess<ReportResult>> {
+  return requestJson<ReportResult>(`/reports/${reportId}`);
+}
+
+export function getReportLineage(reportId: string): Promise<ApiSuccess<ReportLineage>> {
+  return requestJson<ReportLineage>(`/reports/${reportId}/lineage`);
+}
+
+export function listReports(projectId: string): Promise<ApiSuccess<ReportListData>> {
+  return requestJson<ReportListData>(`/projects/${projectId}/reports`);
+}

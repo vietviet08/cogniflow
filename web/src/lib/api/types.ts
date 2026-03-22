@@ -93,3 +93,76 @@ export interface ProviderModelsData {
   available_embedding_models: string[];
   source: "payload" | "project";
 }
+
+// ---- Phase 2: Insight Layer ----
+
+export interface InsightFinding {
+  theme: string;
+  points: string[];
+}
+
+export interface InsightResult {
+  insight_id: string;
+  project_id: string;
+  query: string;
+  summary: string;
+  findings: InsightFinding[];
+  citations: CitationData[];
+  run_id: string | null;
+  provider: string;
+  model: string;
+  status: string;
+  created_at: string;
+}
+
+export interface InsightListItem {
+  insight_id: string;
+  query: string;
+  summary: string | null;
+  provider: string | null;
+  model: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface InsightListData {
+  items: InsightListItem[];
+  total: number;
+}
+
+// ---- Phase 3: Report Layer ----
+
+export interface ReportResult {
+  report_id: string;
+  title: string;
+  type: string;
+  format: string;
+  content: string;
+  status: string;
+  run_id: string | null;
+  insight_id: string;
+  source_ids: string[];
+  citations: CitationData[];
+  created_at?: string;
+}
+
+export interface ReportLineage {
+  report_id: string;
+  insight_ids: string[];
+  source_ids: string[];
+  run_id: string | null;
+}
+
+export interface ReportListItem {
+  report_id: string;
+  title: string;
+  type: string;
+  format: string;
+  status: string;
+  created_at: string;
+}
+
+export interface ReportListData {
+  items: ReportListItem[];
+  total: number;
+}
