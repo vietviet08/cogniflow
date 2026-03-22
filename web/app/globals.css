@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "react-pdf/dist/Page/TextLayer.css";
 @plugin "@tailwindcss/typography";
 
 @theme {
