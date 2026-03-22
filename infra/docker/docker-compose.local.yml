@@ -1,24 +1,24 @@
 services:
   postgres:
     image: postgres:16
-    container_name: notemesh-postgres
+    container_name: cogniflow-postgres
     environment:
-      POSTGRES_DB: notemesh
+      POSTGRES_DB: cogniflow
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:
-      - notemesh-postgres-data:/var/lib/postgresql/data
+      - cogniflow-postgres-data:/var/lib/postgresql/data
 
   chroma:
     image: chromadb/chroma:1.0.20
-    container_name: notemesh-chroma
+    container_name: cogniflow-chroma
     ports:
       - "8001:8000"
     volumes:
-      - notemesh-chroma-data:/data
+      - cogniflow-chroma-data:/data
 
 volumes:
-  notemesh-postgres-data:
-  notemesh-chroma-data:
+  cogniflow-postgres-data:
+  cogniflow-chroma-data:

@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "notemesh-api"
+name = "cogniflow-api"
 version = "0.1.0"
-description = "Backend API service for NoteMesh"
+description = "Backend API service for Cogniflow"
 requires-python = ">=3.12"
 
 [tool.ruff]

@@ -6,8 +6,8 @@ export interface StoredProject {
   description: string | null;
 }
 
-const ACTIVE_PROJECT_KEY = "notemesh.active-project";
-const PROJECT_LIST_KEY = "notemesh.projects";
+const ACTIVE_PROJECT_KEY = "cogniflow.active-project";
+const PROJECT_LIST_KEY = "cogniflow.projects";
 
 export function getActiveProject(): StoredProject | null {
   if (typeof window === "undefined") {
