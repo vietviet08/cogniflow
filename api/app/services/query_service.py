@@ -19,7 +19,19 @@ from app.storage.models import QueryRun
 
 
 class QueryError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "QUERY_FAILED",
+        status_code: int = 422,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.status_code = status_code
+        self.details = details or {}
 
 
 def search_knowledge_base(
@@ -50,18 +62,33 @@ def search_knowledge_base(
     except ProviderSettingsError as exc:
         raise QueryError(str(exc)) from exc
 
-    query_embedding = embed_texts_with_config(
-        [query],
-        api_key=openai_embedding_config["api_key"],
-        model=openai_embedding_config["embedding_model"],
-        base_url=openai_embedding_config.get("base_url"),
-    )[0]
+    try:
+        query_embedding = embed_texts_with_config(
+            [query],
+            api_key=openai_embedding_config["api_key"],
+            model=openai_embedding_config["embedding_model"],
+            base_url=openai_embedding_config.get("base_url"),
+        )[0]
+    except Exception as exc:
+        raise _provider_query_error(
+            provider="openai",
+            stage="retrieval",
+            exc=exc,
+        ) from exc
     collection = get_collection()
-    result = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-        where=_build_where_clause(project_id, filters),
-    )
+    try:
+        result = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=_build_where_clause(project_id, filters),
+        )
+    except Exception as exc:
+        raise QueryError(
+            "Failed to retrieve context from the vector store.",
+            code="QUERY_RETRIEVAL_ERROR",
+            status_code=503,
+            details={"stage": "retrieval"},
+        ) from exc
 
     documents = result.get("documents", [[]])[0]
     metadatas = result.get("metadatas", [[]])[0]
@@ -167,7 +194,11 @@ def _generate_answer_with_openai(
         if content:
             return content.strip()
     except Exception as exc:
-        raise QueryError("Failed to generate an answer from OpenAI.") from exc
+        raise _provider_query_error(
+            provider="openai",
+            stage="generation",
+            exc=exc,
+        ) from exc
 
     raise QueryError("OpenAI returned an empty answer.")
 
@@ -197,7 +228,11 @@ def _generate_answer_with_gemini(
             contents=prompt,
         )
     except Exception as exc:
-        raise QueryError("Failed to generate an answer from Gemini.") from exc
+        raise _provider_query_error(
+            provider="gemini",
+            stage="generation",
+            exc=exc,
+        ) from exc
     finally:
         client.close()
 
@@ -238,3 +273,52 @@ def _build_where_clause(project_id: uuid.UUID, filters: dict[str, Any] | None) -
     if isinstance(source_types, list) and source_types:
         where["source_type"] = {"$in": source_types}
     return where
+
+
+def _provider_query_error(provider: str, stage: str, exc: Exception) -> QueryError:
+    details: dict[str, Any] = {
+        "provider": provider,
+        "stage": stage,
+    }
+    upstream_status = _extract_upstream_status(exc)
+    if upstream_status is not None:
+        details["upstream_status"] = upstream_status
+
+    reason = _sanitize_exception_reason(exc)
+    if reason:
+        details["reason"] = reason
+
+    provider_label = "OpenAI" if provider == "openai" else "Gemini"
+    return QueryError(
+        f"{provider_label} request failed during {stage}.",
+        code="QUERY_UPSTREAM_ERROR",
+        status_code=502,
+        details=details,
+    )
+
+
+def _extract_upstream_status(exc: Exception) -> int | None:
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+
+    response = getattr(exc, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+    return None
+
+
+def _sanitize_exception_reason(exc: Exception) -> str | None:
+    raw = str(exc).strip()
+    if not raw:
+        return None
+
+    lowered = raw.lower()
+    if "<!doctype html" in lowered or "<html" in lowered:
+        return "Upstream provider returned an HTML error page."
+
+    compact = " ".join(raw.split())
+    if len(compact) > 240:
+        compact = f"{compact[:237]}..."
+    return compact

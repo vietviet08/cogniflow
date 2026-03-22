@@ -1,6 +1,7 @@
 import uuid
 
 from app.api.routes import query as query_route_module
+from app.services.query_service import QueryError
 
 
 def test_query_search_returns_answer_and_citations(client, monkeypatch):
@@ -49,6 +50,64 @@ def test_query_search_returns_answer_and_citations(client, monkeypatch):
     assert body["data"]["model"] == "gemini-2.5-flash"
     assert len(body["data"]["citations"]) == 1
     assert body["data"]["citations"][0]["chunk_id"] == "chunk-1"
+
+
+def test_query_search_returns_structured_upstream_error(client, monkeypatch):
+    project = _create_project(client)
+
+    def fake_search_knowledge_base(db, project_id, query, provider, top_k, filters):
+        raise QueryError(
+            "OpenAI request failed during retrieval.",
+            code="QUERY_UPSTREAM_ERROR",
+            status_code=502,
+            details={
+                "provider": "openai",
+                "stage": "retrieval",
+                "reason": "Upstream provider returned an HTML error page.",
+            },
+        )
+
+    monkeypatch.setattr(query_route_module, "search_knowledge_base", fake_search_knowledge_base)
+
+    response = client.post(
+        "/api/v1/query/search",
+        json={
+            "project_id": project["id"],
+            "query": "What is the main idea?",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 502
+    body = response.json()
+    assert body["error"]["code"] == "QUERY_UPSTREAM_ERROR"
+    assert body["error"]["details"]["provider"] == "openai"
+    assert body["error"]["details"]["stage"] == "retrieval"
+    assert body["error"]["details"]["reason"] == "Upstream provider returned an HTML error page."
+
+
+def test_query_search_hides_unexpected_raw_exception_details(client, monkeypatch):
+    project = _create_project(client)
+
+    def fake_search_knowledge_base(db, project_id, query, provider, top_k, filters):
+        raise RuntimeError("<!DOCTYPE html><html><body>bad gateway</body></html>")
+
+    monkeypatch.setattr(query_route_module, "search_knowledge_base", fake_search_knowledge_base)
+
+    response = client.post(
+        "/api/v1/query/search",
+        json={
+            "project_id": project["id"],
+            "query": "What is the main idea?",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error"]["code"] == "QUERY_INTERNAL_ERROR"
+    assert body["error"]["message"] == "Unexpected query failure."
+    assert body["error"]["details"] == {}
 
 
 def _create_project(client):

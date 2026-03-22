@@ -43,17 +43,17 @@ def search_knowledge(payload: SearchRequest, request: Request, db: Session = Dep
     except QueryError as exc:
         return error_response(
             request,
-            code="QUERY_FAILED",
-            message=str(exc),
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
         )
-    except Exception as exc:
+    except Exception:
         return error_response(
             request,
             code="QUERY_INTERNAL_ERROR",
             message="Unexpected query failure.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            details={"reason": str(exc)},
         )
 
     return success_response(
