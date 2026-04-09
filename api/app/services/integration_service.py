@@ -36,28 +36,7 @@ INTEGRATION_PROVIDERS: dict[str, dict[str, Any]] = {
         "supports_base_url": False,
         "supports_oauth": True,
         "reference_label": "File URL or ID",
-        "description": "Import a Drive PDF or Google Doc snapshot into this project.",
-    },
-    "notion": {
-        "display_name": "Notion",
-        "supports_base_url": False,
-        "supports_oauth": False,
-        "reference_label": "Page URL or ID",
-        "description": "Import a Notion page as a text snapshot.",
-    },
-    "slack": {
-        "display_name": "Slack",
-        "supports_base_url": False,
-        "supports_oauth": False,
-        "reference_label": "Thread permalink",
-        "description": "Import a Slack thread transcript into this project.",
-    },
-    "confluence": {
-        "display_name": "Confluence",
-        "supports_base_url": True,
-        "supports_oauth": False,
-        "reference_label": "Page URL or ID",
-        "description": "Import a Confluence page snapshot using the site API.",
+        "description": "Import a Drive PDF, Google Doc, or text file into this project.",
     },
 }
 
@@ -266,10 +245,17 @@ def build_google_drive_oauth_start_url(
 ) -> str:
     settings = get_settings()
     if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
+        missing_fields: list[str] = []
+        if not settings.google_oauth_client_id:
+            missing_fields.append("GOOGLE_OAUTH_CLIENT_ID")
+        if not settings.google_oauth_client_secret:
+            missing_fields.append("GOOGLE_OAUTH_CLIENT_SECRET")
         raise IntegrationError(
-            "Google OAuth is not configured on the server.",
+            "Google OAuth is not configured on the server. "
+            "Set the required Google OAuth env vars in api/.env.",
             code="INTEGRATION_OAUTH_NOT_CONFIGURED",
             status_code=503,
+            details={"missing_env_vars": missing_fields},
         )
 
     state = _encode_oauth_state(
@@ -300,10 +286,17 @@ def complete_google_drive_oauth_callback(
 ) -> OAuthCallbackResult:
     settings = get_settings()
     if not settings.google_oauth_client_id or not settings.google_oauth_client_secret:
+        missing_fields: list[str] = []
+        if not settings.google_oauth_client_id:
+            missing_fields.append("GOOGLE_OAUTH_CLIENT_ID")
+        if not settings.google_oauth_client_secret:
+            missing_fields.append("GOOGLE_OAUTH_CLIENT_SECRET")
         raise IntegrationError(
-            "Google OAuth is not configured on the server.",
+            "Google OAuth is not configured on the server. "
+            "Set the required Google OAuth env vars in api/.env.",
             code="INTEGRATION_OAUTH_NOT_CONFIGURED",
             status_code=503,
+            details={"missing_env_vars": missing_fields},
         )
     if not code or not state:
         raise IntegrationError(
@@ -389,12 +382,6 @@ def _fetch_imported_source(
 ) -> ImportedSourcePayload:
     if connection.provider == "google_drive":
         return _import_google_drive_source(connection, item_reference)
-    if connection.provider == "notion":
-        return _import_notion_source(connection, item_reference)
-    if connection.provider == "slack":
-        return _import_slack_source(connection, item_reference)
-    if connection.provider == "confluence":
-        return _import_confluence_source(connection, item_reference)
     raise IntegrationError("Unsupported integration provider.")
 
 
@@ -406,7 +393,7 @@ def _import_google_drive_source(
     headers = {"Authorization": f"Bearer {connection.access_token}"}
     metadata_response = requests.get(
         f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}",
-        params={"fields": "id,name,mimeType,webViewLink"},
+        params={"fields": "id,name,mimeType,webViewLink", "supportsAllDrives": "true"},
         headers=headers,
         timeout=20,
     )
@@ -453,7 +440,7 @@ def _import_google_drive_source(
     if mime_type == GOOGLE_PDF_MIME or name.lower().endswith(".pdf"):
         file_response = requests.get(
             f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}",
-            params={"alt": "media"},
+            params={"alt": "media", "supportsAllDrives": "true"},
             headers=headers,
             timeout=30,
         )
@@ -471,7 +458,7 @@ def _import_google_drive_source(
     if name.lower().endswith((".txt", ".md")) or mime_type.startswith("text/"):
         file_response = requests.get(
             f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}",
-            params={"alt": "media"},
+            params={"alt": "media", "supportsAllDrives": "true"},
             headers=headers,
             timeout=30,
         )

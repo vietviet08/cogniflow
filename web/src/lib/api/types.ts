@@ -172,11 +172,7 @@ export interface ProviderModelsData {
   source: "payload" | "project";
 }
 
-export type IntegrationProvider =
-  | "google_drive"
-  | "notion"
-  | "slack"
-  | "confluence";
+export type IntegrationProvider = "google_drive";
 
 export interface IntegrationConnectionData {
   provider: IntegrationProvider;

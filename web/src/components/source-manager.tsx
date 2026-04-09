@@ -564,7 +564,7 @@ export function SourceManager() {
                                 <PlugZap className="h-4 w-4" /> One-Click Integrations
                             </CardTitle>
                             <CardDescription>
-                                Connect Google Drive, Notion, Slack, and Confluence, then import a file, page, or thread snapshot directly into this project.
+                                Connect Google Drive, then import a file directly into this project.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col gap-4">
@@ -620,7 +620,7 @@ export function SourceManager() {
                                                             OAuth connection
                                                         </p>
                                                         <p className="mt-1 text-xs text-muted-foreground">
-                                                            Click connect to authorize {integration.display_name} with your Google account. Tokens are stored automatically after approval.
+                                                            Click connect to authorize {integration.display_name} with your Google account. Access and refresh tokens are stored automatically after approval.
                                                         </p>
                                                         {integration.configured ? (
                                                             <p className="mt-2 text-xs text-muted-foreground">
@@ -766,6 +766,9 @@ export function SourceManager() {
                                                         placeholder={integration.reference_label}
                                                         disabled={!integration.configured}
                                                     />
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Supports Google Docs, PDF files, and plain text files from Drive.
+                                                    </p>
                                                 </div>
                                                 <Button
                                                     type="button"
