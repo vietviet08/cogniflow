@@ -1,0 +1,18 @@
+---
+# site.yml — Master playbook: chạy tất cả
+
+- name: "Setup App Server"
+  hosts: app_servers
+  become: true
+  roles:
+      - common
+      - docker
+      - app_server
+
+- name: "Setup Jenkins Server"
+  hosts: jenkins_servers
+  become: true
+  roles:
+      - common
+      - docker
+      - jenkins

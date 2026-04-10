@@ -41,10 +41,22 @@ def _sanitize_filename(filename: str) -> str:
 
 def save_uploaded_file(source_id: uuid.UUID, upload: UploadFile) -> tuple[str, str]:
     filename = _sanitize_filename(upload.filename or "upload.bin")
-    destination = _source_directory(source_id) / filename
     content = upload.file.read()
+    return save_source_bytes(source_id, filename, content)
+
+
+def save_source_bytes(source_id: uuid.UUID, filename: str, content: bytes) -> tuple[str, str]:
+    destination = _source_directory(source_id) / _sanitize_filename(filename)
     destination.write_bytes(content)
     checksum = hashlib.sha256(content).hexdigest()
+    return str(destination), checksum
+
+
+def save_source_snapshot(source_id: uuid.UUID, payload: dict[str, Any]) -> tuple[str, str]:
+    destination = _source_directory(source_id) / "source.json"
+    raw = json.dumps(payload, ensure_ascii=True, indent=2)
+    destination.write_text(raw, encoding="utf-8")
+    checksum = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return str(destination), checksum
 
 
@@ -53,12 +65,9 @@ def ingest_remote_source(source_id: uuid.UUID, url: str) -> tuple[str, str, str]
     payload = fetch_arxiv_record(arxiv_id) if arxiv_id else fetch_web_article(url)
     payload["ingested_from"] = url
 
-    destination = _source_directory(source_id) / "source.json"
-    raw = json.dumps(payload, ensure_ascii=True, indent=2)
-    destination.write_text(raw, encoding="utf-8")
-    checksum = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    destination, checksum = save_source_snapshot(source_id, payload)
     source_type = "arxiv" if arxiv_id else "url"
-    return str(destination), checksum, source_type
+    return destination, checksum, source_type
 
 
 def extract_arxiv_id(reference: str) -> str | None:

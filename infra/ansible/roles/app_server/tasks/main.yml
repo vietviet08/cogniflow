@@ -1,0 +1,72 @@
+---
+# roles/app_server/tasks/main.yml — Deploy FastAPI + ChromaDB
+
+- name: Create app directory
+  file:
+      path: "{{ app_dir }}"
+      state: directory
+      owner: "{{ app_user }}"
+      group: "{{ app_user }}"
+      mode: "0755"
+  become: true
+
+- name: Create subdirectories
+  file:
+      path: "{{ app_dir }}/{{ item }}"
+      state: directory
+      owner: "{{ app_user }}"
+      group: "{{ app_user }}"
+      mode: "0755"
+  loop:
+      - data/uploads
+      - data/chromadb
+      - logs
+  become: true
+
+- name: Deploy docker-compose.yml
+  template:
+      src: docker-compose.yml.j2
+      dest: "{{ app_dir }}/docker-compose.yml"
+      owner: "{{ app_user }}"
+      group: "{{ app_user }}"
+      mode: "0644"
+  become: true
+  notify: restart services
+
+- name: Deploy .env file
+  template:
+      src: api.env.j2
+      dest: "{{ app_dir }}/.env"
+      owner: "{{ app_user }}"
+      group: "{{ app_user }}"
+      mode: "0600" # secrets — only owner readable
+  become: true
+  notify: restart services
+
+- name: Pull latest Docker images
+  community.docker.docker_compose_v2:
+      project_src: "{{ app_dir }}"
+      pull: always
+  become: true
+  become_user: "{{ app_user }}"
+
+- name: Start services with docker compose
+  community.docker.docker_compose_v2:
+      project_src: "{{ app_dir }}"
+      state: present
+  become: true
+  become_user: "{{ app_user }}"
+
+- name: Wait for FastAPI health check
+  uri:
+      url: "http://localhost:8000/health"
+      status_code: 200
+      timeout: 30
+  retries: 10
+  delay: 5
+  register: health_result
+  until: health_result.status == 200
+
+- name: Show FastAPI health status
+  debug:
+      msg: "FastAPI is healthy ✓"

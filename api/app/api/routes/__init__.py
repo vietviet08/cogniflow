@@ -4,6 +4,7 @@ from app.api.routes import (
     health,
     chat,
     insights,
+    integrations,
     jobs,
     provider_settings,
     processing,
@@ -18,6 +19,8 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(chat.router, tags=["chat"])
 api_router.include_router(projects.router, tags=["projects"])
+api_router.include_router(integrations.router, tags=["integrations"])
+api_router.include_router(integrations.oauth_router, tags=["integrations"])
 api_router.include_router(provider_settings.router, tags=["providers"])
 api_router.include_router(sources.router, tags=["sources"])
 api_router.include_router(jobs.router, tags=["jobs"])

@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  # ─── FastAPI Backend ────────────────────────────────────────────────────────
+  api:
+    image: ghcr.io/{{ github_repo | default('your-org/notemesh-api') }}:{{ api_image_tag | default('latest') }}
+    # Hoặc dùng build local nếu chưa có registry:
+    # build:
+    #   context: /opt/notemesh/api
+    #   dockerfile: Dockerfile
+    container_name: notemesh-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - API_ENV={{ api_env }}
+      - DATABASE_URL=postgresql+psycopg://{{ db_username }}:{{ db_password }}@{{ db_host }}/{{ db_name }}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8001
+      - CHROMA_COLLECTION={{ chroma_collection }}
+      - UPLOAD_DIR=/app/data/uploads
+      - WEB_APP_URL={{ web_app_url }}
+      - API_CORS_ALLOW_ORIGINS={{ cors_origins }}
+      - OPENAI_API_KEY={{ openai_api_key }}
+      - GOOGLE_API_KEY={{ google_api_key }}
+      - GOOGLE_OAUTH_CLIENT_ID={{ google_oauth_client_id }}
+      - GOOGLE_OAUTH_CLIENT_SECRET={{ google_oauth_client_secret }}
+      - INTEGRATION_OAUTH_STATE_SECRET={{ oauth_state_secret }}
+      - AWS_DEFAULT_REGION={{ aws_region }}
+      - S3_UPLOADS_BUCKET={{ s3_uploads_bucket }}
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./logs:/app/logs
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - notemesh-net
+
+  # ─── ChromaDB Vector Store ──────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: notemesh-chromadb
+    restart: unless-stopped
+    # KHÔNG expose port ra ngoài — chỉ accessible trong Docker network
+    expose:
+      - "8001"
+    environment:
+      - CHROMA_SERVER_HTTP_PORT=8001
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - ./data/chromadb:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - notemesh-net
+
+networks:
+  notemesh-net:
+    driver: bridge

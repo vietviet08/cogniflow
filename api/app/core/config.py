@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     chroma_port: int = Field(default=8001, alias="CHROMA_PORT")
     chroma_collection: str = Field(default="cogniflow-documents", alias="CHROMA_COLLECTION")
     upload_dir: str = Field(default="data/uploads", alias="UPLOAD_DIR")
+    web_app_url: str = Field(default="http://localhost:3000", alias="WEB_APP_URL")
+    integration_oauth_state_secret: str = Field(
+        default="dev-integration-oauth-state-secret",
+        alias="INTEGRATION_OAUTH_STATE_SECRET",
+    )
+    google_oauth_client_id: str | None = Field(default=None, alias="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret: str | None = Field(
+        default=None,
+        alias="GOOGLE_OAUTH_CLIENT_SECRET",
+    )
     api_cors_allow_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         alias="API_CORS_ALLOW_ORIGINS",

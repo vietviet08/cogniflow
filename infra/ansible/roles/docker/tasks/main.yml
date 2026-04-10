@@ -1,0 +1,62 @@
+---
+# roles/docker/tasks/main.yml — Cài Docker + Docker Compose
+
+- name: Install Docker dependencies
+  apt:
+      name:
+          - ca-certificates
+          - gnupg
+          - lsb-release
+      state: present
+  become: true
+
+- name: Add Docker GPG key
+  apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+  become: true
+
+- name: Add Docker repository
+  apt_repository:
+      repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+      state: present
+  become: true
+
+- name: Install Docker Engine
+  apt:
+      name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+      state: present
+      update_cache: true
+  become: true
+
+- name: Enable and start Docker
+  systemd:
+      name: docker
+      state: started
+      enabled: true
+  become: true
+
+- name: Add ubuntu user to docker group
+  user:
+      name: ubuntu
+      groups: docker
+      append: true
+  become: true
+
+- name: Install Docker Compose v2
+  get_url:
+      url: "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64"
+      dest: /usr/local/bin/docker-compose
+      mode: "0755"
+  become: true
+
+- name: Create docker compose symlink
+  file:
+      src: /usr/local/bin/docker-compose
+      dest: /usr/local/lib/docker/cli-plugins/docker-compose
+      state: link
+      force: true
+  become: true

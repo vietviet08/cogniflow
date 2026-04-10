@@ -214,6 +214,7 @@ def list_sources(project_id: uuid.UUID, request: Request, db: Session = Depends(
             "id": str(s.id),
             "file_name": s.original_uri,
             "type": s.type,
+            "provider": (s.source_metadata or {}).get("provider"),
             "status": status,
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })

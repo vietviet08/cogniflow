@@ -177,7 +177,7 @@ def _extract_source_content(source: Source) -> ExtractedSourceContent:
 
     if source.type == "file":
         return _extract_file_content(storage_path)
-    if source.type in {"url", "arxiv"}:
+    if source.type in {"url", "arxiv", "google_drive", "notion", "slack", "confluence"}:
         return _extract_remote_payload(storage_path)
     raise ProcessingError(f"Unsupported source type '{source.type}'.")
 

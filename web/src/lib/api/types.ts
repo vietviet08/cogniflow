@@ -49,6 +49,7 @@ export interface SourceListItemData {
   id: string;
   file_name: string;
   type: string;
+  provider?: string | null;
   status: string;
   created_at: string | null;
 }
@@ -169,6 +170,27 @@ export interface ProviderModelsData {
   available_chat_models: string[];
   available_embedding_models: string[];
   source: "payload" | "project";
+}
+
+export type IntegrationProvider = "google_drive";
+
+export interface IntegrationConnectionData {
+  provider: IntegrationProvider;
+  display_name: string;
+  supports_base_url: boolean;
+  supports_oauth: boolean;
+  reference_label: string;
+  description: string;
+  configured: boolean;
+  status: string;
+  account_label: string | null;
+  base_url: string | null;
+  masked_access_token: string | null;
+  updated_at: string | null;
+}
+
+export interface IntegrationConnectionListData {
+  items: IntegrationConnectionData[];
 }
 
 // ---- Phase 2: Insight Layer ----

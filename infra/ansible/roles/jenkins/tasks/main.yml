@@ -1,0 +1,85 @@
+---
+# roles/jenkins/tasks/main.yml — Cấu hình Jenkins sau khi đã install
+
+- name: Wait for Jenkins to be fully started
+  uri:
+      url: "http://localhost:8080/login"
+      status_code: 200
+      timeout: 30
+  retries: 15
+  delay: 10
+  register: jenkins_status
+  until: jenkins_status.status == 200
+
+- name: Get Jenkins initial admin password
+  slurp:
+      src: /var/lib/jenkins/secrets/initialAdminPassword
+  register: jenkins_initial_password
+  become: true
+
+- name: Display Jenkins initial admin password
+  debug:
+      msg: |
+          ============================================================
+          Jenkins Initial Admin Password:
+          {{ jenkins_initial_password.content | b64decode }}
+
+          Access Jenkins at: https://jenkins.{{ domain_name }}
+          ============================================================
+
+- name: Install Jenkins plugins via CLI
+  community.general.jenkins_plugin:
+      name: "{{ item }}"
+      url: "http://localhost:8080"
+      url_username: admin
+      url_password: "{{ jenkins_initial_password.content | b64decode | trim }}"
+      state: present
+      timeout: 120
+  loop:
+      - git
+      - github
+      - workflow-aggregator # Pipeline
+      - pipeline-stage-view
+      - ssh-agent
+      - aws-credentials
+      - docker-workflow
+      - docker-plugin
+      - blueocean
+      - slack
+      - credentials-binding
+  notify: restart jenkins
+  become: true
+
+- name: Configure Jenkins JVM options (tăng heap cho t3.medium)
+  lineinfile:
+      path: /etc/default/jenkins
+      regexp: "^JAVA_OPTS="
+      line: 'JAVA_OPTS="-Djava.awt.headless=true -Xmx1024m -Xms512m"'
+      state: present
+  become: true
+  notify: restart jenkins
+
+- name: Create Jenkins SSH key for deploying to App server
+  openssh_keypair:
+      path: /var/lib/jenkins/.ssh/deploy_key
+      type: rsa
+      size: 4096
+      owner: jenkins
+      group: jenkins
+      mode: "0600"
+  become: true
+  become_user: jenkins
+
+- name: Get Jenkins deploy public key
+  slurp:
+      src: /var/lib/jenkins/.ssh/deploy_key.pub
+  register: jenkins_pubkey
+  become: true
+
+- name: Display Jenkins deploy public key
+  debug:
+      msg: |
+          ============================================================
+          Jenkins Deploy Public Key (thêm vào ~/.ssh/authorized_keys trên App Server):
+          {{ jenkins_pubkey.content | b64decode }}
+          ============================================================

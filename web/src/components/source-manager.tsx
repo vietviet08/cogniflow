@@ -2,16 +2,30 @@
 
 import { FormEvent, useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
-import { Upload, Link2, Trash2, FileText, Globe } from "lucide-react";
+import {
+    Upload,
+    Link2,
+    Trash2,
+    FileText,
+    Globe,
+    PlugZap,
+    FolderSymlink,
+} from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+    getProjectIntegrationOAuthStartUrl,
+    deleteProjectIntegrationConnection,
     ingestSourceUrl,
+    importProjectIntegrationSource,
+    listProjectIntegrations,
     processSources,
+    saveProjectIntegrationConnection,
     uploadSourceFile,
     listSources,
     deleteSources,
 } from "@/lib/api/client";
+import type { IntegrationConnectionData } from "@/lib/api/types";
 import { getActiveProject } from "@/lib/project-store";
 
 import { Button } from "@/components/ui/button";
@@ -45,6 +59,18 @@ export function SourceManager() {
     const [url, setUrl] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const [busy, setBusy] = useState(false);
+    const [integrationBusy, setIntegrationBusy] = useState<string | null>(null);
+    const [integrationDrafts, setIntegrationDrafts] = useState<
+        Record<
+            string,
+            {
+                accountLabel: string;
+                accessToken: string;
+                baseUrl: string;
+                itemReference: string;
+            }
+        >
+    >({});
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -54,6 +80,32 @@ export function SourceManager() {
             setActiveProjectId(active.id);
             setActiveProjectName(active.name);
         }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const provider = params.get("integration");
+        const status = params.get("status");
+        const message = params.get("message");
+        if (!provider || !status) {
+            return;
+        }
+
+        if (status === "connected") {
+            toast.success(`${provider.replace("_", " ")} connected.`);
+        } else if (status === "error") {
+            toast.error(message || "Integration connection failed.");
+        }
+
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete("integration");
+        nextUrl.searchParams.delete("status");
+        nextUrl.searchParams.delete("message");
+        window.history.replaceState({}, "", nextUrl.toString());
     }, []);
 
     const {
@@ -68,6 +120,58 @@ export function SourceManager() {
     });
 
     const sources = useMemo(() => sourcesData?.data.items || [], [sourcesData]);
+
+    const {
+        data: integrationsData,
+        isLoading: loadingIntegrations,
+        refetch: refetchIntegrations,
+    } = useQuery({
+        queryKey: ["integrations", activeProjectId],
+        queryFn: () => listProjectIntegrations(activeProjectId),
+        enabled: !!activeProjectId,
+    });
+
+    const integrations = useMemo(
+        () => integrationsData?.data.items || [],
+        [integrationsData],
+    );
+
+    useEffect(() => {
+        if (!integrations.length) {
+            return;
+        }
+        setIntegrationDrafts((current) => {
+            const next = { ...current };
+            for (const integration of integrations) {
+                const existing = next[integration.provider];
+                next[integration.provider] = {
+                    accountLabel:
+                        existing?.accountLabel ?? integration.account_label ?? "",
+                    accessToken: existing?.accessToken ?? "",
+                    baseUrl: existing?.baseUrl ?? integration.base_url ?? "",
+                    itemReference: existing?.itemReference ?? "",
+                };
+            }
+            return next;
+        });
+    }, [integrations]);
+
+    function updateIntegrationDraft(
+        provider: string,
+        field: "accountLabel" | "accessToken" | "baseUrl" | "itemReference",
+        value: string,
+    ) {
+        setIntegrationDrafts((current) => ({
+            ...current,
+            [provider]: {
+                accountLabel: current[provider]?.accountLabel ?? "",
+                accessToken: current[provider]?.accessToken ?? "",
+                baseUrl: current[provider]?.baseUrl ?? "",
+                itemReference: current[provider]?.itemReference ?? "",
+                [field]: value,
+            },
+        }));
+    }
 
     async function handleUrlSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -206,6 +310,126 @@ export function SourceManager() {
         setSelectedIds(newSet);
     }
 
+    async function handleSaveIntegration(integration: IntegrationConnectionData) {
+        if (!activeProjectId) return;
+        const draft = integrationDrafts[integration.provider] ?? {
+            accountLabel: "",
+            accessToken: "",
+            baseUrl: "",
+            itemReference: "",
+        };
+
+        if (!integration.configured && !draft.accessToken.trim()) {
+            toast.error("Enter an access token before connecting this integration.");
+            return;
+        }
+
+        setIntegrationBusy(`${integration.provider}:connect`);
+        const toastId = toast.loading(`Saving ${integration.display_name} connection...`);
+        try {
+            await saveProjectIntegrationConnection({
+                projectId: activeProjectId,
+                provider: integration.provider,
+                accessToken: draft.accessToken.trim() || undefined,
+                accountLabel: draft.accountLabel.trim() || undefined,
+                baseUrl: draft.baseUrl.trim() || undefined,
+            });
+            updateIntegrationDraft(integration.provider, "accessToken", "");
+            await refetchIntegrations();
+            toast.success(`${integration.display_name} is ready to import.`, {
+                id: toastId,
+            });
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : `Failed to save ${integration.display_name}.`,
+                { id: toastId },
+            );
+        } finally {
+            setIntegrationBusy(null);
+        }
+    }
+
+    async function handleDisconnectIntegration(
+        integration: IntegrationConnectionData,
+    ) {
+        if (!activeProjectId) return;
+        setIntegrationBusy(`${integration.provider}:disconnect`);
+        const toastId = toast.loading(`Disconnecting ${integration.display_name}...`);
+        try {
+            await deleteProjectIntegrationConnection({
+                projectId: activeProjectId,
+                provider: integration.provider,
+            });
+            await refetchIntegrations();
+            toast.success(`${integration.display_name} disconnected.`, {
+                id: toastId,
+            });
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : `Failed to disconnect ${integration.display_name}.`,
+                { id: toastId },
+            );
+        } finally {
+            setIntegrationBusy(null);
+        }
+    }
+
+    async function handleImportIntegration(
+        integration: IntegrationConnectionData,
+    ) {
+        if (!activeProjectId) return;
+        const draft = integrationDrafts[integration.provider] ?? {
+            accountLabel: "",
+            accessToken: "",
+            baseUrl: "",
+            itemReference: "",
+        };
+        const itemReference = draft.itemReference.trim();
+        if (!itemReference) {
+            toast.error(`Enter a ${integration.reference_label.toLowerCase()} first.`);
+            return;
+        }
+
+        setIntegrationBusy(`${integration.provider}:import`);
+        const toastId = toast.loading(`Importing from ${integration.display_name}...`);
+        try {
+            await importProjectIntegrationSource({
+                projectId: activeProjectId,
+                provider: integration.provider,
+                itemReference,
+            });
+            updateIntegrationDraft(integration.provider, "itemReference", "");
+            await refetch();
+            toast.success(
+                `${integration.display_name} content imported. Run processing to index it.`,
+                { id: toastId },
+            );
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : `Failed to import from ${integration.display_name}.`,
+                { id: toastId },
+            );
+        } finally {
+            setIntegrationBusy(null);
+        }
+    }
+
+    function handleOAuthConnect(integration: IntegrationConnectionData) {
+        if (!activeProjectId) {
+            return;
+        }
+        window.location.href = getProjectIntegrationOAuthStartUrl(
+            activeProjectId,
+            integration.provider,
+        );
+    }
+
     if (!activeProjectId) {
         return (
             <PageWrapper
@@ -333,6 +557,246 @@ export function SourceManager() {
                             </form>
                         </CardContent>
                     </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <PlugZap className="h-4 w-4" /> One-Click Integrations
+                            </CardTitle>
+                            <CardDescription>
+                                Connect Google Drive, then import a file directly into this project.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-4">
+                            {loadingIntegrations ? (
+                                <div className="flex justify-center py-6">
+                                    <Spinner size="sm" />
+                                </div>
+                            ) : (
+                                integrations.map((integration) => {
+                                    const draft = integrationDrafts[integration.provider] ?? {
+                                        accountLabel: "",
+                                        accessToken: "",
+                                        baseUrl: "",
+                                        itemReference: "",
+                                    };
+
+                                    return (
+                                        <div
+                                            key={integration.provider}
+                                            className="rounded-xl border border-border bg-muted/20 p-4"
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="mt-0.5 rounded-lg bg-primary/10 p-2">
+                                                    <FolderSymlink className="h-4 w-4 text-primary" />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h3 className="text-sm font-semibold">
+                                                            {integration.display_name}
+                                                        </h3>
+                                                        <Badge
+                                                            variant={
+                                                                integration.configured
+                                                                    ? "success"
+                                                                    : "outline"
+                                                            }
+                                                        >
+                                                            {integration.configured
+                                                                ? "Connected"
+                                                                : "Not connected"}
+                                                        </Badge>
+                                                    </div>
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        {integration.description}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 grid gap-3">
+                                                {integration.supports_oauth ? (
+                                                    <div className="rounded-lg border border-dashed border-border bg-background/70 p-3 text-sm">
+                                                        <p className="font-medium">
+                                                            OAuth connection
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-muted-foreground">
+                                                            Click connect to authorize {integration.display_name} with your Google account. Access and refresh tokens are stored automatically after approval.
+                                                        </p>
+                                                        {integration.configured ? (
+                                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                                Connected as{" "}
+                                                                <span className="font-medium text-foreground">
+                                                                    {integration.account_label ||
+                                                                        integration.display_name}
+                                                                </span>
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor={`${integration.provider}-account`}>
+                                                                Account label
+                                                            </Label>
+                                                            <Input
+                                                                id={`${integration.provider}-account`}
+                                                                value={draft.accountLabel}
+                                                                onChange={(event) =>
+                                                                    updateIntegrationDraft(
+                                                                        integration.provider,
+                                                                        "accountLabel",
+                                                                        event.target.value,
+                                                                    )
+                                                                }
+                                                                placeholder={`${integration.display_name} workspace`}
+                                                            />
+                                                        </div>
+                                                        {integration.supports_base_url ? (
+                                                            <div className="grid gap-1.5">
+                                                                <Label htmlFor={`${integration.provider}-base-url`}>
+                                                                    Base URL
+                                                                </Label>
+                                                                <Input
+                                                                    id={`${integration.provider}-base-url`}
+                                                                    value={draft.baseUrl}
+                                                                    onChange={(event) =>
+                                                                        updateIntegrationDraft(
+                                                                            integration.provider,
+                                                                            "baseUrl",
+                                                                            event.target.value,
+                                                                        )
+                                                                    }
+                                                                    placeholder="https://your-domain.atlassian.net"
+                                                                />
+                                                            </div>
+                                                        ) : null}
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor={`${integration.provider}-token`}>
+                                                                Access token
+                                                            </Label>
+                                                            <Input
+                                                                id={`${integration.provider}-token`}
+                                                                type="password"
+                                                                value={draft.accessToken}
+                                                                onChange={(event) =>
+                                                                    updateIntegrationDraft(
+                                                                        integration.provider,
+                                                                        "accessToken",
+                                                                        event.target.value,
+                                                                    )
+                                                                }
+                                                                placeholder={
+                                                                    integration.configured
+                                                                        ? `Saved token: ${integration.masked_access_token || "configured"}`
+                                                                        : "Paste access token"
+                                                                }
+                                                            />
+                                                        </div>
+                                                    </>
+                                                )}
+                                                <div className="flex flex-wrap gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        onClick={() =>
+                                                            integration.supports_oauth
+                                                                ? handleOAuthConnect(
+                                                                      integration,
+                                                                  )
+                                                                : void handleSaveIntegration(
+                                                                      integration,
+                                                                  )
+                                                        }
+                                                        disabled={
+                                                            integration.supports_oauth
+                                                                ? false
+                                                                :
+                                                            integrationBusy ===
+                                                            `${integration.provider}:connect`
+                                                        }
+                                                    >
+                                                        {integration.supports_oauth
+                                                            ? integration.configured
+                                                                ? "Reconnect with Google"
+                                                                : "Connect with Google"
+                                                            : integrationBusy ===
+                                                                `${integration.provider}:connect`
+                                                              ? "Saving..."
+                                                              : integration.configured
+                                                                ? "Update connection"
+                                                                : "Connect"}
+                                                    </Button>
+                                                    {integration.configured ? (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() =>
+                                                                void handleDisconnectIntegration(
+                                                                    integration,
+                                                                )
+                                                            }
+                                                            disabled={
+                                                                integrationBusy ===
+                                                                `${integration.provider}:disconnect`
+                                                            }
+                                                        >
+                                                            {integrationBusy ===
+                                                            `${integration.provider}:disconnect`
+                                                                ? "Disconnecting..."
+                                                                : "Disconnect"}
+                                                        </Button>
+                                                    ) : null}
+                                                </div>
+                                                <Separator />
+                                                <div className="grid gap-1.5">
+                                                    <Label htmlFor={`${integration.provider}-reference`}>
+                                                        {integration.reference_label}
+                                                    </Label>
+                                                    <Input
+                                                        id={`${integration.provider}-reference`}
+                                                        value={draft.itemReference}
+                                                        onChange={(event) =>
+                                                            updateIntegrationDraft(
+                                                                integration.provider,
+                                                                "itemReference",
+                                                                event.target.value,
+                                                            )
+                                                        }
+                                                        placeholder={integration.reference_label}
+                                                        disabled={!integration.configured}
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Supports Google Docs, PDF files, and plain text files from Drive.
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    onClick={() =>
+                                                        void handleImportIntegration(
+                                                            integration,
+                                                        )
+                                                    }
+                                                    disabled={
+                                                        !integration.configured ||
+                                                        integrationBusy ===
+                                                            `${integration.provider}:import`
+                                                    }
+                                                >
+                                                    {integrationBusy ===
+                                                    `${integration.provider}:import`
+                                                        ? "Importing..."
+                                                        : "Import into project"}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </CardContent>
+                    </Card>
                 </div>
 
                 {/* Right Column: Source List */}
@@ -457,7 +921,7 @@ export function SourceManager() {
                                                         variant="outline"
                                                         className="uppercase text-[10px] tracking-wider"
                                                     >
-                                                        {source.type}
+                                                        {source.provider || source.type}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
