@@ -1,0 +1,7 @@
+---
+- name: restart services
+  community.docker.docker_compose_v2:
+      project_src: "{{ app_dir }}"
+      state: restarted
+  become: true
+  become_user: "{{ app_user }}"

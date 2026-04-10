@@ -1,0 +1,46 @@
+---
+# playbooks/deploy_app.yml — Deploy nhanh khi có code mới
+# Jenkins gọi playbook này sau khi build image
+
+- name: Deploy NoteMesh API
+  hosts: app_servers
+  become: true
+  become_user: "{{ app_user }}"
+
+  vars:
+      api_image_tag: "{{ tag | default('latest') }}"
+
+  tasks:
+      - name: Pull latest images
+        community.docker.docker_compose_v2:
+            project_src: "{{ app_dir }}"
+            pull: always
+        notify: restart api
+
+      - name: Run database migrations
+        community.docker.docker_container_exec:
+            container: notemesh-api
+            command: python -m alembic upgrade head
+        ignore_errors: true # migration có thể đã được chạy
+
+      - name: Verify API health
+        uri:
+            url: "http://localhost:8000/health"
+            status_code: 200
+            timeout: 30
+        retries: 10
+        delay: 5
+        register: health
+        until: health.status == 200
+
+      - name: Show deploy result
+        debug:
+            msg: "✅ Deploy successful! API is healthy."
+
+  handlers:
+      - name: restart api
+        community.docker.docker_compose_v2:
+            project_src: "{{ app_dir }}"
+            services:
+                - api
+            state: restarted

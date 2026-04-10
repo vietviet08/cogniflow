@@ -1,0 +1,19 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# SSH Keys
+*.pem
+*.key
+
+# Ansible secrets
+**/group_vars/app_servers.yml
+**/group_vars/jenkins_servers.yml
+*.vault
+
+# Ansible generated
+*.retry

@@ -1,0 +1,61 @@
+---
+# roles/common/tasks/main.yml — Cài đặt chung cho mọi server
+
+- name: Update apt cache
+  apt:
+      update_cache: true
+      cache_valid_time: 3600
+  become: true
+
+- name: Install common packages
+  apt:
+      name:
+          - curl
+          - git
+          - unzip
+          - jq
+          - htop
+          - net-tools
+          - python3-pip
+          - awscli
+      state: present
+  become: true
+
+- name: Set timezone to Asia/Ho_Chi_Minh
+  timezone:
+      name: Asia/Ho_Chi_Minh
+  become: true
+
+- name: Configure swap (2GB)
+  block:
+      - name: Check if swapfile exists
+        stat:
+            path: /swapfile
+        register: swap_stat
+
+      - name: Create swapfile
+        command: fallocate -l 2G /swapfile
+        when: not swap_stat.stat.exists
+
+      - name: Set swapfile permissions
+        file:
+            path: /swapfile
+            owner: root
+            group: root
+            mode: "0600"
+        when: not swap_stat.stat.exists
+
+      - name: Make swap
+        command: mkswap /swapfile
+        when: not swap_stat.stat.exists
+
+      - name: Enable swap
+        command: swapon /swapfile
+        when: not swap_stat.stat.exists
+
+      - name: Persist swap in fstab
+        lineinfile:
+            path: /etc/fstab
+            line: "/swapfile none swap sw 0 0"
+            state: present
+  become: true
