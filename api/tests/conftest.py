@@ -39,6 +39,13 @@ def setup_database():
 def client() -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
+        bootstrap = test_client.post(
+            "/api/v1/auth/bootstrap",
+            json={"email": "owner@example.com", "display_name": "Owner"},
+        )
+        assert bootstrap.status_code == 201
+        token = bootstrap.json()["data"]["token"]
+        test_client.headers.update({"Authorization": f"Bearer {token}"})
         yield test_client
     app.dependency_overrides.clear()
 
@@ -50,3 +57,11 @@ def db_session() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture()
+def unauthenticated_client() -> Generator[TestClient, None, None]:
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

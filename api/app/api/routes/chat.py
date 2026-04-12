@@ -1,5 +1,4 @@
 import uuid
-from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -7,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.citation_service import hydrate_citations
 from app.services.query_service import QueryError, search_knowledge_base
-from app.storage.models import ChatMessage, ChatSession
+from app.storage.models import ChatMessage, ChatSession, User
 from app.storage.repositories.project_repository import ProjectRepository
 
 router = APIRouter()
@@ -20,10 +20,22 @@ class CreateChatSessionRequest(BaseModel):
 
 
 @router.post("/projects/{project_id}/chat/sessions")
-def create_chat_session(project_id: uuid.UUID, payload: CreateChatSessionRequest, request: Request, db: Session = Depends(get_db)):
+def create_chat_session(
+    project_id: uuid.UUID,
+    payload: CreateChatSessionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     project = ProjectRepository(db).get(project_id)
     if not project:
-        return error_response(request, "PROJECT_NOT_FOUND", "Project does not exist", status_code=404)
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            "Project does not exist",
+            status_code=404,
+        )
 
     session = ChatSession(
         project_id=project_id,
@@ -45,11 +57,22 @@ def create_chat_session(project_id: uuid.UUID, payload: CreateChatSessionRequest
 
 
 @router.get("/projects/{project_id}/chat/sessions")
-def list_chat_sessions(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_chat_sessions(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     # Verify project exists
     project = ProjectRepository(db).get(project_id)
     if not project:
-        return error_response(request, "PROJECT_NOT_FOUND", "Project does not exist", status_code=404)
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            "Project does not exist",
+            status_code=404,
+        )
 
     sessions = (
         db.query(ChatSession)
@@ -75,10 +98,26 @@ def list_chat_sessions(project_id: uuid.UUID, request: Request, db: Session = De
 
 
 @router.get("/chat/sessions/{session_id}/messages")
-def list_chat_messages(session_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_chat_messages(
+    session_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     session = db.get(ChatSession, session_id)
     if not session:
-        return error_response(request, "SESSION_NOT_FOUND", "Chat session does not exist", status_code=404)
+        return error_response(
+            request,
+            "SESSION_NOT_FOUND",
+            "Chat session does not exist",
+            status_code=404,
+        )
+    require_project_role(
+        db,
+        project_id=session.project_id,
+        user=current_user,
+        minimum_role="viewer",
+    )
 
     messages = (
         db.query(ChatMessage)
@@ -114,10 +153,27 @@ class SendChatMessageRequest(BaseModel):
 
 
 @router.post("/chat/sessions/{session_id}/messages")
-def send_chat_message(session_id: uuid.UUID, payload: SendChatMessageRequest, request: Request, db: Session = Depends(get_db)):
+def send_chat_message(
+    session_id: uuid.UUID,
+    payload: SendChatMessageRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     session = db.get(ChatSession, session_id)
     if not session:
-        return error_response(request, "SESSION_NOT_FOUND", "Chat session does not exist", status_code=404)
+        return error_response(
+            request,
+            "SESSION_NOT_FOUND",
+            "Chat session does not exist",
+            status_code=404,
+        )
+    require_project_role(
+        db,
+        project_id=session.project_id,
+        user=current_user,
+        minimum_role="editor",
+    )
 
     # 1. Save User Message
     user_msg = ChatMessage(
@@ -143,7 +199,13 @@ def send_chat_message(session_id: uuid.UUID, payload: SendChatMessageRequest, re
             top_k=payload.top_k,
         )
     except QueryError as e:
-        return error_response(request, e.code, e.message, status_code=e.status_code, details=e.details)
+        return error_response(
+            request,
+            e.code,
+            e.message,
+            status_code=e.status_code,
+            details=e.details,
+        )
     except Exception as e:
         return error_response(request, "RAG_ERROR", str(e), status_code=500)
 
@@ -190,10 +252,29 @@ class UpdateMessageRequest(BaseModel):
 
 
 @router.put("/chat/messages/{message_id}")
-def update_chat_message(message_id: uuid.UUID, payload: UpdateMessageRequest, request: Request, db: Session = Depends(get_db)):
+def update_chat_message(
+    message_id: uuid.UUID,
+    payload: UpdateMessageRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     msg = db.get(ChatMessage, message_id)
     if not msg:
-        return error_response(request, "MESSAGE_NOT_FOUND", "Chat message does not exist", status_code=404)
+        return error_response(
+            request,
+            "MESSAGE_NOT_FOUND",
+            "Chat message does not exist",
+            status_code=404,
+        )
+    session = db.get(ChatSession, msg.session_id)
+    if session:
+        require_project_role(
+            db,
+            project_id=session.project_id,
+            user=current_user,
+            minimum_role="editor",
+        )
 
     if payload.is_bookmarked is not None:
         msg.is_bookmarked = payload.is_bookmarked

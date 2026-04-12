@@ -1,11 +1,70 @@
-from fastapi import Header, HTTPException, status
+import uuid
+
+from fastapi import Depends, Header, status
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db
+from app.contracts.common import APIError
+from app.storage.models import User
+from app.storage.repositories.auth_token_repository import AuthTokenRepository
+from app.storage.repositories.project_membership_repository import ProjectMembershipRepository
+from app.storage.repositories.user_repository import UserRepository
+
+ROLE_ORDER = {"viewer": 10, "editor": 20, "owner": 30}
 
 
 def require_bearer_token(authorization: str | None = Header(default=None)) -> str:
-    """Minimal auth guard placeholder for write endpoints."""
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(
+        raise APIError(
+            code="AUTH_REQUIRED",
+            message="Missing bearer token.",
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token",
         )
     return authorization.split(" ", maxsplit=1)[1]
+
+
+def require_current_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> User:
+    raw_token = require_bearer_token(authorization)
+    token = AuthTokenRepository(db).resolve(raw_token)
+    if token is None:
+        raise APIError(
+            code="AUTH_INVALID_TOKEN",
+            message="Bearer token is invalid or revoked.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    user = UserRepository(db).get(token.user_id)
+    if user is None or not user.is_active:
+        raise APIError(
+            code="AUTH_USER_INACTIVE",
+            message="Authenticated user is unavailable.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    return user
+
+
+def require_project_role(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    user: User,
+    minimum_role: str = "viewer",
+) -> None:
+    membership = ProjectMembershipRepository(db).get_membership(
+        project_id=project_id,
+        user_id=user.id,
+    )
+    if membership is None:
+        raise APIError(
+            code="PROJECT_FORBIDDEN",
+            message="You do not have access to this project.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if ROLE_ORDER.get(membership.role, 0) < ROLE_ORDER.get(minimum_role, 0):
+        raise APIError(
+            code="PROJECT_ROLE_FORBIDDEN",
+            message=f"This operation requires project role '{minimum_role}' or higher.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )

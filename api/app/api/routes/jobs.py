@@ -5,13 +5,20 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
+from app.storage.models import User
 from app.storage.repositories.job_repository import JobRepository
 
 router = APIRouter(prefix="/jobs")
 
 
 @router.get("/{job_id}")
-def get_job(job_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def get_job(
+    job_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     job = JobRepository(db).get(job_id)
     if not job:
         return error_response(
@@ -20,6 +27,7 @@ def get_job(job_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
             message="Job does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(db, project_id=job.project_id, user=current_user, minimum_role="viewer")
 
     return success_response(
         request,
@@ -34,12 +42,40 @@ def get_job(job_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/{job_id}/cancel")
-def cancel_job(job_id: uuid.UUID, request: Request):
+def cancel_job(
+    job_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    job = JobRepository(db).get(job_id)
+    if not job:
+        return error_response(
+            request,
+            code="JOB_NOT_FOUND",
+            message="Job does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=job.project_id, user=current_user, minimum_role="editor")
     _ = job_id
     return success_response(request, {"status": "queued_for_cancellation"}, status_code=202)
 
 
 @router.post("/{job_id}/retry")
-def retry_job(job_id: uuid.UUID, request: Request):
+def retry_job(
+    job_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    job = JobRepository(db).get(job_id)
+    if not job:
+        return error_response(
+            request,
+            code="JOB_NOT_FOUND",
+            message="Job does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=job.project_id, user=current_user, minimum_role="editor")
     _ = job_id
     return success_response(request, {"status": "queued_for_retry"}, status_code=202)

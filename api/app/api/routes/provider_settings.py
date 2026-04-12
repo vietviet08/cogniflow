@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     delete_provider_key,
@@ -13,6 +14,7 @@ from app.services.provider_settings_service import (
     list_provider_statuses,
     upsert_provider_key,
 )
+from app.storage.models import User
 from app.storage.repositories.project_repository import ProjectRepository
 
 router = APIRouter(prefix="/projects/{project_id}/providers")
@@ -35,7 +37,9 @@ def list_project_provider_settings(
     project_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -57,7 +61,9 @@ def save_project_provider_key(
     payload: UpsertProviderKeyRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -94,7 +100,9 @@ def discover_project_provider_models(
     payload: DiscoverProviderModelsRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -128,7 +136,9 @@ def remove_project_provider_key(
     provider: str,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,

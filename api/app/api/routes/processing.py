@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.processing_service import ProcessingError, process_sources
+from app.storage.models import User
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
 from app.storage.repositories.source_repository import SourceRepository
@@ -30,7 +32,14 @@ def start_processing(
     payload: StartProcessingRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(
+        db,
+        project_id=payload.project_id,
+        user=current_user,
+        minimum_role="editor",
+    )
     project_repo = ProjectRepository(db)
     if not project_repo.get(payload.project_id):
         return error_response(

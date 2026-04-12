@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.report_service import (
     ReportError,
     generate_report,
@@ -13,6 +14,7 @@ from app.services.report_service import (
     serialize_report,
     update_action_item_status,
 )
+from app.storage.models import User
 from app.storage.repositories.report_repository import ReportRepository
 
 router = APIRouter(prefix="/reports")
@@ -35,7 +37,14 @@ def generate_report_route(
     payload: GenerateReportRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(
+        db,
+        project_id=payload.project_id,
+        user=current_user,
+        minimum_role="editor",
+    )
     try:
         result = generate_report(
             db=db,
@@ -57,7 +66,12 @@ def generate_report_route(
 
 
 @router.get("/{report_id}")
-def get_report(report_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def get_report(
+    report_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     report = ReportRepository(db).get(report_id)
     if not report:
         return error_response(
@@ -66,6 +80,7 @@ def get_report(report_id: uuid.UUID, request: Request, db: Session = Depends(get
             message="Report does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
     return success_response(request, serialize_report(report, db))
 
 
@@ -76,7 +91,17 @@ def update_report_action_item_status_route(
     payload: UpdateActionItemStatusRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    report = ReportRepository(db).get(report_id)
+    if not report:
+        return error_response(
+            request,
+            code="REPORT_NOT_FOUND",
+            message="Report does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="editor")
     try:
         result = update_action_item_status(
             db=db,
@@ -96,7 +121,12 @@ def update_report_action_item_status_route(
 
 
 @router.get("/{report_id}/lineage")
-def get_report_lineage_route(report_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def get_report_lineage_route(
+    report_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     report = ReportRepository(db).get(report_id)
     if not report:
         return error_response(
@@ -105,5 +135,6 @@ def get_report_lineage_route(report_id: uuid.UUID, request: Request, db: Session
             message="Report does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
     lineage = get_report_lineage(db, report_id)
     return success_response(request, lineage)
