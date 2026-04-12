@@ -41,10 +41,15 @@ def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         bootstrap = test_client.post(
             "/api/v1/auth/bootstrap",
-            json={"email": "owner@example.com", "display_name": "Owner"},
+            json={"email": "owner@example.com", "display_name": "Owner", "password": "admin"},
         )
         assert bootstrap.status_code == 201
-        token = bootstrap.json()["data"]["token"]
+        login = test_client.post(
+            "/api/v1/auth/login",
+            json={"email": "owner@example.com", "password": "admin"},
+        )
+        assert login.status_code == 200
+        token = login.json()["data"]["token"]
         test_client.headers.update({"Authorization": f"Bearer {token}"})
         yield test_client
     app.dependency_overrides.clear()

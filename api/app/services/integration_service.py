@@ -41,6 +41,7 @@ INTEGRATION_PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
+GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 GOOGLE_PDF_MIME = "application/pdf"
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -235,6 +236,86 @@ def import_integration_source(
         "source_type": source.type,
         "filename": source.original_uri,
         "provider": normalized_provider,
+    }
+
+
+def browse_google_drive_items(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    folder_id: str | None = None,
+    query: str | None = None,
+    page_token: str | None = None,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    connection = IntegrationConnectionRepository(db).get_by_project_and_provider(
+        project_id,
+        "google_drive",
+    )
+    if connection is None:
+        raise IntegrationError(
+            "Connect Google Drive before browsing files.",
+            code="INTEGRATION_NOT_CONNECTED",
+            status_code=409,
+        )
+
+    normalized_folder_id = (folder_id or "root").strip() or "root"
+    headers = {"Authorization": f"Bearer {connection.access_token}"}
+    search_query_parts = [f"'{normalized_folder_id}' in parents", "trashed = false"]
+
+    cleaned_query = (query or "").strip()
+    if cleaned_query:
+        escaped_query = cleaned_query.replace("\\", "\\\\").replace("'", "\\'")
+        search_query_parts.append(f"name contains '{escaped_query}'")
+
+    effective_page_size = max(1, min(page_size, 100))
+    response = requests.get(
+        f"{GOOGLE_DRIVE_API_BASE}/files",
+        params={
+            "q": " and ".join(search_query_parts),
+            "fields": (
+                "nextPageToken,files(id,name,mimeType,webViewLink,"
+                "modifiedTime,size,iconLink)"
+            ),
+            "orderBy": "folder,name_natural",
+            "pageSize": effective_page_size,
+            "pageToken": page_token,
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        },
+        headers=headers,
+        timeout=20,
+    )
+    _raise_for_status(response, "Google Drive browse request failed.")
+    payload = response.json()
+
+    items = []
+    for row in payload.get("files", []):
+        name = str(row.get("name") or "Untitled")
+        mime_type = str(row.get("mimeType") or "")
+        is_folder = mime_type == GOOGLE_FOLDER_MIME
+        items.append(
+            {
+                "id": str(row.get("id") or ""),
+                "name": name,
+                "mime_type": mime_type,
+                "web_view_link": str(row.get("webViewLink") or ""),
+                "modified_time": row.get("modifiedTime"),
+                "size": row.get("size"),
+                "icon_link": row.get("iconLink"),
+                "is_folder": is_folder,
+                "is_supported_import": (
+                    False
+                    if is_folder
+                    else _is_supported_google_drive_file(name, mime_type)
+                ),
+            }
+        )
+
+    return {
+        "folder_id": normalized_folder_id,
+        "items": items,
+        "next_page_token": payload.get("nextPageToken"),
     }
 
 
@@ -475,6 +556,16 @@ def _import_google_drive_source(
     raise IntegrationError(
         "Google Drive MVP currently supports Google Docs, PDF files, and plain text files.",
         code="INTEGRATION_IMPORT_UNSUPPORTED",
+    )
+
+
+def _is_supported_google_drive_file(name: str, mime_type: str) -> bool:
+    lowered_name = name.lower()
+    return (
+        mime_type == GOOGLE_DOC_MIME
+        or mime_type == GOOGLE_PDF_MIME
+        or mime_type.startswith("text/")
+        or lowered_name.endswith((".pdf", ".txt", ".md"))
     )
 
 

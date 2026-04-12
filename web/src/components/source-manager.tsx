@@ -7,6 +7,7 @@ import {
     Link2,
     Trash2,
     FileText,
+    Folder,
     Globe,
     PlugZap,
     FolderSymlink,
@@ -14,7 +15,6 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-    getProjectIntegrationOAuthStartUrl,
     deleteProjectIntegrationConnection,
     ingestSourceUrl,
     importProjectIntegrationSource,
@@ -24,8 +24,14 @@ import {
     uploadSourceFile,
     listSources,
     deleteSources,
+    startProjectIntegrationOAuth,
+    browseGoogleDriveItems,
 } from "@/lib/api/client";
-import type { IntegrationConnectionData, ProjectRole } from "@/lib/api/types";
+import type {
+    GoogleDriveBrowseItemData,
+    IntegrationConnectionData,
+    ProjectRole,
+} from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
@@ -54,10 +60,13 @@ import {
 } from "@/components/ui/table";
 
 export function SourceManager() {
+    const GOOGLE_DRIVE_FOLDER_PREFIX = "folder:";
+
     const queryClient = useQueryClient();
     const [activeProjectId, setActiveProjectId] = useState("");
     const [activeProjectName, setActiveProjectName] = useState("");
-    const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
+    const [activeProjectRole, setActiveProjectRole] =
+        useState<ProjectRole | null>(null);
     const [url, setUrl] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const [busy, setBusy] = useState(false);
@@ -75,6 +84,17 @@ export function SourceManager() {
     >({});
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+    const [drivePickerLoading, setDrivePickerLoading] = useState(false);
+    const [drivePickerItems, setDrivePickerItems] = useState<
+        GoogleDriveBrowseItemData[]
+    >([]);
+    const [drivePickerPath, setDrivePickerPath] = useState<
+        Array<{ id: string; name: string }>
+    >([{ id: "root", name: "My Drive" }]);
+    const [drivePickerSearch, setDrivePickerSearch] = useState("");
+    const [drivePickerIntegration, setDrivePickerIntegration] =
+        useState<IntegrationConnectionData | null>(null);
 
     useEffect(() => {
         const active = getActiveProject();
@@ -151,7 +171,9 @@ export function SourceManager() {
                 const existing = next[integration.provider];
                 next[integration.provider] = {
                     accountLabel:
-                        existing?.accountLabel ?? integration.account_label ?? "",
+                        existing?.accountLabel ??
+                        integration.account_label ??
+                        "",
                     accessToken: existing?.accessToken ?? "",
                     baseUrl: existing?.baseUrl ?? integration.base_url ?? "",
                     itemReference: existing?.itemReference ?? "",
@@ -176,6 +198,145 @@ export function SourceManager() {
                 [field]: value,
             },
         }));
+    }
+
+    async function loadDrivePickerItems(folderId: string, query?: string) {
+        if (!activeProjectId) {
+            return;
+        }
+        setDrivePickerLoading(true);
+        try {
+            const response = await browseGoogleDriveItems({
+                projectId: activeProjectId,
+                folderId,
+                query,
+                pageSize: 100,
+            });
+            setDrivePickerItems(response.data.items);
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to browse Google Drive.",
+            );
+        } finally {
+            setDrivePickerLoading(false);
+        }
+    }
+
+    async function handleOpenGoogleDrivePicker(
+        integration: IntegrationConnectionData,
+    ) {
+        if (!activeProjectId) {
+            return;
+        }
+        setDrivePickerIntegration(integration);
+        setDrivePickerOpen(true);
+        setDrivePickerSearch("");
+        setDrivePickerPath([{ id: "root", name: "My Drive" }]);
+        await loadDrivePickerItems("root");
+    }
+
+    async function handleOpenDriveFolder(item: GoogleDriveBrowseItemData) {
+        const nextPath = [...drivePickerPath, { id: item.id, name: item.name }];
+        setDrivePickerPath(nextPath);
+        await loadDrivePickerItems(item.id, drivePickerSearch);
+    }
+
+    async function handleDrivePickerBack() {
+        if (drivePickerPath.length <= 1) {
+            return;
+        }
+        const nextPath = drivePickerPath.slice(0, -1);
+        const targetFolder = nextPath.at(-1);
+        if (!targetFolder) {
+            return;
+        }
+        setDrivePickerPath(nextPath);
+        await loadDrivePickerItems(targetFolder.id, drivePickerSearch);
+    }
+
+    async function handleDrivePickerSearchSubmit(
+        event: FormEvent<HTMLFormElement>,
+    ) {
+        event.preventDefault();
+        const currentFolder = drivePickerPath.at(-1);
+        if (!currentFolder) {
+            return;
+        }
+        await loadDrivePickerItems(currentFolder.id, drivePickerSearch);
+    }
+
+    function handleSelectDriveFile(item: GoogleDriveBrowseItemData) {
+        if (!drivePickerIntegration) {
+            return;
+        }
+        updateIntegrationDraft(
+            drivePickerIntegration.provider,
+            "itemReference",
+            item.id,
+        );
+        setDrivePickerOpen(false);
+        toast.success(`Selected file: ${item.name}`);
+    }
+
+    function handleSelectDriveFolder(item: GoogleDriveBrowseItemData) {
+        if (!drivePickerIntegration) {
+            return;
+        }
+        updateIntegrationDraft(
+            drivePickerIntegration.provider,
+            "itemReference",
+            `${GOOGLE_DRIVE_FOLDER_PREFIX}${item.id}`,
+        );
+        setDrivePickerOpen(false);
+        toast.success(`Selected folder: ${item.name}`);
+    }
+
+    async function resolveGoogleDriveFolderImportTargets(
+        folderId: string,
+    ): Promise<string[]> {
+        if (!activeProjectId) {
+            return [];
+        }
+
+        const queue: string[] = [folderId];
+        const targets: string[] = [];
+        const seenFolders = new Set<string>();
+        const maxItems = 100;
+
+        while (queue.length > 0 && targets.length < maxItems) {
+            const currentFolder = queue.shift();
+            if (!currentFolder || seenFolders.has(currentFolder)) {
+                continue;
+            }
+            seenFolders.add(currentFolder);
+
+            let pageToken: string | undefined;
+            do {
+                const response = await browseGoogleDriveItems({
+                    projectId: activeProjectId,
+                    folderId: currentFolder,
+                    pageToken,
+                    pageSize: 100,
+                });
+
+                for (const item of response.data.items) {
+                    if (item.is_folder) {
+                        queue.push(item.id);
+                    } else if (item.is_supported_import) {
+                        targets.push(item.id);
+                        if (targets.length >= maxItems) {
+                            break;
+                        }
+                    }
+                }
+
+                pageToken = response.data.next_page_token || undefined;
+            } while (pageToken && targets.length < maxItems);
+        }
+
+        return targets;
     }
 
     async function handleUrlSubmit(event: FormEvent<HTMLFormElement>) {
@@ -331,7 +492,9 @@ export function SourceManager() {
         setSelectedIds(newSet);
     }
 
-    async function handleSaveIntegration(integration: IntegrationConnectionData) {
+    async function handleSaveIntegration(
+        integration: IntegrationConnectionData,
+    ) {
         if (!canMutateProject) {
             toast.error("This action requires editor role or higher.");
             return;
@@ -345,12 +508,16 @@ export function SourceManager() {
         };
 
         if (!integration.configured && !draft.accessToken.trim()) {
-            toast.error("Enter an access token before connecting this integration.");
+            toast.error(
+                "Enter an access token before connecting this integration.",
+            );
             return;
         }
 
         setIntegrationBusy(`${integration.provider}:connect`);
-        const toastId = toast.loading(`Saving ${integration.display_name} connection...`);
+        const toastId = toast.loading(
+            `Saving ${integration.display_name} connection...`,
+        );
         try {
             await saveProjectIntegrationConnection({
                 projectId: activeProjectId,
@@ -385,7 +552,9 @@ export function SourceManager() {
         }
         if (!activeProjectId) return;
         setIntegrationBusy(`${integration.provider}:disconnect`);
-        const toastId = toast.loading(`Disconnecting ${integration.display_name}...`);
+        const toastId = toast.loading(
+            `Disconnecting ${integration.display_name}...`,
+        );
         try {
             await deleteProjectIntegrationConnection({
                 projectId: activeProjectId,
@@ -423,24 +592,78 @@ export function SourceManager() {
         };
         const itemReference = draft.itemReference.trim();
         if (!itemReference) {
-            toast.error(`Enter a ${integration.reference_label.toLowerCase()} first.`);
+            toast.error(
+                `Enter a ${integration.reference_label.toLowerCase()} first.`,
+            );
             return;
         }
 
         setIntegrationBusy(`${integration.provider}:import`);
-        const toastId = toast.loading(`Importing from ${integration.display_name}...`);
+        const toastId = toast.loading(
+            `Importing from ${integration.display_name}...`,
+        );
         try {
-            await importProjectIntegrationSource({
-                projectId: activeProjectId,
-                provider: integration.provider,
-                itemReference,
-            });
+            let importedCount = 0;
+            let failedCount = 0;
+
+            if (
+                integration.provider === "google_drive" &&
+                itemReference.startsWith(GOOGLE_DRIVE_FOLDER_PREFIX)
+            ) {
+                const folderId = itemReference
+                    .slice(GOOGLE_DRIVE_FOLDER_PREFIX.length)
+                    .trim();
+                if (!folderId) {
+                    toast.error("Selected folder is invalid.", { id: toastId });
+                    return;
+                }
+
+                const targets =
+                    await resolveGoogleDriveFolderImportTargets(folderId);
+                if (!targets.length) {
+                    toast.error(
+                        "No supported files found in the selected folder.",
+                        {
+                            id: toastId,
+                        },
+                    );
+                    return;
+                }
+
+                for (const targetId of targets) {
+                    try {
+                        await importProjectIntegrationSource({
+                            projectId: activeProjectId,
+                            provider: integration.provider,
+                            itemReference: targetId,
+                        });
+                        importedCount += 1;
+                    } catch {
+                        failedCount += 1;
+                    }
+                }
+            } else {
+                await importProjectIntegrationSource({
+                    projectId: activeProjectId,
+                    provider: integration.provider,
+                    itemReference,
+                });
+                importedCount = 1;
+            }
+
             updateIntegrationDraft(integration.provider, "itemReference", "");
             await refetch();
-            toast.success(
-                `${integration.display_name} content imported. Run processing to index it.`,
-                { id: toastId },
-            );
+            if (failedCount > 0) {
+                toast.error(
+                    `Imported ${importedCount} items, ${failedCount} items failed.`,
+                    { id: toastId },
+                );
+            } else {
+                toast.success(
+                    `${integration.display_name} content imported. Run processing to index it.`,
+                    { id: toastId },
+                );
+            }
         } catch (error) {
             toast.error(
                 error instanceof Error
@@ -453,7 +676,7 @@ export function SourceManager() {
         }
     }
 
-    function handleOAuthConnect(integration: IntegrationConnectionData) {
+    async function handleOAuthConnect(integration: IntegrationConnectionData) {
         if (!canMutateProject) {
             toast.error("This action requires editor role or higher.");
             return;
@@ -461,10 +684,26 @@ export function SourceManager() {
         if (!activeProjectId) {
             return;
         }
-        window.location.href = getProjectIntegrationOAuthStartUrl(
-            activeProjectId,
-            integration.provider,
+
+        setIntegrationBusy(`${integration.provider}:connect`);
+        const toastId = toast.loading(
+            `Connecting ${integration.display_name}...`,
         );
+        try {
+            const response = await startProjectIntegrationOAuth({
+                projectId: activeProjectId,
+                provider: integration.provider,
+            });
+            window.location.href = response.data.redirect_url;
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : `Failed to start ${integration.display_name} OAuth flow.`,
+                { id: toastId },
+            );
+            setIntegrationBusy(null);
+        }
     }
 
     if (!activeProjectId) {
@@ -503,7 +742,8 @@ export function SourceManager() {
         >
             {!canMutateProject ? (
                 <div className="mb-4 rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-                    You have viewer access for this project. Upload, import, processing, and delete actions are disabled.
+                    You have viewer access for this project. Upload, import,
+                    processing, and delete actions are disabled.
                 </div>
             ) : null}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -545,8 +785,14 @@ export function SourceManager() {
                                 </div>
                                 <Button
                                     type="submit"
-                                    disabled={!file || busy || !canMutateProject}
-                                    title={canMutateProject ? undefined : "Requires editor role"}
+                                    disabled={
+                                        !file || busy || !canMutateProject
+                                    }
+                                    title={
+                                        canMutateProject
+                                            ? undefined
+                                            : "Requires editor role"
+                                    }
                                     className="w-full"
                                 >
                                     {busy && file ? (
@@ -589,7 +835,11 @@ export function SourceManager() {
                                 <Button
                                     type="submit"
                                     disabled={!url || busy || !canMutateProject}
-                                    title={canMutateProject ? undefined : "Requires editor role"}
+                                    title={
+                                        canMutateProject
+                                            ? undefined
+                                            : "Requires editor role"
+                                    }
                                     variant="outline"
                                     className="w-full"
                                 >
@@ -605,10 +855,12 @@ export function SourceManager() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-base flex items-center gap-2">
-                                <PlugZap className="h-4 w-4" /> One-Click Integrations
+                                <PlugZap className="h-4 w-4" /> One-Click
+                                Integrations
                             </CardTitle>
                             <CardDescription>
-                                Connect Google Drive, then import a file directly into this project.
+                                Connect Google Drive, then import a file
+                                directly into this project.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col gap-4">
@@ -618,7 +870,9 @@ export function SourceManager() {
                                 </div>
                             ) : (
                                 integrations.map((integration) => {
-                                    const draft = integrationDrafts[integration.provider] ?? {
+                                    const draft = integrationDrafts[
+                                        integration.provider
+                                    ] ?? {
                                         accountLabel: "",
                                         accessToken: "",
                                         baseUrl: "",
@@ -637,7 +891,9 @@ export function SourceManager() {
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <h3 className="text-sm font-semibold">
-                                                            {integration.display_name}
+                                                            {
+                                                                integration.display_name
+                                                            }
                                                         </h3>
                                                         <Badge
                                                             variant={
@@ -652,7 +908,9 @@ export function SourceManager() {
                                                         </Badge>
                                                     </div>
                                                     <p className="mt-1 text-xs text-muted-foreground">
-                                                        {integration.description}
+                                                        {
+                                                            integration.description
+                                                        }
                                                     </p>
                                                 </div>
                                             </div>
@@ -664,7 +922,16 @@ export function SourceManager() {
                                                             OAuth connection
                                                         </p>
                                                         <p className="mt-1 text-xs text-muted-foreground">
-                                                            Click connect to authorize {integration.display_name} with your Google account. Access and refresh tokens are stored automatically after approval.
+                                                            Click connect to
+                                                            authorize{" "}
+                                                            {
+                                                                integration.display_name
+                                                            }{" "}
+                                                            with your Google
+                                                            account. Access and
+                                                            refresh tokens are
+                                                            stored automatically
+                                                            after approval.
                                                         </p>
                                                         {integration.configured ? (
                                                             <p className="mt-2 text-xs text-muted-foreground">
@@ -679,56 +946,84 @@ export function SourceManager() {
                                                 ) : (
                                                     <>
                                                         <div className="grid gap-1.5">
-                                                            <Label htmlFor={`${integration.provider}-account`}>
+                                                            <Label
+                                                                htmlFor={`${integration.provider}-account`}
+                                                            >
                                                                 Account label
                                                             </Label>
                                                             <Input
                                                                 id={`${integration.provider}-account`}
-                                                                value={draft.accountLabel}
-                                                                onChange={(event) =>
+                                                                value={
+                                                                    draft.accountLabel
+                                                                }
+                                                                onChange={(
+                                                                    event,
+                                                                ) =>
                                                                     updateIntegrationDraft(
                                                                         integration.provider,
                                                                         "accountLabel",
-                                                                        event.target.value,
+                                                                        event
+                                                                            .target
+                                                                            .value,
                                                                     )
                                                                 }
                                                                 placeholder={`${integration.display_name} workspace`}
-                                                                disabled={!canMutateProject}
+                                                                disabled={
+                                                                    !canMutateProject
+                                                                }
                                                             />
                                                         </div>
                                                         {integration.supports_base_url ? (
                                                             <div className="grid gap-1.5">
-                                                                <Label htmlFor={`${integration.provider}-base-url`}>
+                                                                <Label
+                                                                    htmlFor={`${integration.provider}-base-url`}
+                                                                >
                                                                     Base URL
                                                                 </Label>
                                                                 <Input
                                                                     id={`${integration.provider}-base-url`}
-                                                                    value={draft.baseUrl}
-                                                                    onChange={(event) =>
+                                                                    value={
+                                                                        draft.baseUrl
+                                                                    }
+                                                                    onChange={(
+                                                                        event,
+                                                                    ) =>
                                                                         updateIntegrationDraft(
                                                                             integration.provider,
                                                                             "baseUrl",
-                                                                            event.target.value,
+                                                                            event
+                                                                                .target
+                                                                                .value,
                                                                         )
                                                                     }
                                                                     placeholder="https://your-domain.atlassian.net"
-                                                                    disabled={!canMutateProject}
+                                                                    disabled={
+                                                                        !canMutateProject
+                                                                    }
                                                                 />
                                                             </div>
                                                         ) : null}
                                                         <div className="grid gap-1.5">
-                                                            <Label htmlFor={`${integration.provider}-token`}>
+                                                            <Label
+                                                                htmlFor={`${integration.provider}-token`}
+                                                            >
                                                                 Access token
                                                             </Label>
                                                             <Input
                                                                 id={`${integration.provider}-token`}
                                                                 type="password"
-                                                                value={draft.accessToken}
-                                                                onChange={(event) =>
+                                                                value={
+                                                                    draft.accessToken
+                                                                }
+                                                                onChange={(
+                                                                    event,
+                                                                ) =>
                                                                     updateIntegrationDraft(
                                                                         integration.provider,
                                                                         "accessToken",
-                                                                        event.target.value,
+                                                                        event
+                                                                            .target
+                                                                            .value,
                                                                     )
                                                                 }
                                                                 placeholder={
@@ -736,7 +1031,9 @@ export function SourceManager() {
                                                                         ? `Saved token: ${integration.masked_access_token || "configured"}`
                                                                         : "Paste access token"
                                                                 }
-                                                                disabled={!canMutateProject}
+                                                                disabled={
+                                                                    !canMutateProject
+                                                                }
                                                             />
                                                         </div>
                                                     </>
@@ -755,9 +1052,9 @@ export function SourceManager() {
                                                                   )
                                                         }
                                                         disabled={
-                                                            !canMutateProject
-                                                            || integrationBusy ===
-                                                            `${integration.provider}:connect`
+                                                            !canMutateProject ||
+                                                            integrationBusy ===
+                                                                `${integration.provider}:connect`
                                                         }
                                                         title={
                                                             canMutateProject
@@ -787,10 +1084,9 @@ export function SourceManager() {
                                                                 )
                                                             }
                                                             disabled={
-                                                                !canMutateProject
-                                                                ||
+                                                                !canMutateProject ||
                                                                 integrationBusy ===
-                                                                `${integration.provider}:disconnect`
+                                                                    `${integration.provider}:disconnect`
                                                             }
                                                         >
                                                             {integrationBusy ===
@@ -801,25 +1097,68 @@ export function SourceManager() {
                                                     ) : null}
                                                 </div>
                                                 <Separator />
+                                                {integration.provider ===
+                                                "google_drive" ? (
+                                                    <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-background/60 p-2">
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Use picker to choose
+                                                            a file or folder
+                                                            directly from Drive.
+                                                        </p>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() =>
+                                                                void handleOpenGoogleDrivePicker(
+                                                                    integration,
+                                                                )
+                                                            }
+                                                            disabled={
+                                                                !integration.configured ||
+                                                                !canMutateProject
+                                                            }
+                                                        >
+                                                            Browse Drive
+                                                        </Button>
+                                                    </div>
+                                                ) : null}
                                                 <div className="grid gap-1.5">
-                                                    <Label htmlFor={`${integration.provider}-reference`}>
-                                                        {integration.reference_label}
+                                                    <Label
+                                                        htmlFor={`${integration.provider}-reference`}
+                                                    >
+                                                        {
+                                                            integration.reference_label
+                                                        }
                                                     </Label>
                                                     <Input
                                                         id={`${integration.provider}-reference`}
-                                                        value={draft.itemReference}
+                                                        value={
+                                                            draft.itemReference
+                                                        }
                                                         onChange={(event) =>
                                                             updateIntegrationDraft(
                                                                 integration.provider,
                                                                 "itemReference",
-                                                                event.target.value,
+                                                                event.target
+                                                                    .value,
                                                             )
                                                         }
-                                                        placeholder={integration.reference_label}
-                                                        disabled={!integration.configured || !canMutateProject}
+                                                        placeholder={
+                                                            integration.reference_label
+                                                        }
+                                                        disabled={
+                                                            !integration.configured ||
+                                                            !canMutateProject
+                                                        }
                                                     />
                                                     <p className="text-xs text-muted-foreground">
-                                                        Supports Google Docs, PDF files, and plain text files from Drive.
+                                                        Supports Google Docs,
+                                                        PDF files, and plain
+                                                        text files from Drive.
+                                                        Selecting a folder
+                                                        imports supported files
+                                                        inside that folder tree.
                                                     </p>
                                                 </div>
                                                 <Button
@@ -876,7 +1215,11 @@ export function SourceManager() {
                                         size="sm"
                                         onClick={handleDeleteSelected}
                                         disabled={busy || !canMutateProject}
-                                        title={canMutateProject ? undefined : "Requires editor role"}
+                                        title={
+                                            canMutateProject
+                                                ? undefined
+                                                : "Requires editor role"
+                                        }
                                     >
                                         <Trash2 className="h-4 w-4 mr-1" />
                                         Delete ({selectedIds.size})
@@ -884,8 +1227,16 @@ export function SourceManager() {
                                 )}
                                 <Button
                                     onClick={handleProcessAll}
-                                    disabled={busy || sources.length === 0 || !canMutateProject}
-                                    title={canMutateProject ? undefined : "Requires editor role"}
+                                    disabled={
+                                        busy ||
+                                        sources.length === 0 ||
+                                        !canMutateProject
+                                    }
+                                    title={
+                                        canMutateProject
+                                            ? undefined
+                                            : "Requires editor role"
+                                    }
                                     size="sm"
                                 >
                                     {busy && !file && !url ? (
@@ -981,7 +1332,8 @@ export function SourceManager() {
                                                         variant="outline"
                                                         className="uppercase text-[10px] tracking-wider"
                                                     >
-                                                        {source.provider || source.type}
+                                                        {source.provider ||
+                                                            source.type}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
@@ -1043,6 +1395,233 @@ export function SourceManager() {
                     </Card>
                 </div>
             </div>
+            {drivePickerOpen ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                    <div className="w-full max-w-3xl rounded-xl border border-border bg-background shadow-xl">
+                        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                            <div>
+                                <h3 className="text-sm font-semibold">
+                                    Google Drive Picker
+                                </h3>
+                                <p className="text-xs text-muted-foreground">
+                                    Select one file to import immediately, or
+                                    select a folder to import all supported
+                                    files inside it.
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setDrivePickerOpen(false)}
+                            >
+                                Close
+                            </Button>
+                        </div>
+
+                        <div className="border-b px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span className="font-medium text-foreground">
+                                    Path:
+                                </span>
+                                {drivePickerPath.map((segment, index) => (
+                                    <span key={`${segment.id}-${index}`}>
+                                        {index > 0 ? " / " : ""}
+                                        {segment.name}
+                                    </span>
+                                ))}
+                            </div>
+                            <form
+                                className="mt-2 flex flex-col gap-2 sm:flex-row"
+                                onSubmit={handleDrivePickerSearchSubmit}
+                            >
+                                <Input
+                                    value={drivePickerSearch}
+                                    onChange={(event) =>
+                                        setDrivePickerSearch(event.target.value)
+                                    }
+                                    placeholder="Search in current folder"
+                                />
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="submit"
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={drivePickerLoading}
+                                    >
+                                        Search
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={drivePickerLoading}
+                                        onClick={() => {
+                                            const currentFolder =
+                                                drivePickerPath.at(-1);
+                                            if (!currentFolder) {
+                                                return;
+                                            }
+                                            setDrivePickerSearch("");
+                                            void loadDrivePickerItems(
+                                                currentFolder.id,
+                                            );
+                                        }}
+                                    >
+                                        Clear
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div className="max-h-[420px] overflow-y-auto px-4 py-3">
+                            <div className="mb-3 flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void handleDrivePickerBack()}
+                                    disabled={
+                                        drivePickerPath.length <= 1 ||
+                                        drivePickerLoading
+                                    }
+                                >
+                                    Back
+                                </Button>
+                                {drivePickerPath.length > 1 ? (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={drivePickerLoading}
+                                        onClick={() => {
+                                            const currentFolder =
+                                                drivePickerPath.at(-1);
+                                            if (!currentFolder) {
+                                                return;
+                                            }
+                                            handleSelectDriveFolder({
+                                                id: currentFolder.id,
+                                                name: currentFolder.name,
+                                                mime_type:
+                                                    "application/vnd.google-apps.folder",
+                                                web_view_link: "",
+                                                modified_time: null,
+                                                size: null,
+                                                icon_link: null,
+                                                is_folder: true,
+                                                is_supported_import: false,
+                                            });
+                                        }}
+                                    >
+                                        Select This Folder
+                                    </Button>
+                                ) : null}
+                            </div>
+
+                            {drivePickerLoading ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <Spinner />
+                                </div>
+                            ) : drivePickerItems.length === 0 ? (
+                                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                                    No items found in this folder.
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {drivePickerItems.map((item) => (
+                                        <div
+                                            key={item.id}
+                                            className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    {item.is_folder ? (
+                                                        <Folder className="h-4 w-4 text-amber-600" />
+                                                    ) : (
+                                                        <FileText className="h-4 w-4 text-muted-foreground" />
+                                                    )}
+                                                    <p
+                                                        className="truncate text-sm font-medium"
+                                                        title={item.name}
+                                                    >
+                                                        {item.name}
+                                                    </p>
+                                                </div>
+                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                                    <span>
+                                                        {item.mime_type}
+                                                    </span>
+                                                    {item.size ? (
+                                                        <span>
+                                                            {(
+                                                                Number(
+                                                                    item.size,
+                                                                ) / 1024
+                                                            ).toFixed(1)}{" "}
+                                                            KB
+                                                        </span>
+                                                    ) : null}
+                                                    {item.is_supported_import ? (
+                                                        <Badge variant="outline">
+                                                            Supported
+                                                        </Badge>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                {item.is_folder ? (
+                                                    <>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() =>
+                                                                void handleOpenDriveFolder(
+                                                                    item,
+                                                                )
+                                                            }
+                                                        >
+                                                            Open
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="secondary"
+                                                            onClick={() =>
+                                                                handleSelectDriveFolder(
+                                                                    item,
+                                                                )
+                                                            }
+                                                        >
+                                                            Select Folder
+                                                        </Button>
+                                                    </>
+                                                ) : (
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        disabled={
+                                                            !item.is_supported_import
+                                                        }
+                                                        onClick={() =>
+                                                            handleSelectDriveFile(
+                                                                item,
+                                                            )
+                                                        }
+                                                    >
+                                                        Select File
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </PageWrapper>
     );
 }
