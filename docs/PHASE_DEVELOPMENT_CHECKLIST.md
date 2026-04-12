@@ -98,7 +98,18 @@ Status cập nhật ngày `2026-04-12`:
 - [ ] Formatting/export test pass
 - [ ] End-to-end test `source -> report` pass
 
-## Phase 4: Scale and Governance
+## Phase 4: Conflict Mesh (Visual Knowledge Graph)
+
+### Scope
+- [ ] Backend: Pipeline `mesh_pipeline` để trích xuất Concepts (Nodes) và Relationships/Conflicts (Edges) qua LLM structured output.
+- [ ] Backend: Thiết lập Async Job gọi AI, nhận JSON lưu vào cột `structured_payload` của `reports` với `report_type="conflict_mesh"`.
+- [ ] Frontend: Tích hợp thư viện `@xyflow/react`.
+- [ ] Frontend: View `/projects/[id]/mesh` render đồ thị trực quan và sidebar chi tiết Conflict.
+
+### Readiness Gate
+- [ ] Upload 2 tài liệu cố tình mâu thuẫn và render thành công Node mâu thuẫn trên đồ thị.
+
+## Phase 5: Scale and Governance
 
 ### Scope
 - [ ] Crawler/RSS scheduling vận hành ổn định
