@@ -13,6 +13,8 @@ import {
   sendChatMessage, 
   updateChatMessage 
 } from "@/lib/api/client";
+import type { ProjectRole } from "@/lib/api/types";
+import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
 import { useCitationViewer } from "@/components/citation-viewer-provider";
@@ -27,6 +29,7 @@ export function QueryConsole() {
   const queryClient = useQueryClient();
   const { openCitation } = useCitationViewer();
   const [activeProjectId, setActiveProjectId] = useState("");
+  const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [sending, setSending] = useState(false);
@@ -36,8 +39,11 @@ export function QueryConsole() {
     const active = getActiveProject();
     if (active) {
       setActiveProjectId(active.id);
+      setActiveProjectRole(active.role ?? "viewer");
     }
   }, []);
+
+  const canMutateProject = canEditProject(activeProjectRole);
 
   // Fetch Sessions
   const { data: sessionsData, isLoading: loadingSessions } = useQuery({
@@ -69,6 +75,10 @@ export function QueryConsole() {
   }, [sessions, activeSessionId, loadingSessions]);
 
   async function handleNewChat() {
+    if (!canMutateProject) {
+      toast.error("This action requires editor role or higher.");
+      return;
+    }
     setActiveSessionId(null);
     setInputValue("");
   }
@@ -78,6 +88,10 @@ export function QueryConsole() {
     if (!inputValue.trim()) return;
     if (!activeProjectId) {
       toast.error("Please select a project first.");
+      return;
+    }
+    if (!canMutateProject) {
+      toast.error("Sending messages requires editor role or higher.");
       return;
     }
 
@@ -129,6 +143,10 @@ export function QueryConsole() {
   };
 
   const handleAction = async (msgId: string, action: "bookmark" | "thumbUp" | "thumbDown", currentValue: any) => {
+    if (!canMutateProject) {
+      toast.error("This action requires editor role or higher.");
+      return;
+    }
     let payload: any = {};
     if (action === "bookmark") payload.isBookmarked = !currentValue;
     if (action === "thumbUp") payload.rating = currentValue === 1 ? 0 : 1;
@@ -177,11 +195,23 @@ export function QueryConsole() {
       description="Chat with your documents using RAG."
       className="pb-0" // Remove bottom padding for full height chat
     >
+      {!canMutateProject ? (
+        <div className="mb-4 rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          You have viewer access for this project. Starting chats, sending messages, bookmarking, and rating are disabled.
+        </div>
+      ) : null}
+
       <div className="flex h-[calc(100vh-140px)] gap-6 overflow-hidden">
         
         {/* Left Sidebar (Sessions) */}
         <div className="w-64 flex-col gap-4 border-r pr-4 hidden md:flex h-full">
-          <Button onClick={handleNewChat} className="w-full gap-2 justify-start mb-2" variant="outline">
+          <Button
+            onClick={handleNewChat}
+            className="w-full gap-2 justify-start mb-2"
+            variant="outline"
+            disabled={!canMutateProject}
+            title={canMutateProject ? undefined : "Requires editor role"}
+          >
             <Plus className="h-4 w-4" /> New Chat
           </Button>
           
@@ -325,9 +355,15 @@ export function QueryConsole() {
                 onChange={e => setInputValue(e.target.value)}
                 placeholder="Message NoteMesh..."
                 className="flex-1 bg-muted/20 border-muted-foreground/20 focus-visible:ring-primary/50 text-base py-5 px-4 rounded-full"
-                disabled={sending}
+                disabled={sending || !canMutateProject}
               />
-              <Button type="submit" disabled={!inputValue.trim() || sending} size="icon" className="h-[42px] w-[42px] rounded-full shrink-0 shadow-sm border border-transparent hover:border-border">
+              <Button
+                type="submit"
+                disabled={!inputValue.trim() || sending || !canMutateProject}
+                size="icon"
+                className="h-[42px] w-[42px] rounded-full shrink-0 shadow-sm border border-transparent hover:border-border"
+                title={canMutateProject ? undefined : "Requires editor role"}
+              >
                 {sending ? <Spinner size="sm" className="text-primary-foreground" /> : <Send className="h-5 w-5 ml-0.5" />}
               </Button>
             </form>

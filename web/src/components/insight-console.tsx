@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 
 import { generateInsight, getInsight, listInsights } from "@/lib/api/client";
-import type { InsightResult, InsightListItem } from "@/lib/api/types";
+import type { InsightResult, InsightListItem, ProjectRole } from "@/lib/api/types";
+import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
 import { useCitationViewer } from "@/components/citation-viewer-provider";
@@ -35,6 +36,7 @@ export function InsightConsole() {
     const { openCitation } = useCitationViewer();
     const [activeProjectId, setActiveProjectId] = useState("");
     const [activeProjectName, setActiveProjectName] = useState("");
+    const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
     const [query, setQuery] = useState("");
     const [provider, setProvider] = useState("openai");
 
@@ -49,8 +51,11 @@ export function InsightConsole() {
         if (active) {
             setActiveProjectId(active.id);
             setActiveProjectName(active.name);
+            setActiveProjectRole(active.role ?? "viewer");
         }
     }, []);
+
+    const canMutateProject = canEditProject(activeProjectRole);
 
     useEffect(() => {
         if (!activeProjectId) return;
@@ -75,6 +80,10 @@ export function InsightConsole() {
         event.preventDefault();
         if (!activeProjectId) {
             toast.error("Create or select a project first.");
+            return;
+        }
+        if (!canMutateProject) {
+            toast.error("Generating insights requires editor role or higher.");
             return;
         }
         setBusy(true);
@@ -137,6 +146,12 @@ export function InsightConsole() {
                     : "Select a project to synthesize multi-document evidence into thematic findings."
             }
         >
+            {!canMutateProject && activeProjectId ? (
+                <div className="rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                    You have viewer access for this project. Insight generation is disabled.
+                </div>
+            ) : null}
+
             <div className="grid gap-6 lg:grid-cols-3">
                 {/* Left Column: Form & History */}
                 <div className="flex flex-col gap-6 lg:col-span-1">
@@ -165,7 +180,7 @@ export function InsightConsole() {
                                         onChange={(event) =>
                                             setProvider(event.target.value)
                                         }
-                                        disabled={busy}
+                                        disabled={busy || !canMutateProject}
                                         className={
                                             "flex h-9 w-full rounded-md border border-input bg-transparent " +
                                             "px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none " +
@@ -189,14 +204,15 @@ export function InsightConsole() {
                                             setQuery(e.target.value)
                                         }
                                         placeholder="E.g., What are the common challenges mentioned in the user interviews?"
-                                        disabled={busy}
+                                        disabled={busy || !canMutateProject}
                                     />
                                 </div>
                                 <Button
                                     type="submit"
                                     disabled={
-                                        busy || !activeProjectId || !query
+                                        busy || !activeProjectId || !query || !canMutateProject
                                     }
+                                    title={canMutateProject ? undefined : "Requires editor role"}
                                     className="w-full gap-2 mt-2"
                                 >
                                     {busy ? (

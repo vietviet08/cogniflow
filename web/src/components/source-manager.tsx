@@ -81,7 +81,7 @@ export function SourceManager() {
         if (active) {
             setActiveProjectId(active.id);
             setActiveProjectName(active.name);
-            setActiveProjectRole(active.role ?? "editor");
+            setActiveProjectRole(active.role ?? "viewer");
         }
     }, []);
 

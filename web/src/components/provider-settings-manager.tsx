@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Bot, Brain, KeyRound, RefreshCw, Save, Sparkles, Trash2 } from "lucide-react";
 
 import {
+  createPersonalToken,
   deleteProjectProviderKey,
   discoverProjectProviderModels,
   listProjectProviderSettings,
@@ -13,6 +14,7 @@ import {
 import type { ProjectRole, ProviderSettingData } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
+import { useAuth } from "@/components/auth-provider";
 
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
@@ -33,9 +35,14 @@ type ModelCatalog = {
 };
 
 export function ProviderSettingsManager() {
+  const { user } = useAuth();
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeProjectName, setActiveProjectName] = useState("");
   const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
+  const [tokenName, setTokenName] = useState("default");
+  const [issuingToken, setIssuingToken] = useState(false);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [issuedTokenLastFour, setIssuedTokenLastFour] = useState<string | null>(null);
   const [settings, setSettings] = useState<ProviderSettingData[]>([]);
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
   const [draftBaseUrls, setDraftBaseUrls] = useState<Record<string, string>>({});
@@ -53,7 +60,7 @@ export function ProviderSettingsManager() {
     if (active) {
       setActiveProjectId(active.id);
       setActiveProjectName(active.name);
-      setActiveProjectRole(active.role ?? "editor");
+      setActiveProjectRole(active.role ?? "viewer");
       return;
     }
     setLoading(false);
@@ -321,6 +328,40 @@ export function ProviderSettingsManager() {
     }
   }
 
+  async function handleCreateToken(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedTokenName = tokenName.trim();
+    if (!trimmedTokenName) {
+      toast.error("Token name is required.");
+      return;
+    }
+
+    setIssuingToken(true);
+    const toastId = toast.loading("Issuing personal token...");
+    try {
+      const response = await createPersonalToken(trimmedTokenName);
+      setIssuedToken(response.data.token);
+      setIssuedTokenLastFour(response.data.token_last_four);
+      toast.success("Token created. Copy it now, it will not be shown again.", {
+        id: toastId,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create token.", {
+        id: toastId,
+      });
+    } finally {
+      setIssuingToken(false);
+    }
+  }
+
+  async function handleCopyIssuedToken() {
+    if (!issuedToken) {
+      return;
+    }
+    await navigator.clipboard.writeText(issuedToken);
+    toast.success("Token copied to clipboard.");
+  }
+
   return (
     <PageWrapper
       title="Provider Settings"
@@ -331,6 +372,57 @@ export function ProviderSettingsManager() {
             + "without hardcoding them in env files."
       }
     >
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Personal Access Token</CardTitle>
+          <CardDescription>
+            Create a bearer token for this account and use it in the login screen.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
+            <p className="font-medium">Current user</p>
+            <p className="text-muted-foreground">
+              {user?.display_name || "Unknown user"}
+              {user?.email ? ` (${user.email})` : ""}
+            </p>
+          </div>
+          <form className="flex flex-col gap-3 md:flex-row" onSubmit={handleCreateToken}>
+            <div className="flex-1">
+              <Label htmlFor="token-name">Token name</Label>
+              <Input
+                id="token-name"
+                value={tokenName}
+                onChange={(event) => setTokenName(event.target.value)}
+                placeholder="default"
+                disabled={issuingToken}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button type="submit" disabled={issuingToken} className="gap-2">
+                {issuingToken ? <Spinner size="sm" /> : null}
+                {issuingToken ? "Creating..." : "Create token"}
+              </Button>
+            </div>
+          </form>
+          {issuedToken ? (
+            <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                New token (last 4: {issuedTokenLastFour || "n/a"})
+              </p>
+              <p className="mt-2 break-all font-mono text-xs text-amber-900 dark:text-amber-200">
+                {issuedToken}
+              </p>
+              <div className="mt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleCopyIssuedToken()}>
+                  Copy token
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
       {!canMutateProject && activeProjectId ? (
         <div className="rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           You have viewer access for this project. Provider configuration is read-only.

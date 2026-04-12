@@ -32,10 +32,12 @@ import type {
     ReportListItem,
     ReportResult,
     ReportType,
+    ProjectRole,
     RiskAnalysisPayload,
     RiskItemData,
     StructuredReportPayload,
 } from "@/lib/api/types";
+import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
 import { useCitationViewer } from "@/components/citation-viewer-provider";
@@ -207,10 +209,12 @@ function CitationList({ citations }: { citations: CitationData[] }) {
 function ActionItemsView({
     payload,
     updatingItemId,
+    canMutateProject,
     onStatusChange,
 }: {
     payload: ActionItemsPayload;
     updatingItemId: string | null;
+    canMutateProject: boolean;
     onStatusChange: (
         itemId: string,
         status: ActionItemData["status"],
@@ -250,7 +254,7 @@ function ActionItemsView({
                                             .value as ActionItemData["status"],
                                     )
                                 }
-                                disabled={updatingItemId === item.id}
+                                disabled={updatingItemId === item.id || !canMutateProject}
                                 className="h-7 rounded-md border border-input bg-background px-2 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 <option value="open">Open</option>
@@ -415,10 +419,12 @@ function MarkdownPreview({
 function StructuredReportView({
     report,
     updatingItemId,
+    canMutateProject,
     onActionItemStatusChange,
 }: {
     report: ReportResult;
     updatingItemId: string | null;
+    canMutateProject: boolean;
     onActionItemStatusChange: (
         itemId: string,
         status: ActionItemData["status"],
@@ -432,6 +438,7 @@ function StructuredReportView({
                     <ActionItemsView
                         payload={payload}
                         updatingItemId={updatingItemId}
+                        canMutateProject={canMutateProject}
                         onStatusChange={onActionItemStatusChange}
                     />
                     <MarkdownPreview
@@ -479,6 +486,7 @@ function StructuredReportView({
 export function ReportViewer() {
     const [activeProjectId, setActiveProjectId] = useState("");
     const [activeProjectName, setActiveProjectName] = useState("");
+    const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
     const [query, setQuery] = useState("");
     const [reportType, setReportType] = useState<ReportType>("action_items");
     const [provider, setProvider] = useState("openai");
@@ -496,8 +504,11 @@ export function ReportViewer() {
         if (active) {
             setActiveProjectId(active.id);
             setActiveProjectName(active.name);
+            setActiveProjectRole(active.role ?? "viewer");
         }
     }, []);
+
+    const canMutateProject = canEditProject(activeProjectRole);
 
     useEffect(() => {
         if (!activeProjectId) return;
@@ -531,6 +542,10 @@ export function ReportViewer() {
         event.preventDefault();
         if (!activeProjectId) {
             toast.error("Create or select a project first.");
+            return;
+        }
+        if (!canMutateProject) {
+            toast.error("Generating reports requires editor role or higher.");
             return;
         }
         setBusy(true);
@@ -578,6 +593,10 @@ export function ReportViewer() {
         status: ActionItemData["status"],
     ) {
         if (!report) return;
+        if (!canMutateProject) {
+            toast.error("Updating action items requires editor role or higher.");
+            return;
+        }
         setUpdatingItemId(itemId);
         try {
             const response = await updateActionItemStatus({
@@ -668,6 +687,12 @@ export function ReportViewer() {
                     : "Select a project to turn indexed evidence into briefs, risks, and action items."
             }
         >
+            {!canMutateProject && activeProjectId ? (
+                <div className="rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                    You have viewer access for this project. Report generation and action item updates are disabled.
+                </div>
+            ) : null}
+
             <div className="grid gap-6 lg:grid-cols-3">
                 <div className="flex flex-col gap-6 lg:col-span-1">
                     <Card>
@@ -696,7 +721,7 @@ export function ReportViewer() {
                                             onChange={(event) =>
                                                 setProvider(event.target.value)
                                             }
-                                            disabled={busy}
+                                            disabled={busy || !canMutateProject}
                                             className={
                                                 "flex h-9 w-full rounded-md border border-input bg-transparent " +
                                                 "px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none " +
@@ -723,7 +748,7 @@ export function ReportViewer() {
                                                     event.target.value as ReportType,
                                                 )
                                             }
-                                            disabled={busy}
+                                            disabled={busy || !canMutateProject}
                                             className={
                                                 "flex h-9 w-full rounded-md border border-input bg-transparent " +
                                                 "px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none " +
@@ -766,7 +791,7 @@ export function ReportViewer() {
                                                 ? "E.g., Identify the main follow-ups and owners implied by these product requirement docs."
                                                 : "E.g., Compare the security architectures described in these whitepapers."
                                         }
-                                        disabled={busy}
+                                        disabled={busy || !canMutateProject}
                                     />
                                 </div>
                                 <p className="mt-1 text-xs text-muted-foreground">
@@ -777,8 +802,9 @@ export function ReportViewer() {
                                 <Button
                                     type="submit"
                                     disabled={
-                                        busy || !activeProjectId || !query
+                                        busy || !activeProjectId || !query || !canMutateProject
                                     }
+                                    title={canMutateProject ? undefined : "Requires editor role"}
                                     className="mt-2 w-full gap-2"
                                 >
                                     {busy ? (
@@ -955,6 +981,7 @@ export function ReportViewer() {
                             <StructuredReportView
                                 report={report}
                                 updatingItemId={updatingItemId}
+                                canMutateProject={canMutateProject}
                                 onActionItemStatusChange={
                                     handleActionItemStatusChange
                                 }

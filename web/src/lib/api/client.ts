@@ -28,7 +28,7 @@ import type {
   ReportType,
   SourceIngestionData,
 } from "./types";
-import { clearStoredAuthSession, getStoredAuthToken } from "@/lib/auth-session";
+import { clearStoredAuthSession, getStoredAuthToken } from "../auth-session";
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1";
 
