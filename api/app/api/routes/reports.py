@@ -61,6 +61,7 @@ def generate_report_route(
                 "type": payload.type,
                 "format": payload.format,
                 "provider": payload.provider,
+                "request_id": request.state.request_id,
             },
         )
         background_tasks.add_task(run_job, str(job.id))

@@ -6,6 +6,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from app.core.logging import get_request_id
+
 
 class Meta(BaseModel):
     request_id: str
@@ -47,7 +49,9 @@ class APIError(Exception):
 
 
 def _build_meta(request: Request) -> Meta:
-    request_id = request.headers.get("x-request-id", str(uuid4()))
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
+    if not request_id:
+        request_id = request.headers.get("x-request-id", str(uuid4()))
     return Meta(
         request_id=request_id,
         timestamp=datetime.now(UTC).isoformat(),

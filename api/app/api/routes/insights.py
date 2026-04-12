@@ -54,6 +54,7 @@ def generate_insight_route(
                 "query": payload.query,
                 "provider": payload.provider,
                 "max_sources": max_sources,
+                "request_id": request.state.request_id,
             },
         )
         background_tasks.add_task(run_job, str(job.id))
