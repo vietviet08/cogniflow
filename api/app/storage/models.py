@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -305,3 +305,94 @@ class ChatMessage(Base):
     is_bookmarked: Mapped[bool] = mapped_column(default=False)
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1 for up, -1 for down
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RadarSource(Base):
+    __tablename__ = "radar_sources"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(255))
+    source_url: Mapped[str] = mapped_column(Text())
+    category: Mapped[str] = mapped_column(String(50), default="general")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    poll_interval_minutes: Mapped[int] = mapped_column(Integer, default=1440)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_snapshot_excerpt: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class RadarEvent(Base):
+    __tablename__ = "radar_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_sources.id"), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(50), default="change_detected")
+    severity: Mapped[str] = mapped_column(String(20), default="medium")
+    title: Mapped[str] = mapped_column(String(255))
+    summary: Mapped[str] = mapped_column(Text())
+    event_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON())
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RadarAction(Base):
+    __tablename__ = "radar_actions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_events.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text())
+    owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    due_date_suggested: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    priority: Mapped[str] = mapped_column(String(20), default="medium")
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    channel_targets: Mapped[dict[str, Any] | None] = mapped_column(JSON())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class Approval(Base):
+    __tablename__ = "approvals"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(50))
+    target_id: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GtmOutput(Base):
+    __tablename__ = "gtm_outputs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_events.id"), nullable=True)
+    output_type: Mapped[str] = mapped_column(String(50))
+    title: Mapped[str] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text())
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

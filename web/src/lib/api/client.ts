@@ -11,6 +11,22 @@ import type {
     HealthData,
     InsightListData,
     InsightResult,
+    IntelligenceActionData,
+    IntelligenceActionListData,
+    IntelligenceApprovalData,
+    IntelligenceApprovalListData,
+    IntelligenceDigestData,
+    IntelligenceDispatchResultData,
+    IntelligenceEventData,
+    IntelligenceEventListData,
+    IntelligenceIntegrationListData,
+    IntelligenceOutputData,
+    IntelligenceOutputListData,
+    IntelligenceRoiData,
+    IntelligenceScanResultData,
+    IntelligenceSourceData,
+    IntelligenceSourceListData,
+    IntelligenceSeverity,
     IntegrationConnectionData,
     IntegrationConnectionListData,
     GoogleDriveBrowseData,
@@ -495,6 +511,294 @@ export function listReports(
     projectId: string,
 ): Promise<ApiSuccess<ReportListData>> {
     return requestJson<ReportListData>(`/projects/${projectId}/reports`);
+}
+
+export function listIntelligenceSources(
+    projectId: string,
+): Promise<ApiSuccess<IntelligenceSourceListData>> {
+    return requestJson<IntelligenceSourceListData>(
+        `/projects/${projectId}/intelligence/sources`,
+    );
+}
+
+export function createIntelligenceSource(payload: {
+    projectId: string;
+    name: string;
+    sourceUrl: string;
+    category?: string;
+    pollIntervalMinutes?: number;
+    isActive?: boolean;
+}): Promise<ApiSuccess<IntelligenceSourceData>> {
+    return requestJson<IntelligenceSourceData>(
+        `/projects/${payload.projectId}/intelligence/sources`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                name: payload.name,
+                source_url: payload.sourceUrl,
+                category: payload.category ?? "general",
+                poll_interval_minutes: payload.pollIntervalMinutes ?? 1440,
+                is_active: payload.isActive ?? true,
+            }),
+        },
+    );
+}
+
+export function updateIntelligenceSource(payload: {
+    projectId: string;
+    sourceId: string;
+    name?: string;
+    sourceUrl?: string;
+    category?: string;
+    pollIntervalMinutes?: number;
+    isActive?: boolean;
+}): Promise<ApiSuccess<IntelligenceSourceData>> {
+    return requestJson<IntelligenceSourceData>(
+        `/projects/${payload.projectId}/intelligence/sources/${payload.sourceId}`,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                name: payload.name,
+                source_url: payload.sourceUrl,
+                category: payload.category,
+                poll_interval_minutes: payload.pollIntervalMinutes,
+                is_active: payload.isActive,
+            }),
+        },
+    );
+}
+
+export function triggerIntelligenceScan(payload: {
+    projectId: string;
+    mode?: "sync" | "async";
+    sourceIds?: string[];
+    alertThreshold?: IntelligenceSeverity;
+}): Promise<
+    ApiSuccess<
+        | IntelligenceScanResultData
+        | { job_id: string; status: string; mode: "async" }
+    >
+> {
+    return requestJson<
+        | IntelligenceScanResultData
+        | { job_id: string; status: string; mode: "async" }
+    >(`/projects/${payload.projectId}/intelligence/scan`, {
+        method: "POST",
+        body: JSON.stringify({
+            mode: payload.mode ?? "sync",
+            source_ids: payload.sourceIds,
+            alert_threshold: payload.alertThreshold ?? "medium",
+        }),
+    });
+}
+
+export function listIntelligenceEvents(payload: {
+    projectId: string;
+    sinceHours?: number;
+    minimumSeverity?: IntelligenceSeverity;
+}): Promise<ApiSuccess<IntelligenceEventListData>> {
+    const params = new URLSearchParams();
+    if (payload.sinceHours)
+        params.set("since_hours", String(payload.sinceHours));
+    if (payload.minimumSeverity)
+        params.set("minimum_severity", payload.minimumSeverity);
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return requestJson<IntelligenceEventListData>(
+        `/projects/${payload.projectId}/intelligence/events${suffix}`,
+    );
+}
+
+export function acknowledgeIntelligenceEvent(payload: {
+    projectId: string;
+    eventId: string;
+}): Promise<ApiSuccess<IntelligenceEventData>> {
+    return requestJson<IntelligenceEventData>(
+        `/projects/${payload.projectId}/intelligence/events/${payload.eventId}/ack`,
+        { method: "POST" },
+    );
+}
+
+export function getIntelligenceTodayDigest(
+    projectId: string,
+): Promise<ApiSuccess<IntelligenceDigestData>> {
+    return requestJson<IntelligenceDigestData>(
+        `/projects/${projectId}/intelligence/digest/today`,
+    );
+}
+
+export function createIntelligenceAction(payload: {
+    projectId: string;
+    title: string;
+    description: string;
+    eventId?: string;
+    owner?: string;
+    dueDateSuggested?: string;
+    priority?: IntelligenceSeverity;
+}): Promise<ApiSuccess<IntelligenceActionData>> {
+    return requestJson<IntelligenceActionData>(
+        `/projects/${payload.projectId}/intelligence/actions`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                title: payload.title,
+                description: payload.description,
+                event_id: payload.eventId,
+                owner: payload.owner,
+                due_date_suggested: payload.dueDateSuggested,
+                priority: payload.priority ?? "medium",
+            }),
+        },
+    );
+}
+
+export function listIntelligenceActions(payload: {
+    projectId: string;
+    status?: "open" | "in_progress" | "done" | "escalated";
+}): Promise<ApiSuccess<IntelligenceActionListData>> {
+    const suffix = payload.status ? `?status=${payload.status}` : "";
+    return requestJson<IntelligenceActionListData>(
+        `/projects/${payload.projectId}/intelligence/actions${suffix}`,
+    );
+}
+
+export function updateIntelligenceAction(payload: {
+    projectId: string;
+    actionId: string;
+    title?: string;
+    description?: string;
+    owner?: string;
+    dueDateSuggested?: string;
+    priority?: IntelligenceSeverity;
+    status?: "open" | "in_progress" | "done" | "escalated";
+}): Promise<ApiSuccess<IntelligenceActionData>> {
+    return requestJson<IntelligenceActionData>(
+        `/projects/${payload.projectId}/intelligence/actions/${payload.actionId}`,
+        {
+            method: "PATCH",
+            body: JSON.stringify({
+                title: payload.title,
+                description: payload.description,
+                owner: payload.owner,
+                due_date_suggested: payload.dueDateSuggested,
+                priority: payload.priority,
+                status: payload.status,
+            }),
+        },
+    );
+}
+
+export function dispatchIntelligenceAction(payload: {
+    projectId: string;
+    actionId: string;
+    provider: string;
+    destination?: string;
+}): Promise<ApiSuccess<IntelligenceDispatchResultData>> {
+    return requestJson<IntelligenceDispatchResultData>(
+        `/projects/${payload.projectId}/intelligence/actions/${payload.actionId}/dispatch`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                provider: payload.provider,
+                destination: payload.destination,
+            }),
+        },
+    );
+}
+
+export function listIntelligenceIntegrations(
+    projectId: string,
+): Promise<ApiSuccess<IntelligenceIntegrationListData>> {
+    return requestJson<IntelligenceIntegrationListData>(
+        `/projects/${projectId}/intelligence/integrations`,
+    );
+}
+
+export function createIntelligenceOutput(payload: {
+    projectId: string;
+    outputType:
+        | "battlecard"
+        | "talking_points"
+        | "response_plan"
+        | "outreach_draft";
+    eventId?: string;
+    context?: string;
+}): Promise<ApiSuccess<IntelligenceOutputData>> {
+    return requestJson<IntelligenceOutputData>(
+        `/projects/${payload.projectId}/intelligence/outputs`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                output_type: payload.outputType,
+                event_id: payload.eventId,
+                context: payload.context,
+            }),
+        },
+    );
+}
+
+export function listIntelligenceOutputs(
+    projectId: string,
+): Promise<ApiSuccess<IntelligenceOutputListData>> {
+    return requestJson<IntelligenceOutputListData>(
+        `/projects/${projectId}/intelligence/outputs`,
+    );
+}
+
+export function requestIntelligenceApproval(payload: {
+    projectId: string;
+    targetType: string;
+    targetId: string;
+}): Promise<ApiSuccess<IntelligenceApprovalData>> {
+    return requestJson<IntelligenceApprovalData>(
+        `/projects/${payload.projectId}/intelligence/approvals`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                target_type: payload.targetType,
+                target_id: payload.targetId,
+            }),
+        },
+    );
+}
+
+export function reviewIntelligenceApproval(payload: {
+    projectId: string;
+    approvalId: string;
+    status: "approved" | "rejected";
+    reviewNotes?: string;
+}): Promise<ApiSuccess<IntelligenceApprovalData>> {
+    return requestJson<IntelligenceApprovalData>(
+        `/projects/${payload.projectId}/intelligence/approvals/${payload.approvalId}/review`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                status: payload.status,
+                review_notes: payload.reviewNotes,
+            }),
+        },
+    );
+}
+
+export function listIntelligenceApprovals(payload: {
+    projectId: string;
+    status?: "pending" | "approved" | "rejected";
+}): Promise<ApiSuccess<IntelligenceApprovalListData>> {
+    const suffix = payload.status ? `?status=${payload.status}` : "";
+    return requestJson<IntelligenceApprovalListData>(
+        `/projects/${payload.projectId}/intelligence/approvals${suffix}`,
+    );
+}
+
+export function getIntelligenceRoiDashboard(payload: {
+    projectId: string;
+    windowDays?: number;
+}): Promise<ApiSuccess<IntelligenceRoiData>> {
+    const suffix = payload.windowDays
+        ? `?window_days=${payload.windowDays}`
+        : "";
+    return requestJson<IntelligenceRoiData>(
+        `/projects/${payload.projectId}/intelligence/roi${suffix}`,
+    );
 }
 
 // ---- Phase 4: UX Polish (Projects & Chat) ----

@@ -4,6 +4,7 @@ from app.api.routes import (
     auth,
     health,
     chat,
+    intelligence,
     insights,
     integrations,
     jobs,
@@ -21,6 +22,7 @@ api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(chat.router, tags=["chat"])
 api_router.include_router(projects.router, tags=["projects"])
+api_router.include_router(intelligence.router, tags=["intelligence"])
 api_router.include_router(integrations.router, tags=["integrations"])
 api_router.include_router(integrations.oauth_router, tags=["integrations"])
 api_router.include_router(provider_settings.router, tags=["providers"])

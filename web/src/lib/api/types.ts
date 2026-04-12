@@ -369,6 +369,155 @@ export interface ReportListData {
     total: number;
 }
 
+export type IntelligenceSeverity = "low" | "medium" | "high";
+
+export interface IntelligenceSourceData {
+    source_id: string;
+    project_id: string;
+    name: string;
+    source_url: string;
+    category: string;
+    is_active: boolean;
+    poll_interval_minutes: number;
+    last_checked_at: string | null;
+    last_content_hash: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+}
+
+export interface IntelligenceSourceListData {
+    items: IntelligenceSourceData[];
+    total: number;
+}
+
+export interface IntelligenceEventData {
+    event_id: string;
+    project_id: string;
+    source_id: string | null;
+    event_type: string;
+    severity: IntelligenceSeverity;
+    title: string;
+    summary: string;
+    metadata: Record<string, unknown>;
+    detected_at: string | null;
+    acknowledged_at: string | null;
+}
+
+export interface IntelligenceEventListData {
+    items: IntelligenceEventData[];
+    total: number;
+}
+
+export interface IntelligenceScanResultData {
+    checked_sources: number;
+    events_created: number;
+    alerts_triggered: number;
+    threshold: IntelligenceSeverity;
+    items: IntelligenceEventData[];
+}
+
+export interface IntelligenceDigestData {
+    date: string;
+    summary: {
+        events_total: number;
+        high: number;
+        medium: number;
+        low: number;
+        acknowledged: number;
+        open_actions: number;
+    };
+    items: IntelligenceEventData[];
+}
+
+export interface IntelligenceActionData {
+    action_id: string;
+    project_id: string;
+    event_id: string | null;
+    title: string;
+    description: string;
+    owner: string | null;
+    due_date_suggested: string | null;
+    priority: IntelligenceSeverity;
+    status: "open" | "in_progress" | "done" | "escalated";
+    channel_targets: Record<string, unknown>;
+    created_at: string | null;
+    updated_at: string | null;
+    completed_at: string | null;
+}
+
+export interface IntelligenceActionListData {
+    items: IntelligenceActionData[];
+    total: number;
+}
+
+export interface IntelligenceDispatchResultData {
+    action: IntelligenceActionData;
+    dispatch: {
+        provider: string;
+        destination: string | null;
+        status: string;
+    };
+}
+
+export interface IntelligenceOutputData {
+    output_id: string;
+    project_id: string;
+    event_id: string | null;
+    output_type: string;
+    title: string;
+    content: string;
+    status: string;
+    created_at: string | null;
+    updated_at: string | null;
+}
+
+export interface IntelligenceOutputListData {
+    items: IntelligenceOutputData[];
+    total: number;
+}
+
+export interface IntelligenceApprovalData {
+    approval_id: string;
+    project_id: string;
+    target_type: string;
+    target_id: string;
+    status: "pending" | "approved" | "rejected";
+    requested_by_user_id: string | null;
+    reviewed_by_user_id: string | null;
+    review_notes: string | null;
+    created_at: string | null;
+    reviewed_at: string | null;
+}
+
+export interface IntelligenceApprovalListData {
+    items: IntelligenceApprovalData[];
+    total: number;
+}
+
+export interface IntelligenceIntegrationStatusData {
+    provider: string;
+    connected: boolean;
+    status: string;
+    account_label: string | null;
+    updated_at: string | null;
+}
+
+export interface IntelligenceIntegrationListData {
+    items: IntelligenceIntegrationStatusData[];
+}
+
+export interface IntelligenceRoiData {
+    window_days: number;
+    events_total: number;
+    high_events: number;
+    acknowledged_rate: number;
+    actions_total: number;
+    actions_completed: number;
+    action_completion_rate: number;
+    avg_action_completion_hours: number | null;
+    outputs_generated: number;
+}
+
 // ---- Phase 4: UX Polish (Projects & Chat) ----
 
 export interface ProjectListItemData extends ProjectData {
