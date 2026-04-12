@@ -248,7 +248,7 @@ export function SourceManager() {
                 sourceIds: sources.map((s: any) => s.id),
             });
             toast.success(
-                `Processing started. Run ID: ${response.data.run_id}. Progress will update automatically.`,
+                `Processing queued. Job ID: ${response.data.job_id}. Progress will update automatically.`,
                 { id: toastId },
             );
             await refetch();
