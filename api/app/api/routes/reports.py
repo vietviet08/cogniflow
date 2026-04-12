@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,9 @@ from app.services.report_service import (
     update_action_item_status,
 )
 from app.storage.models import User
+from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.report_repository import ReportRepository
+from app.workers.tasks import run_job
 
 router = APIRouter(prefix="/reports")
 
@@ -26,6 +28,7 @@ class GenerateReportRequest(BaseModel):
     query: str
     format: str = "markdown"
     provider: str = "openai"
+    mode: str = "sync"
 
 
 class UpdateActionItemStatusRequest(BaseModel):
@@ -36,6 +39,7 @@ class UpdateActionItemStatusRequest(BaseModel):
 def generate_report_route(
     payload: GenerateReportRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
@@ -45,6 +49,30 @@ def generate_report_route(
         user=current_user,
         minimum_role="editor",
     )
+    if payload.mode == "async":
+        job = JobRepository(db).create(
+            project_id=payload.project_id,
+            job_type="report_generation",
+            status="queued",
+            queue_name="report",
+            job_payload={
+                "project_id": str(payload.project_id),
+                "query": payload.query,
+                "type": payload.type,
+                "format": payload.format,
+                "provider": payload.provider,
+            },
+        )
+        background_tasks.add_task(run_job, str(job.id))
+        return success_response(
+            request,
+            {
+                "job_id": str(job.id),
+                "status": job.status,
+            },
+            status_code=202,
+        )
+
     try:
         result = generate_report(
             db=db,

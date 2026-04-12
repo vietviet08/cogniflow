@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,8 @@ from app.services.citation_service import hydrate_citations
 from app.services.insight_service import InsightError, generate_insight
 from app.storage.models import User
 from app.storage.repositories.insight_repository import InsightRepository
+from app.storage.repositories.job_repository import JobRepository
+from app.workers.tasks import run_job
 
 router = APIRouter(prefix="/insights")
 
@@ -20,12 +22,14 @@ class GenerateInsightRequest(BaseModel):
     query: str
     provider: str = "openai"
     evidence_scope: dict | None = None
+    mode: str = "sync"
 
 
 @router.post("/generate", status_code=202)
 def generate_insight_route(
     payload: GenerateInsightRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
@@ -38,6 +42,29 @@ def generate_insight_route(
     max_sources = 20
     if payload.evidence_scope:
         max_sources = payload.evidence_scope.get("max_sources", 20)
+
+    if payload.mode == "async":
+        job = JobRepository(db).create(
+            project_id=payload.project_id,
+            job_type="insight_generation",
+            status="queued",
+            queue_name="insight",
+            job_payload={
+                "project_id": str(payload.project_id),
+                "query": payload.query,
+                "provider": payload.provider,
+                "max_sources": max_sources,
+            },
+        )
+        background_tasks.add_task(run_job, str(job.id))
+        return success_response(
+            request,
+            {
+                "job_id": str(job.id),
+                "status": job.status,
+            },
+            status_code=202,
+        )
 
     try:
         result = generate_insight(
