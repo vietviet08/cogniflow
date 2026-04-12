@@ -45,6 +45,48 @@ Allowed values:
 - `running`
 - `completed`
 - `failed`
+- `cancelled`
+
+## Auth
+
+### Bootstrap First User
+
+`POST /auth/bootstrap`
+
+Public endpoint used only when the system has no users yet.
+
+Request:
+
+```json
+{
+  "email": "owner@example.com",
+  "display_name": "Owner"
+}
+```
+
+Response data:
+
+```json
+{
+  "user": {
+    "id": "usr_001",
+    "email": "owner@example.com",
+    "display_name": "Owner",
+    "is_active": true,
+    "created_at": "2026-04-12T10:00:00Z"
+  },
+  "token": "tok_plaintext_once",
+  "token_last_four": "1234"
+}
+```
+
+### Get Current User
+
+`GET /auth/me`
+
+### Create Personal Access Token
+
+`POST /auth/tokens`
 
 ## Projects
 
@@ -274,12 +316,13 @@ Response data:
 ```json
 {
   "job_id": "job_process_001",
-  "run_id": "run_process_001",
-  "status": "completed",
-  "documents_created": 2,
-  "chunks_created": 14
+  "status": "queued"
 }
 ```
+
+Notes:
+- The processing workload is now queued and executed by the worker runtime.
+- Final run metadata and counts are available from `GET /jobs/{job_id}` and project inventories.
 
 ### List Processed Documents
 
@@ -381,7 +424,13 @@ Response data:
   "type": "processing",
   "status": "running",
   "progress": 62,
-  "error": null
+  "attempt_count": 1,
+  "max_retries": 3,
+  "queue_name": "processing",
+  "started_at": "2026-04-12T10:00:05Z",
+  "finished_at": null,
+  "error": null,
+  "result": null
 }
 ```
 
@@ -452,6 +501,7 @@ Request:
 {
   "project_id": "prj_001",
   "query": "Compare open-source vs managed agent platforms",
+  "mode": "sync",
   "evidence_scope": {
     "max_sources": 20
   }
@@ -459,6 +509,24 @@ Request:
 ```
 
 Response data:
+
+```json
+{
+  "insight_id": "ins_001",
+  "project_id": "prj_001",
+  "query": "Compare open-source vs managed agent platforms",
+  "summary": "Managed platforms optimize speed while open-source options increase control.",
+  "findings": [],
+  "provider": "openai",
+  "model": "gpt-4o",
+  "run_id": "run_insight_001",
+  "status": "completed",
+  "created_at": "2026-04-12T10:05:00Z",
+  "citations": []
+}
+```
+
+Async mode response:
 
 ```json
 {
@@ -480,11 +548,28 @@ Request:
   "project_id": "prj_001",
   "type": "research_brief",
   "query": "AI research infrastructure 2026",
-  "format": "markdown"
+  "format": "markdown",
+  "mode": "sync"
 }
 ```
 
 Response data:
+
+```json
+{
+  "report_id": "rep_001",
+  "query": "AI research infrastructure 2026",
+  "title": "Research Brief: AI research infrastructure 2026",
+  "type": "research_brief",
+  "format": "markdown",
+  "content": "# Research Brief",
+  "structured_payload": null,
+  "status": "completed",
+  "run_id": "run_report_001"
+}
+```
+
+Async mode response:
 
 ```json
 {
@@ -524,6 +609,27 @@ Response data:
 {
   "job_id": "job_replay_001",
   "status": "queued"
+}
+```
+
+## Operations
+
+### Metrics Snapshot
+
+`GET /metrics`
+
+Response data:
+
+```json
+{
+  "metrics": {
+    "http_requests_total": {},
+    "http_errors_total": {},
+    "http_latency_ms": {},
+    "job_runs_total": {},
+    "job_latency_ms": {},
+    "recent_events": []
+  }
 }
 ```
 

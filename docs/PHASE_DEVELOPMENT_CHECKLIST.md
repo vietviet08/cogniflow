@@ -4,14 +4,15 @@ Checklist này dùng để theo dõi tiến độ triển khai theo phase, bám 
 
 ## Current Snapshot
 
-Status cập nhật ngày `2026-03-22`:
+Status cập nhật ngày `2026-04-12`:
 
 - Theo roadmap của bạn: `Phase 1 complete`, `Phase 2 complete`, `Phase 3 baseline complete`
 - Theo phase naming trong docs repo: `Phase 1 complete`, `Phase 2 Insight Layer chưa bắt đầu`
 - Đã có happy path MVP: `project -> ingest -> process -> query + citations`
 - Processing runtime hiện có `processing_runs`, reprocess không nhân bản dữ liệu, và có API inventory cho `documents/chunks/runs`
 - Retrieval embedding đã chuyển sang local `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
-- Chưa đóng hoàn toàn theo nghĩa production: chưa có worker async thật, chưa có latency metrics, chưa có hybrid retrieval
+- Đã có baseline production foundation cho `auth/RBAC`, `async worker`, và `request/job observability`
+- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có hybrid retrieval, chưa có dead-letter/auto-retry hoàn chỉnh, chưa có frontend auth UX hoàn chỉnh
 
 ## Roadmap Mapping
 
@@ -30,7 +31,7 @@ Status cập nhật ngày `2026-03-22`:
 - [x] Processing run lưu `model_id`, `config_hash`, `run_metadata`
 - [x] Reprocessing cùng source thay thế document/chunk cũ thay vì nhân bản
 - [x] Có API để inspect `documents`, `chunks`, `processing_runs` sau khi xử lý
-- [ ] Async worker hóa processing flow
+- [x] Async worker hóa processing flow
 - [ ] Metrics/observability cho indexing latency
 
 ## Goal Coverage
@@ -48,7 +49,7 @@ Status cập nhật ngày `2026-03-22`:
 - [x] Processing baseline (extract, chunk, embedding, Chroma indexing)
 - [x] Retrieval baseline có semantic query path
 - [ ] Hybrid retrieval path
-- [ ] Async worker-based execution cho ingestion/processing
+- [x] Async worker-based execution cho processing
 
 ### API and Data
 - [x] `POST /sources/files`, `POST /sources/urls` chạy đúng contract
@@ -117,7 +118,7 @@ Status cập nhật ngày `2026-03-22`:
 ## Cross-Phase Exit Checklist (Project Complete)
 
 - [ ] All phase readiness gates hoàn tất
-- [ ] API docs, schema, code implementation đồng bộ
+- [x] API docs, schema, code implementation đồng bộ cho auth/worker/observability baseline
 - [ ] CI pipeline ổn định (lint/typecheck/test/integration)
 - [ ] Reproducibility + lineage verified ở môi trường staging
 - [ ] UAT với nhóm user mục tiêu pass
