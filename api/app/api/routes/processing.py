@@ -76,6 +76,7 @@ def start_processing(
             "source_ids": [str(source_id) for source_id in payload.source_ids],
             "chunk_size": payload.options.chunk_size,
             "chunk_overlap": payload.options.chunk_overlap,
+            "request_id": request.state.request_id,
         },
     )
     background_tasks.add_task(run_job, str(job.id))

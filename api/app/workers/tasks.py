@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from typing import Any, Callable
 
+from app.core.logging import bind_request_id, clear_request_id
+from app.observability.telemetry import emit_event, record_job_run
 from app.services.insight_service import InsightError, generate_insight
 from app.services.processing_service import ProcessingError, process_sources
 from app.services.report_service import ReportError, generate_report
@@ -12,6 +16,7 @@ from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.source_repository import SourceRepository
 
 WorkerHandler = Callable[[Job], dict[str, Any]]
+logger = logging.getLogger("app.worker")
 
 
 def register_worker_tasks() -> dict[str, WorkerHandler]:
@@ -24,15 +29,31 @@ def register_worker_tasks() -> dict[str, WorkerHandler]:
 
 def run_job(job_id: str) -> None:
     db = SessionLocal()
+    token = None
+    started_at = time.perf_counter()
     try:
         job_repo = JobRepository(db)
         job = job_repo.get(uuid.UUID(job_id))
         if job is None:
             return
+        request_id = str((job.job_payload or {}).get("request_id") or f"job:{job.id}")
+        token = bind_request_id(request_id)
         if job.status == "cancelled":
             return
 
         job = job_repo.mark_running(job)
+        emit_event(
+            "job_started",
+            {"job_id": str(job.id), "job_type": job.job_type, "queue_name": job.queue_name},
+        )
+        logger.info(
+            "job_started",
+            extra={
+                "job_id": str(job.id),
+                "job_type": job.job_type,
+                "queue_name": job.queue_name,
+            },
+        )
         if job.cancel_requested_at is not None:
             job_repo.request_cancellation(job)
             return
@@ -48,9 +69,38 @@ def run_job(job_id: str) -> None:
 
         result_payload = handler(job)
         job_repo.mark_completed(job, result_payload=result_payload)
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        record_job_run(job_type=job.job_type, status="completed", duration_ms=duration_ms)
+        emit_event(
+            "job_completed",
+            {
+                "job_id": str(job.id),
+                "job_type": job.job_type,
+                "duration_ms": round(duration_ms, 3),
+            },
+        )
     except (ProcessingError, InsightError, ReportError, ValueError) as exc:
         if "job_repo" in locals() and "job" in locals():
             job_repo.mark_failed(job, code=type(exc).__name__.upper(), message=str(exc))
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            record_job_run(job_type=job.job_type, status="failed", duration_ms=duration_ms)
+            emit_event(
+                "job_failed",
+                {
+                    "job_id": str(job.id),
+                    "job_type": job.job_type,
+                    "duration_ms": round(duration_ms, 3),
+                    "error": str(exc),
+                },
+            )
+            logger.error(
+                "job_failed",
+                extra={
+                    "job_id": str(job.id),
+                    "job_type": job.job_type,
+                    "error": str(exc),
+                },
+            )
     except Exception as exc:
         if "job_repo" in locals() and "job" in locals():
             job_repo.mark_failed(
@@ -58,7 +108,15 @@ def run_job(job_id: str) -> None:
                 code="JOB_EXECUTION_ERROR",
                 message=str(exc),
             )
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            record_job_run(job_type=job.job_type, status="failed", duration_ms=duration_ms)
+            logger.exception(
+                "job_failed",
+                extra={"job_id": str(job.id), "job_type": job.job_type},
+            )
     finally:
+        if token is not None:
+            clear_request_id(token)
         db.close()
 
 
