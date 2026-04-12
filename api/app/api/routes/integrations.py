@@ -1,23 +1,25 @@
 import uuid
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from urllib.parse import urlencode
 
 from app.api.deps import get_db
-from app.core.config import get_settings
 from app.contracts.common import error_response, success_response
+from app.core.config import get_settings
+from app.core.security import require_current_user, require_project_role
 from app.services.integration_service import (
+    IntegrationError,
     build_google_drive_oauth_start_url,
     complete_google_drive_oauth_callback,
-    IntegrationError,
     delete_integration_connection,
     import_integration_source,
     list_integration_statuses,
     upsert_integration_connection,
 )
+from app.storage.models import User
 from app.storage.repositories.project_repository import ProjectRepository
 
 router = APIRouter(prefix="/projects/{project_id}/integrations")
@@ -40,7 +42,9 @@ def list_project_integrations(
     project_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -61,7 +65,9 @@ def save_project_integration_connection(
     payload: UpsertIntegrationConnectionRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -97,7 +103,9 @@ def remove_project_integration_connection(
     provider: str,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -130,7 +138,9 @@ def import_project_integration_source(
     payload: ImportIntegrationSourceRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -163,7 +173,9 @@ def start_google_drive_oauth(
     project_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     if not ProjectRepository(db).get(project_id):
         return error_response(
             request,
@@ -199,8 +211,13 @@ def google_drive_oauth_callback(
 ):
     settings = get_settings()
     if error:
+        error_params = {
+            "integration": "google_drive",
+            "status": "error",
+            "message": error,
+        }
         return RedirectResponse(
-            f"{settings.web_app_url.rstrip('/')}/sources?{urlencode({'integration': 'google_drive', 'status': 'error', 'message': error})}",
+            f"{settings.web_app_url.rstrip('/')}/sources?{urlencode(error_params)}",
             status_code=302,
         )
 
@@ -212,8 +229,13 @@ def google_drive_oauth_callback(
             callback_url=str(request.url_for("google_drive_oauth_callback")),
         )
     except IntegrationError as exc:
+        error_params = {
+            "integration": "google_drive",
+            "status": "error",
+            "message": exc.message,
+        }
         return RedirectResponse(
-            f"{settings.web_app_url.rstrip('/')}/sources?{urlencode({'integration': 'google_drive', 'status': 'error', 'message': exc.message})}",
+            f"{settings.web_app_url.rstrip('/')}/sources?{urlencode(error_params)}",
             status_code=302,
         )
 

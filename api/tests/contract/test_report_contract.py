@@ -1,7 +1,7 @@
 import uuid
 
 from app.api.routes import reports as report_route_module
-from app.storage.models import Project, Report
+from app.storage.models import Report
 
 
 def test_generate_report_returns_structured_payload(client, monkeypatch):
@@ -58,13 +58,10 @@ def test_generate_report_returns_structured_payload(client, monkeypatch):
 
 
 def test_get_report_returns_structured_payload(client, db_session):
-    project = Project(name="Report contract", description="test")
-    db_session.add(project)
-    db_session.commit()
-    db_session.refresh(project)
+    project = _create_project(client)
 
     report = Report(
-        project_id=project.id,
+        project_id=uuid.UUID(project["id"]),
         query="What are the main vendor risks?",
         title="Risk Analysis: Vendor Review",
         report_type="risk_analysis",
@@ -97,17 +94,34 @@ def test_get_report_returns_structured_payload(client, db_session):
     body = response.json()
     assert body["data"]["type"] == "risk_analysis"
     assert body["data"]["query"] == "What are the main vendor risks?"
-    assert body["data"]["structured_payload"]["items"][0]["recommended_action"] == "Clarify the SLA before approval."
+    assert (
+        body["data"]["structured_payload"]["items"][0]["recommended_action"]
+        == "Clarify the SLA before approval."
+    )
 
 
-def test_update_action_item_status_returns_updated_report(client, monkeypatch):
+def test_update_action_item_status_returns_updated_report(client, db_session, monkeypatch):
     project = _create_project(client)
+    report = Report(
+        project_id=uuid.UUID(project["id"]),
+        query="What should we do next?",
+        title="Action Items: Launch checklist",
+        report_type="action_items",
+        format="markdown",
+        content="# Action Items",
+        structured_payload={"overview": "One key follow-up was detected.", "items": []},
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
 
     monkeypatch.setattr(
         report_route_module,
         "update_action_item_status",
         lambda **kwargs: {
-            "report_id": "report-1",
+            "report_id": str(report.id),
             "project_id": project["id"],
             "query": "What should we do next?",
             "title": "Action Items: Launch checklist",
@@ -136,7 +150,7 @@ def test_update_action_item_status_returns_updated_report(client, monkeypatch):
     )
 
     response = client.put(
-        "/api/v1/reports/report-1/action-items/item-1",
+        f"/api/v1/reports/{report.id}/action-items/item-1",
         json={"status": "done"},
     )
 

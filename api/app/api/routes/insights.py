@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.citation_service import hydrate_citations
 from app.services.insight_service import InsightError, generate_insight
+from app.storage.models import User
 from app.storage.repositories.insight_repository import InsightRepository
 
 router = APIRouter(prefix="/insights")
@@ -25,7 +27,14 @@ def generate_insight_route(
     payload: GenerateInsightRequest,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(
+        db,
+        project_id=payload.project_id,
+        user=current_user,
+        minimum_role="editor",
+    )
     max_sources = 20
     if payload.evidence_scope:
         max_sources = payload.evidence_scope.get("max_sources", 20)
@@ -55,6 +64,7 @@ def get_insight(
     insight_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
     repo = InsightRepository(db)
     insight = repo.get(insight_id)
@@ -65,6 +75,12 @@ def get_insight(
             message="Insight does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(
+        db,
+        project_id=insight.project_id,
+        user=current_user,
+        minimum_role="viewer",
+    )
     citations = hydrate_citations(
         db,
         [

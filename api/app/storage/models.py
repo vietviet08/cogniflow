@@ -19,6 +19,29 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuthToken(Base):
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    token_name: Mapped[str] = mapped_column(String(255), default="default")
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True)
+    token_last_four: Mapped[str] = mapped_column(String(4))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Source(Base):
     __tablename__ = "sources"
 
@@ -117,6 +140,19 @@ class ProcessingRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ProjectMembership(Base):
+    __tablename__ = "project_memberships"
+    __table_args__ = (
+        UniqueConstraint("project_id", "user_id", name="uq_project_memberships_project_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="viewer")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -171,7 +207,10 @@ class Report(Base):
     content: Mapped[str | None] = mapped_column(Text())
     structured_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON())
     status: Mapped[str] = mapped_column(String(20), default="completed")
-    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("processing_runs.id"), nullable=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("processing_runs.id"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -185,7 +224,10 @@ class Insight(Base):
     findings: Mapped[dict | None] = mapped_column(JSON())  # list of {theme, points}
     provider: Mapped[str | None] = mapped_column(String(50))
     model_id: Mapped[str | None] = mapped_column(String(128))
-    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("processing_runs.id"), nullable=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("processing_runs.id"),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(20), default="completed")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.ingestion_service import IngestionError, ingest_remote_source, save_uploaded_file
+from app.storage.models import Job, Source, User
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
 from app.storage.repositories.source_repository import SourceRepository
-from app.storage.models import Source, Job
 
 router = APIRouter(prefix="/sources")
 
@@ -29,6 +30,7 @@ async def upload_file_source(
     project_id: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
     try:
         project_uuid = uuid.UUID(project_id)
@@ -48,6 +50,7 @@ async def upload_file_source(
             message="Project does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(db, project_id=project_uuid, user=current_user, minimum_role="editor")
 
     source_repo = SourceRepository(db)
     source = source_repo.create(
@@ -96,7 +99,12 @@ async def upload_file_source(
 
 
 @router.post("/urls")
-def ingest_url(payload: IngestUrlRequest, request: Request, db: Session = Depends(get_db)):
+def ingest_url(
+    payload: IngestUrlRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     project_repo = ProjectRepository(db)
     if not project_repo.get(payload.project_id):
         return error_response(
@@ -105,6 +113,12 @@ def ingest_url(payload: IngestUrlRequest, request: Request, db: Session = Depend
             message="Project does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(
+        db,
+        project_id=payload.project_id,
+        user=current_user,
+        minimum_role="editor",
+    )
 
     source_repo = SourceRepository(db)
     source = source_repo.create(
@@ -160,7 +174,12 @@ def ingest_url(payload: IngestUrlRequest, request: Request, db: Session = Depend
 
 
 @router.get("/{source_id}/artifact")
-def get_source_artifact(source_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def get_source_artifact(
+    source_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     source = SourceRepository(db).get(source_id)
     if not source:
         return error_response(
@@ -169,6 +188,7 @@ def get_source_artifact(source_id: uuid.UUID, request: Request, db: Session = De
             message="Source does not exist",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    require_project_role(db, project_id=source.project_id, user=current_user, minimum_role="viewer")
     if source.type != "file" or not source.storage_path:
         return error_response(
             request,
@@ -201,14 +221,30 @@ def get_source_artifact(source_id: uuid.UUID, request: Request, db: Session = De
 
 
 @router.get("/project/{project_id}")
-def list_sources(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_sources(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     # Return sources with their latest job status
-    sources = db.query(Source).filter(Source.project_id == project_id).order_by(Source.created_at.desc()).all()
+    sources = (
+        db.query(Source)
+        .filter(Source.project_id == project_id)
+        .order_by(Source.created_at.desc())
+        .all()
+    )
     
     items = []
     for s in sources:
         # get latest job status for this source
-        latest_job = db.query(Job).filter(Job.source_id == s.id).order_by(Job.created_at.desc()).first()
+        latest_job = (
+            db.query(Job)
+            .filter(Job.source_id == s.id)
+            .order_by(Job.created_at.desc())
+            .first()
+        )
         status = latest_job.status if latest_job else s.status
         items.append({
             "id": str(s.id),
@@ -227,9 +263,22 @@ class BulkDeleteSourceRequest(BaseModel):
 
 
 @router.delete("/bulk")
-def bulk_delete_sources(payload: BulkDeleteSourceRequest, request: Request, db: Session = Depends(get_db)):
+def bulk_delete_sources(
+    payload: BulkDeleteSourceRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     try:
         source_uuids = [uuid.UUID(sid) for sid in payload.source_ids]
+        sources = db.query(Source).filter(Source.id.in_(source_uuids)).all()
+        for source in sources:
+            require_project_role(
+                db,
+                project_id=source.project_id,
+                user=current_user,
+                minimum_role="editor",
+            )
         # In a real app we'd need to cascade delete chunks, documents, jobs etc.
         # SQLite with no pragmas might leave orphans, but for prototype we just delete the Source 
         db.query(Source).filter(Source.id.in_(source_uuids)).delete(synchronize_session=False)

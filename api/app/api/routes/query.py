@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.security import require_current_user, require_project_role
 from app.services.query_service import QueryError, search_knowledge_base
+from app.storage.models import User
 from app.storage.repositories.project_repository import ProjectRepository
 
 router = APIRouter(prefix="/query")
@@ -21,7 +23,18 @@ class SearchRequest(BaseModel):
 
 
 @router.post("/search")
-def search_knowledge(payload: SearchRequest, request: Request, db: Session = Depends(get_db)):
+def search_knowledge(
+    payload: SearchRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(
+        db,
+        project_id=payload.project_id,
+        user=current_user,
+        minimum_role="viewer",
+    )
     project = ProjectRepository(db).get(payload.project_id)
     if not project:
         return error_response(

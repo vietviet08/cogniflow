@@ -13,7 +13,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 ### Backend
 
-- [ ] Auth and project-level RBAC with user identity, bearer token validation, and project membership checks
+- [x] Auth and project-level RBAC with user identity, bearer token validation, and project membership checks
 - [ ] Async worker runtime for ingestion, processing, insight, and report jobs
 - [ ] Job lifecycle controls for retry, cancellation, attempt tracking, and dead-letter states
 - [ ] Structured observability with correlation IDs, metrics, and traces across request and job flows
@@ -89,7 +89,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 ## Implementation Focus For This Change
 
-- [ ] Auth/RBAC
+- [x] Auth/RBAC
 - [ ] Async worker
 - [ ] Observability
 - [ ] Contract sync

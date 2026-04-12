@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
-from app.storage.models import Chunk, Document, Source
+from app.core.security import require_current_user, require_project_role
+from app.storage.models import Chunk, Document, Source, User
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.project_repository import ProjectRepository
 
@@ -20,9 +21,18 @@ class CreateProjectRequest(BaseModel):
 
 
 @router.post("")
-def create_project(payload: CreateProjectRequest, request: Request, db: Session = Depends(get_db)):
+def create_project(
+    payload: CreateProjectRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     repo = ProjectRepository(db)
-    project = repo.create(name=payload.name, description=payload.description)
+    project = repo.create(
+        name=payload.name,
+        description=payload.description,
+        owner_user_id=current_user.id,
+    )
     return success_response(
         request,
         {
@@ -36,9 +46,13 @@ def create_project(payload: CreateProjectRequest, request: Request, db: Session 
 
 
 @router.get("")
-def list_projects(request: Request, db: Session = Depends(get_db)):
+def list_projects(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     repo = ProjectRepository(db)
-    projects = repo.list_with_stats()
+    projects = repo.list_with_stats(current_user.id)
     return success_response(request, {"items": projects, "total": len(projects)})
 
 
@@ -48,25 +62,61 @@ class UpdateProjectRequest(BaseModel):
 
 
 @router.put("/{project_id}")
-def update_project(project_id: uuid.UUID, payload: UpdateProjectRequest, request: Request, db: Session = Depends(get_db)):
+def update_project(
+    project_id: uuid.UUID,
+    payload: UpdateProjectRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     repo = ProjectRepository(db)
     project = repo.update(project_id, name=payload.name, description=payload.description)
     if not project:
-        return error_response(request, "PROJECT_NOT_FOUND", "Project does not exist", status_code=404)
-    return success_response(request, {"id": str(project.id), "name": project.name, "description": project.description})
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            "Project does not exist",
+            status_code=404,
+        )
+    return success_response(
+        request,
+        {
+            "id": str(project.id),
+            "name": project.name,
+            "description": project.description,
+        },
+    )
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="owner")
     repo = ProjectRepository(db)
     success = repo.delete(project_id)
     if not success:
-        return error_response(request, "PROJECT_NOT_FOUND", "Project does not exist or deletion failed", status_code=404)
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            "Project does not exist or deletion failed",
+            status_code=404,
+        )
     return success_response(request, {"success": True})
 
 
 @router.get("/{project_id}/documents")
-def list_project_documents(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_project_documents(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
     if not project:
         return error_response(
@@ -115,7 +165,9 @@ def list_project_chunks(
     document_id: uuid.UUID | None = None,
     limit: int = 50,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
 ):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
     if not project:
         return error_response(
@@ -165,7 +217,13 @@ def list_project_chunks(
 
 
 @router.get("/{project_id}/processing-runs")
-def list_processing_runs(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_processing_runs(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
     if not project:
         return error_response(
@@ -197,7 +255,13 @@ def list_processing_runs(project_id: uuid.UUID, request: Request, db: Session = 
 
 
 @router.get("/{project_id}/insights")
-def list_project_insights(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_project_insights(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
     if not project:
         return error_response(
@@ -231,9 +295,15 @@ def list_project_insights(project_id: uuid.UUID, request: Request, db: Session =
 
 
 @router.get("/{project_id}/reports")
-def list_project_reports(project_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+def list_project_reports(
+    project_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
     from app.storage.models import Report
 
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
     if not project:
         return error_response(
