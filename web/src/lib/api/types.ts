@@ -237,6 +237,24 @@ export interface IntegrationConnectionListData {
     items: IntegrationConnectionData[];
 }
 
+export interface GoogleDriveBrowseItemData {
+    id: string;
+    name: string;
+    mime_type: string;
+    web_view_link: string;
+    modified_time: string | null;
+    size: string | null;
+    icon_link: string | null;
+    is_folder: boolean;
+    is_supported_import: boolean;
+}
+
+export interface GoogleDriveBrowseData {
+    folder_id: string;
+    items: GoogleDriveBrowseItemData[];
+    next_page_token: string | null;
+}
+
 // ---- Phase 2: Insight Layer ----
 
 export interface InsightFinding {

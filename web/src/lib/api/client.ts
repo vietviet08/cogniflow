@@ -13,6 +13,7 @@ import type {
     InsightResult,
     IntegrationConnectionData,
     IntegrationConnectionListData,
+    GoogleDriveBrowseData,
     JobStatusData,
     ProcessingResultData,
     ProjectListData,
@@ -52,6 +53,15 @@ export function getProjectIntegrationOAuthStartUrl(
 ): string {
     return createApiUrl(
         `/projects/${projectId}/integrations/${provider}/oauth/start`,
+    );
+}
+
+export function startProjectIntegrationOAuth(payload: {
+    projectId: string;
+    provider: IntegrationProvider;
+}): Promise<ApiSuccess<{ redirect_url: string }>> {
+    return requestJson<{ redirect_url: string }>(
+        `/projects/${payload.projectId}/integrations/${payload.provider}/oauth/start`,
     );
 }
 
@@ -178,9 +188,7 @@ export function getJob(jobId: string): Promise<ApiSuccess<JobStatusData>> {
     return requestJson<JobStatusData>(`/jobs/${jobId}`);
 }
 
-export function cancelJob(
-    jobId: string,
-): Promise<
+export function cancelJob(jobId: string): Promise<
     ApiSuccess<{
         job_id: string;
         status: string;
@@ -369,6 +377,34 @@ export function importProjectIntegrationSource(payload: {
                 item_reference: payload.itemReference,
             }),
         },
+    );
+}
+
+export function browseGoogleDriveItems(payload: {
+    projectId: string;
+    folderId?: string;
+    query?: string;
+    pageToken?: string;
+    pageSize?: number;
+}): Promise<ApiSuccess<GoogleDriveBrowseData>> {
+    const params = new URLSearchParams();
+    if (payload.folderId) {
+        params.set("folder_id", payload.folderId);
+    }
+    if (payload.query) {
+        params.set("q", payload.query);
+    }
+    if (payload.pageToken) {
+        params.set("page_token", payload.pageToken);
+    }
+    if (payload.pageSize) {
+        params.set("page_size", String(payload.pageSize));
+    }
+
+    const queryString = params.toString();
+    const endpoint = `/projects/${payload.projectId}/integrations/google_drive/browse`;
+    return requestJson<GoogleDriveBrowseData>(
+        queryString ? `${endpoint}?${queryString}` : endpoint,
     );
 }
 

@@ -11,6 +11,7 @@ from app.contracts.common import error_response, success_response
 from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
 from app.services.integration_service import (
+    browse_google_drive_items,
     IntegrationError,
     build_google_drive_oauth_start_url,
     complete_google_drive_oauth_callback,
@@ -198,7 +199,48 @@ def start_google_drive_oauth(
             details=exc.details,
         )
 
-    return RedirectResponse(redirect_url, status_code=302)
+    return success_response(request, {"redirect_url": redirect_url})
+
+
+@router.get("/google_drive/browse")
+def browse_google_drive(
+    project_id: uuid.UUID,
+    request: Request,
+    folder_id: str | None = None,
+    q: str | None = None,
+    page_token: str | None = None,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
+    if not ProjectRepository(db).get(project_id):
+        return error_response(
+            request,
+            code="PROJECT_NOT_FOUND",
+            message="Project does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        result = browse_google_drive_items(
+            db,
+            project_id=project_id,
+            folder_id=folder_id,
+            query=q,
+            page_token=page_token,
+            page_size=page_size,
+        )
+    except IntegrationError as exc:
+        return error_response(
+            request,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
+        )
+
+    return success_response(request, result)
 
 
 @oauth_router.get("/google_drive/oauth/callback", name="google_drive_oauth_callback")
