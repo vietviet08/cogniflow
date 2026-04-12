@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from typing import Any
 
@@ -22,6 +23,7 @@ from app.services.provider_settings_service import (
     normalize_provider,
     resolve_chat_provider_config,
 )
+from app.storage.models import Document, Source
 from app.storage.repositories.insight_repository import InsightRepository
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
@@ -102,6 +104,7 @@ def generate_insight(
         ) from exc
 
     collection = get_retrieval_collection(LOCAL_EMBEDDING_MODEL)
+    retrieval_error: Exception | None = None
     try:
         result = collection.query(
             query_embeddings=[query_embedding],
@@ -109,16 +112,45 @@ def generate_insight(
             where={"project_id": str(project_id)},
         )
     except Exception as exc:
-        raise InsightError(
-            "Failed to query vector store for insight generation.",
-            code="INSIGHT_RETRIEVAL_ERROR",
-            status_code=503,
-            details={"stage": "retrieval", "reason": str(exc)[:240]},
-        ) from exc
+        retrieval_error = exc
+        result = {}
 
     documents: list[str] = result.get("documents", [[]])[0]
     metadatas: list[dict] = result.get("metadatas", [[]])[0]
     ids: list[str] = result.get("ids", [[]])[0]
+
+    if not documents:
+        fallback_records = _load_document_fallback_records(
+            db,
+            project_id=project_id,
+            query=query,
+            limit=min(max_sources, 20),
+        )
+        if fallback_records:
+            documents = [record["document"] for record in fallback_records]
+            metadatas = [record["metadata"] for record in fallback_records]
+            ids = [record["id"] for record in fallback_records]
+
+    if not documents:
+        if retrieval_error is not None:
+            raise InsightError(
+                "Failed to query vector store for insight generation.",
+                code="INSIGHT_RETRIEVAL_ERROR",
+                status_code=503,
+                details={"stage": "retrieval", "reason": str(retrieval_error)[:240]},
+            ) from retrieval_error
+        # No evidence — return empty insight.
+        return _persist_insight(
+            db,
+            project_id=project_id,
+            query=query,
+            summary="No indexed documents found for this project.",
+            findings=[],
+            citations=[],
+            provider=answer_provider,
+            model_id=generation_config["chat_model"],
+            prompt_template=_SYNTHESIS_PROMPT_TEMPLATE,
+        )
 
     citations = hydrate_citations(db, [
         {
@@ -134,20 +166,6 @@ def generate_insight(
         }
         for chunk_id, metadata, document in zip(ids, metadatas, documents, strict=False)
     ])
-
-    if not documents:
-        # No evidence — return empty insight.
-        return _persist_insight(
-            db,
-            project_id=project_id,
-            query=query,
-            summary="No indexed documents found for this project.",
-            findings=[],
-            citations=[],
-            provider=answer_provider,
-            model_id=generation_config["chat_model"],
-            prompt_template=_SYNTHESIS_PROMPT_TEMPLATE,
-        )
 
     context_blocks: list[str] = []
     for index, (document, metadata) in enumerate(zip(documents, metadatas, strict=False), start=1):
@@ -213,7 +231,7 @@ def _call_openai(prompt: str, api_key: str, base_url: str | None, model: str) ->
         return content.strip() if content else "{}"
     except Exception as exc:
         raise InsightError(
-            f"OpenAI request failed during insight generation.",
+            "OpenAI request failed during insight generation.",
             code="INSIGHT_UPSTREAM_ERROR",
             status_code=502,
             details={"provider": "openai", "reason": str(exc)[:240]},
@@ -249,7 +267,7 @@ def _parse_synthesis_response(raw: str) -> dict[str, Any]:
         data = json.loads(text)
         if isinstance(data, dict):
             return data
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         pass
     return {"summary": raw[:500], "findings": []}
 
@@ -303,3 +321,63 @@ def _persist_insight(
         "provider": provider,
         "model": model_id,
     }
+
+
+def _load_document_fallback_records(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    query: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    rows = (
+        db.query(Document, Source)
+        .join(Source, Document.source_id == Source.id)
+        .filter(Source.project_id == project_id)
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    if not rows:
+        return []
+
+    terms = _tokenize_query(query)
+    ranked: list[tuple[int, Document, Source, str]] = []
+    for document, source in rows:
+        clean_text = (document.clean_text or "").strip()
+        if not clean_text:
+            continue
+        lowered = clean_text.lower()
+        score = sum(1 for term in terms if term in lowered)
+        ranked.append((score, document, source, clean_text[:2400]))
+
+    if not ranked:
+        return []
+
+    ranked.sort(key=lambda item: (item[0], item[1].created_at), reverse=True)
+    filtered = [item for item in ranked if item[0] > 0] or ranked
+    selected = filtered[: max(limit, 1)]
+
+    records: list[dict[str, Any]] = []
+    for _, document, source, content in selected:
+        source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+        records.append(
+            {
+                "id": str(document.id),
+                "document": content,
+                "metadata": {
+                    "project_id": str(project_id),
+                    "source_id": str(source.id),
+                    "source_type": source.type,
+                    "document_id": str(document.id),
+                    "chunk_id": f"doc-{document.id}",
+                    "chunk_index": 0,
+                    "title": document.title or source.original_uri or "Imported source",
+                    "url": str(source_metadata.get("external_url") or ""),
+                },
+            }
+        )
+    return records
+
+
+def _tokenize_query(query: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9]+", query.lower()) if len(token) > 1]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -74,6 +75,7 @@ def search_knowledge_base(
             },
         ) from exc
     collection = get_retrieval_collection(LOCAL_EMBEDDING_MODEL)
+    retrieval_error: Exception | None = None
     try:
         result = collection.query(
             query_embeddings=[query_embedding],
@@ -81,21 +83,39 @@ def search_knowledge_base(
             where=_build_where_clause(project_id, filters),
         )
     except Exception as exc:
-        raise QueryError(
-            "Failed to retrieve context from the vector store.",
-            code="QUERY_RETRIEVAL_ERROR",
-            status_code=503,
-            details={
-                "provider": LOCAL_EMBEDDING_PROVIDER,
-                "stage": "retrieval",
-                "model": LOCAL_EMBEDDING_MODEL,
-            },
-        ) from exc
+        retrieval_error = exc
+        result = {}
 
     documents = result.get("documents", [[]])[0]
     metadatas = result.get("metadatas", [[]])[0]
     ids = result.get("ids", [[]])[0]
+
     if not documents:
+        fallback_records = _load_document_fallback_records(
+            db,
+            project_id=project_id,
+            query=query,
+            top_k=top_k,
+        )
+        if fallback_records:
+            documents = [record["document"] for record in fallback_records]
+            metadatas = [record["metadata"] for record in fallback_records]
+            ids = [record["id"] for record in fallback_records]
+
+    if not documents:
+        if retrieval_error is not None:
+            raise QueryError(
+                "Failed to retrieve context from the vector store.",
+                code="QUERY_RETRIEVAL_ERROR",
+                status_code=503,
+                details={
+                    "provider": LOCAL_EMBEDDING_PROVIDER,
+                    "stage": "retrieval",
+                    "model": LOCAL_EMBEDDING_MODEL,
+                    "reason": _sanitize_exception_reason(retrieval_error)
+                    or "Vector store unavailable.",
+                },
+            ) from retrieval_error
         if _project_has_non_local_chunks(db, project_id):
             raise QueryError(
                 "This project must be reprocessed to use the local multilingual embedding backend.",
@@ -353,3 +373,63 @@ def _sanitize_exception_reason(exc: Exception) -> str | None:
     if len(compact) > 240:
         compact = f"{compact[:237]}..."
     return compact
+
+
+def _load_document_fallback_records(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    query: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    rows = (
+        db.query(Document, Source)
+        .join(Source, Document.source_id == Source.id)
+        .filter(Source.project_id == project_id)
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    if not rows:
+        return []
+
+    terms = _tokenize_query(query)
+    ranked: list[tuple[int, Document, Source, str]] = []
+    for document, source in rows:
+        clean_text = (document.clean_text or "").strip()
+        if not clean_text:
+            continue
+        lowered = clean_text.lower()
+        score = sum(1 for term in terms if term in lowered)
+        ranked.append((score, document, source, clean_text[:2400]))
+
+    if not ranked:
+        return []
+
+    ranked.sort(key=lambda item: (item[0], item[1].created_at), reverse=True)
+    filtered = [item for item in ranked if item[0] > 0] or ranked
+    selected = filtered[: max(top_k, 1)]
+
+    records: list[dict[str, Any]] = []
+    for _, document, source, content in selected:
+        source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+        records.append(
+            {
+                "id": str(document.id),
+                "document": content,
+                "metadata": {
+                    "project_id": str(project_id),
+                    "source_id": str(source.id),
+                    "source_type": source.type,
+                    "document_id": str(document.id),
+                    "chunk_id": f"doc-{document.id}",
+                    "chunk_index": 0,
+                    "title": document.title or source.original_uri or "Imported source",
+                    "url": str(source_metadata.get("external_url") or ""),
+                },
+            }
+        )
+    return records
+
+
+def _tokenize_query(query: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9]+", query.lower()) if len(token) > 1]
