@@ -1,4 +1,7 @@
 import uuid
+import hashlib
+import hmac
+import secrets
 
 from fastapi import Depends, Header, status
 from sqlalchemy.orm import Session
@@ -11,6 +14,36 @@ from app.storage.repositories.project_membership_repository import ProjectMember
 from app.storage.repositories.user_repository import UserRepository
 
 ROLE_ORDER = {"viewer": 10, "editor": 20, "owner": 30}
+PASSWORD_HASH_ITERATIONS = 600_000
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        algorithm, rounds_raw, salt, digest = stored_hash.split("$", maxsplit=3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        rounds = int(rounds_raw)
+    except (ValueError, TypeError):
+        return False
+
+    computed = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        rounds,
+    ).hex()
+    return hmac.compare_digest(computed, digest)
 
 
 def require_bearer_token(authorization: str | None = Header(default=None)) -> str:
