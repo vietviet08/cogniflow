@@ -3,42 +3,44 @@
 ## Setup
 
 - Copy environment template:
-  - `cp api/.env.example api/.env`
-  - `cp web/.env.example web/.env.local`
+    - `cp api/.env.example api/.env`
+    - `cp web/.env.example web/.env.local`
 - Start local dependencies:
-  - `docker compose -f infra/docker/docker-compose.local.yml up -d`
+    - `docker compose -f infra/docker/docker-compose.local.yml up -d`
 - Install backend dependencies:
-  - `python3 -m pip install -r api/requirements-dev.txt`
+    - `python3 -m pip install -r api/requirements-dev.txt`
 - Install frontend dependencies:
-  - `cd web && npm install`
+    - `cd web && npm install`
 
 ## Run
 
 - Start backend + frontend:
-  - `pwsh infra/scripts/dev.ps1`
+    - `pwsh infra/scripts/dev.ps1`
 - Start only backend:
-  - `cd api && uvicorn app.main:app --reload`
+    - `cd api && uvicorn app.main:app --reload`
+- Start dedicated worker runtime:
+    - `cd api && WORKER_INLINE_EXECUTION=false python -m app.workers.runtime`
 - Start only frontend:
-  - `cd web && npm run dev`
+    - `cd web && npm run dev`
 
 ## Quality Checks
 
 - Lint:
-  - `pwsh infra/scripts/lint.ps1`
+    - `pwsh infra/scripts/lint.ps1`
 - Type check:
-  - `cd api && mypy app`
-  - `cd web && npm run typecheck`
+    - `cd api && mypy app`
+    - `cd web && npm run typecheck`
 - Tests:
-  - `pwsh infra/scripts/test.ps1`
+    - `pwsh infra/scripts/test.ps1`
 
 ## Database and Migrations
 
 - Create migration:
-  - `cd api && alembic revision -m "message"`
+    - `cd api && alembic revision -m "message"`
 - Apply migrations:
-  - `cd api && alembic upgrade head`
+    - `cd api && alembic upgrade head`
 - Rollback one migration:
-  - `cd api && alembic downgrade -1`
+    - `cd api && alembic downgrade -1`
 
 ## Utility Scripts
 

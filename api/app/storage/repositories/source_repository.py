@@ -53,3 +53,44 @@ class SourceRepository(BaseRepository[Source]):
             .filter(Source.project_id == project_id, Source.id.in_(source_ids))
             .order_by(Source.created_at.asc())
         )
+
+    def find_by_checksum(
+        self,
+        *,
+        project_id: uuid.UUID,
+        checksum: str,
+        exclude_source_id: uuid.UUID | None = None,
+    ) -> Source | None:
+        query = self.db.query(Source).filter(
+            Source.project_id == project_id,
+            Source.checksum == checksum,
+        )
+        if exclude_source_id is not None:
+            query = query.filter(Source.id != exclude_source_id)
+        return query.order_by(Source.created_at.desc()).first()
+
+    def next_version(
+        self,
+        *,
+        project_id: uuid.UUID,
+        original_uri: str | None,
+        exclude_source_id: uuid.UUID | None = None,
+    ) -> int:
+        if not original_uri:
+            return 1
+        query = self.db.query(Source).filter(
+            Source.project_id == project_id,
+            Source.original_uri == original_uri,
+        )
+        if exclude_source_id is not None:
+            query = query.filter(Source.id != exclude_source_id)
+
+        latest = query.order_by(Source.created_at.desc()).first()
+        if latest is None:
+            return 1
+        metadata = latest.source_metadata if isinstance(latest.source_metadata, dict) else {}
+        try:
+            previous_version = int(metadata.get("version", 1))
+        except (TypeError, ValueError):
+            previous_version = 1
+        return max(previous_version + 1, 1)

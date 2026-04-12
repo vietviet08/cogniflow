@@ -26,6 +26,7 @@ services:
       - GOOGLE_OAUTH_CLIENT_ID={{ google_oauth_client_id }}
       - GOOGLE_OAUTH_CLIENT_SECRET={{ google_oauth_client_secret }}
       - INTEGRATION_OAUTH_STATE_SECRET={{ oauth_state_secret }}
+      - WORKER_INLINE_EXECUTION=false
       - AWS_DEFAULT_REGION={{ aws_region }}
       - S3_UPLOADS_BUCKET={{ s3_uploads_bucket }}
     volumes:
@@ -40,6 +41,38 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    networks:
+      - notemesh-net
+
+  worker:
+    image: ghcr.io/{{ github_repo | default('your-org/notemesh-api') }}:{{ api_image_tag | default('latest') }}
+    container_name: notemesh-worker
+    command: ["python", "-m", "app.workers.runtime"]
+    restart: unless-stopped
+    environment:
+      - API_ENV={{ api_env }}
+      - DATABASE_URL=postgresql+psycopg://{{ db_username }}:{{ db_password }}@{{ db_host }}/{{ db_name }}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8001
+      - CHROMA_COLLECTION={{ chroma_collection }}
+      - UPLOAD_DIR=/app/data/uploads
+      - WEB_APP_URL={{ web_app_url }}
+      - API_CORS_ALLOW_ORIGINS={{ cors_origins }}
+      - OPENAI_API_KEY={{ openai_api_key }}
+      - GOOGLE_API_KEY={{ google_api_key }}
+      - GOOGLE_OAUTH_CLIENT_ID={{ google_oauth_client_id }}
+      - GOOGLE_OAUTH_CLIENT_SECRET={{ google_oauth_client_secret }}
+      - INTEGRATION_OAUTH_STATE_SECRET={{ oauth_state_secret }}
+      - WORKER_INLINE_EXECUTION=false
+      - WORKER_POLL_INTERVAL_SECONDS=2
+      - AWS_DEFAULT_REGION={{ aws_region }}
+      - S3_UPLOADS_BUCKET={{ s3_uploads_bucket }}
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./logs:/app/logs
+    depends_on:
+      chromadb:
+        condition: service_healthy
     networks:
       - notemesh-net
 

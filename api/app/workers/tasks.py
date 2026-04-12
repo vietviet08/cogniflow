@@ -36,10 +36,10 @@ def run_job(job_id: str) -> None:
         job = job_repo.get(uuid.UUID(job_id))
         if job is None:
             return
+        if job.status != "queued":
+            return
         request_id = str((job.job_payload or {}).get("request_id") or f"job:{job.id}")
         token = bind_request_id(request_id)
-        if job.status == "cancelled":
-            return
 
         job = job_repo.mark_running(job)
         emit_event(
@@ -55,15 +55,27 @@ def run_job(job_id: str) -> None:
             },
         )
         if job.cancel_requested_at is not None:
-            job_repo.request_cancellation(job)
+            job_repo.mark_cancelled(job)
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            record_job_run(job_type=job.job_type, status="cancelled", duration_ms=duration_ms)
+            emit_event(
+                "job_cancelled",
+                {
+                    "job_id": str(job.id),
+                    "job_type": job.job_type,
+                    "duration_ms": round(duration_ms, 3),
+                },
+            )
             return
 
         handler = register_worker_tasks().get(job.job_type)
         if handler is None:
-            job_repo.mark_failed(
+            _handle_retryable_failure(
+                job_repo,
                 job,
                 code="JOB_HANDLER_MISSING",
                 message=f"No worker handler registered for job type '{job.job_type}'.",
+                started_at=started_at,
             )
             return
 
@@ -81,43 +93,91 @@ def run_job(job_id: str) -> None:
         )
     except (ProcessingError, InsightError, ReportError, ValueError) as exc:
         if "job_repo" in locals() and "job" in locals():
-            job_repo.mark_failed(job, code=type(exc).__name__.upper(), message=str(exc))
-            duration_ms = (time.perf_counter() - started_at) * 1000
-            record_job_run(job_type=job.job_type, status="failed", duration_ms=duration_ms)
-            emit_event(
-                "job_failed",
-                {
-                    "job_id": str(job.id),
-                    "job_type": job.job_type,
-                    "duration_ms": round(duration_ms, 3),
-                    "error": str(exc),
-                },
-            )
-            logger.error(
-                "job_failed",
-                extra={
-                    "job_id": str(job.id),
-                    "job_type": job.job_type,
-                    "error": str(exc),
-                },
+            _handle_retryable_failure(
+                job_repo,
+                job,
+                code=type(exc).__name__.upper(),
+                message=str(exc),
+                started_at=started_at,
             )
     except Exception as exc:
         if "job_repo" in locals() and "job" in locals():
-            job_repo.mark_failed(
+            _handle_retryable_failure(
+                job_repo,
                 job,
                 code="JOB_EXECUTION_ERROR",
                 message=str(exc),
+                started_at=started_at,
             )
-            duration_ms = (time.perf_counter() - started_at) * 1000
-            record_job_run(job_type=job.job_type, status="failed", duration_ms=duration_ms)
             logger.exception(
                 "job_failed",
-                extra={"job_id": str(job.id), "job_type": job.job_type},
+                extra={"job_id": str(job.id), "job_type": job.job_type, "error": str(exc)},
             )
     finally:
         if token is not None:
             clear_request_id(token)
         db.close()
+
+
+def _handle_retryable_failure(
+    job_repo: JobRepository,
+    job: Job,
+    *,
+    code: str,
+    message: str,
+    started_at: float,
+) -> None:
+    duration_ms = (time.perf_counter() - started_at) * 1000
+
+    if job_repo.has_retry_budget(job):
+        queued = job_repo.queue_retry(job)
+        record_job_run(job_type=job.job_type, status="failed", duration_ms=duration_ms)
+        emit_event(
+            "job_retry_scheduled",
+            {
+                "job_id": str(queued.id),
+                "job_type": queued.job_type,
+                "attempt_count": queued.attempt_count,
+                "max_retries": queued.max_retries,
+                "error_code": code,
+                "error": message,
+            },
+        )
+        logger.warning(
+            "job_retry_scheduled",
+            extra={
+                "job_id": str(queued.id),
+                "job_type": queued.job_type,
+                "attempt_count": queued.attempt_count,
+                "max_retries": queued.max_retries,
+                "error_code": code,
+            },
+        )
+        return
+
+    dead_letter = job_repo.mark_dead_letter(job, code=code, message=message)
+    record_job_run(job_type=job.job_type, status="dead_letter", duration_ms=duration_ms)
+    emit_event(
+        "job_dead_lettered",
+        {
+            "job_id": str(dead_letter.id),
+            "job_type": dead_letter.job_type,
+            "attempt_count": dead_letter.attempt_count,
+            "max_retries": dead_letter.max_retries,
+            "error_code": code,
+            "error": message,
+        },
+    )
+    logger.error(
+        "job_dead_lettered",
+        extra={
+            "job_id": str(dead_letter.id),
+            "job_type": dead_letter.job_type,
+            "attempt_count": dead_letter.attempt_count,
+            "max_retries": dead_letter.max_retries,
+            "error_code": code,
+        },
+    )
 
 
 def _run_processing_job(job: Job) -> dict[str, Any]:

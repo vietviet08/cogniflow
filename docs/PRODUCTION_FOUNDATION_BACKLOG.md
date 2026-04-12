@@ -15,7 +15,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 - [x] Auth and project-level RBAC with user identity, bearer token validation, and project membership checks
 - [x] Async worker runtime for ingestion, processing, insight, and report jobs
-- [~] Job lifecycle controls for retry, cancellation, attempt tracking, and dead-letter states
+- [x] Job lifecycle controls for retry, cancellation, attempt tracking, and dead-letter states
 - [x] Structured observability with correlation IDs, metrics, and traces across request and job flows
 - [x] Contract sync guardrail for ORM models, SQL docs, migrations, and API envelopes
 - [ ] Hybrid retrieval and reranking baseline
@@ -24,18 +24,18 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 ### Frontend
 
 - [x] Auth flow and permission-aware UI states
-- [ ] Job operations screen with progress, retry, cancel, and failure detail
+- [x] Job operations screen with progress, retry, cancel, and failure detail
 - [ ] Lineage explorer from report and insight to source, document, and chunk
 
 ### Infra
 
-- [ ] Dedicated worker process in deployment topology
+- [x] Dedicated worker process in deployment topology
 - [ ] Monitoring and alerting for backlog, latency, and upstream provider failures
 - [ ] Secret management hardening for provider and integration credentials
 
 ### Data
 
-- [ ] Source versioning and deduplication policy
+- [x] Source versioning and deduplication policy
 - [ ] Artifact retention and deletion audit trail
 - [ ] Evidence snapshot support for reproducible report generation
 
@@ -58,7 +58,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 ### Infra
 
 - [ ] Staging environment with smoke tests and seeded data
-- [ ] CI checks for migrations, contracts, and integration flows
+- [~] CI checks for migrations, contracts, and integration flows
 
 ### Data
 

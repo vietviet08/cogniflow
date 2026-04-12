@@ -26,6 +26,8 @@ def test_upload_file_source_persists_metadata(client, monkeypatch, tmp_path):
     assert body["data"]["status"] == "completed"
     assert body["data"]["source_type"] == "file"
     assert body["data"]["filename"] == "paper.pdf"
+    assert body["data"]["source_version"] == 1
+    assert body["data"]["duplicate_of_source_id"] is None
     assert "source_id" in body["data"]
     assert "job_id" in body["data"]
 
@@ -56,8 +58,41 @@ def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
 
     assert body["data"]["status"] == "completed"
     assert body["data"]["source_type"] == "arxiv"
+    assert body["data"]["source_version"] == 1
+    assert body["data"]["duplicate_of_source_id"] is None
     assert "source_id" in body["data"]
     assert "job_id" in body["data"]
+
+
+def test_upload_file_source_tracks_version_and_duplicate(client, monkeypatch, tmp_path):
+    project = _create_project(client)
+
+    def fake_save_uploaded_file(source_id, upload):
+        target = tmp_path / f"{source_id}.pdf"
+        target.write_bytes(upload.file.read())
+        return str(target), "checksum-shared"
+
+    monkeypatch.setattr(sources_route_module, "save_uploaded_file", fake_save_uploaded_file)
+
+    first_response = client.post(
+        "/api/v1/sources/files",
+        data={"project_id": project["id"]},
+        files={"file": ("paper.pdf", io.BytesIO(b"first"), "application/pdf")},
+    )
+    assert first_response.status_code == 201
+    first_body = first_response.json()["data"]
+
+    second_response = client.post(
+        "/api/v1/sources/files",
+        data={"project_id": project["id"]},
+        files={"file": ("paper.pdf", io.BytesIO(b"second"), "application/pdf")},
+    )
+    assert second_response.status_code == 201
+    second_body = second_response.json()["data"]
+
+    assert first_body["source_version"] == 1
+    assert second_body["source_version"] == 2
+    assert second_body["duplicate_of_source_id"] == first_body["source_id"]
 
 
 def _create_project(client):

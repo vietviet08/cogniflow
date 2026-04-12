@@ -43,3 +43,52 @@ def test_run_job_records_completion_metrics(db_session, monkeypatch):
 
     metrics = get_metrics_snapshot()
     assert metrics["job_runs_total"]["processing:completed"] >= 1
+
+
+def test_run_job_retries_then_dead_letters(db_session, monkeypatch):
+    reset_metrics()
+
+    project = Project(name="Worker retry", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    job = Job(
+        project_id=project.id,
+        job_type="processing",
+        status="queued",
+        queue_name="processing",
+        max_retries=2,
+        job_payload={"request_id": "req-worker-2"},
+    )
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+
+    monkeypatch.setattr(worker_tasks, "SessionLocal", lambda: db_session)
+    def failing_handler(_job):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        worker_tasks,
+        "register_worker_tasks",
+        lambda: {"processing": failing_handler},
+    )
+
+    worker_tasks.run_job(str(job.id))
+    db_session.expire_all()
+    first_attempt = JobRepository(db_session).get(uuid.UUID(str(job.id)))
+    assert first_attempt is not None
+    assert first_attempt.status == "queued"
+    assert first_attempt.attempt_count == 1
+
+    worker_tasks.run_job(str(job.id))
+    db_session.expire_all()
+    second_attempt = JobRepository(db_session).get(uuid.UUID(str(job.id)))
+    assert second_attempt is not None
+    assert second_attempt.status == "dead_letter"
+    assert second_attempt.attempt_count == 2
+
+    metrics = get_metrics_snapshot()
+    assert metrics["job_runs_total"]["processing:failed"] >= 1
+    assert metrics["job_runs_total"]["processing:dead_letter"] >= 1

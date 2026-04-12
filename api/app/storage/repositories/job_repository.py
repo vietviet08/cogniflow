@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.storage.models import Job
@@ -13,6 +14,23 @@ class JobRepository(BaseRepository[Job]):
 
     def get(self, job_id: uuid.UUID) -> Job | None:
         return self.db.get(Job, job_id)
+
+    def list_by_project(self, project_id: uuid.UUID, *, limit: int = 100) -> list[Job]:
+        effective_limit = max(1, min(limit, 500))
+        return (
+            self.db.query(Job)
+            .filter(Job.project_id == project_id)
+            .order_by(Job.created_at.desc())
+            .limit(effective_limit)
+            .all()
+        )
+
+    def list_queued(self, *, limit: int = 1, queue_name: str | None = None) -> list[Job]:
+        effective_limit = max(1, min(limit, 100))
+        query = self.db.query(Job).filter(and_(Job.status == "queued"))
+        if queue_name:
+            query = query.filter(Job.queue_name == queue_name)
+        return query.order_by(Job.created_at.asc()).limit(effective_limit).all()
 
     def create(
         self,
@@ -101,6 +119,25 @@ class JobRepository(BaseRepository[Job]):
             error_message=message,
             finished_at=datetime.now(UTC),
         )
+
+    def mark_dead_letter(self, job: Job, *, code: str, message: str) -> Job:
+        return self.update_status(
+            job,
+            status="dead_letter",
+            error_code=code,
+            error_message=message,
+            finished_at=datetime.now(UTC),
+        )
+
+    def mark_cancelled(self, job: Job) -> Job:
+        return self.update_status(
+            job,
+            status="cancelled",
+            finished_at=datetime.now(UTC),
+        )
+
+    def has_retry_budget(self, job: Job) -> bool:
+        return job.attempt_count < max(job.max_retries, 0)
 
     def request_cancellation(self, job: Job) -> Job:
         job.cancel_requested_at = datetime.now(UTC)

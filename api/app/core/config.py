@@ -26,6 +26,9 @@ class Settings(BaseSettings):
         default=None,
         alias="GOOGLE_OAUTH_CLIENT_SECRET",
     )
+    worker_inline_execution: bool = Field(default=True, alias="WORKER_INLINE_EXECUTION")
+    worker_poll_interval_seconds: float = Field(default=2.0, alias="WORKER_POLL_INTERVAL_SECONDS")
+    worker_queue_name: str | None = Field(default=None, alias="WORKER_QUEUE_NAME")
     api_cors_allow_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         alias="API_CORS_ALLOW_ORIGINS",

@@ -62,6 +62,8 @@ export interface SourceIngestionData {
     status: string;
     source_type: string;
     filename?: string | null;
+    source_version?: number;
+    duplicate_of_source_id?: string | null;
 }
 
 export interface ProcessingResultData {
@@ -75,7 +77,13 @@ export interface ProcessingResultData {
 export interface JobStatusData {
     job_id: string;
     type: string;
-    status: "queued" | "running" | "completed" | "failed" | "cancelled";
+    status:
+        | "queued"
+        | "running"
+        | "completed"
+        | "failed"
+        | "cancelled"
+        | "dead_letter";
     progress: number;
     attempt_count: number;
     max_retries: number;
@@ -87,6 +95,11 @@ export interface JobStatusData {
         message: string | null;
     } | null;
     result: Record<string, unknown> | null;
+}
+
+export interface JobListData {
+    items: JobStatusData[];
+    total: number;
 }
 
 export interface SourceListItemData {
