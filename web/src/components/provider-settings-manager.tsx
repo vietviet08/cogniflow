@@ -10,7 +10,8 @@ import {
   listProjectProviderSettings,
   saveProjectProviderKey,
 } from "@/lib/api/client";
-import type { ProviderSettingData } from "@/lib/api/types";
+import type { ProjectRole, ProviderSettingData } from "@/lib/api/types";
+import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
 import { PageWrapper } from "@/components/layout/page-wrapper";
@@ -34,6 +35,7 @@ type ModelCatalog = {
 export function ProviderSettingsManager() {
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeProjectName, setActiveProjectName] = useState("");
+  const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
   const [settings, setSettings] = useState<ProviderSettingData[]>([]);
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
   const [draftBaseUrls, setDraftBaseUrls] = useState<Record<string, string>>({});
@@ -51,10 +53,13 @@ export function ProviderSettingsManager() {
     if (active) {
       setActiveProjectId(active.id);
       setActiveProjectName(active.name);
+      setActiveProjectRole(active.role ?? "editor");
       return;
     }
     setLoading(false);
   }, []);
+
+  const canMutateProject = canEditProject(activeProjectRole);
 
   useEffect(() => {
     if (!activeProjectId) {
@@ -138,6 +143,10 @@ export function ProviderSettingsManager() {
   }
 
   async function handleLoadModels(provider: string) {
+    if (!canMutateProject) {
+      toast.error("This action requires editor role or higher.");
+      return;
+    }
     if (!activeProjectId) {
       toast.error("Create or select a project first.");
       return;
@@ -189,6 +198,10 @@ export function ProviderSettingsManager() {
 
   async function handleSave(event: FormEvent<HTMLFormElement>, provider: string) {
     event.preventDefault();
+    if (!canMutateProject) {
+      toast.error("This action requires editor role or higher.");
+      return;
+    }
     if (!activeProjectId) {
       toast.error("Create or select a project first.");
       return;
@@ -267,6 +280,10 @@ export function ProviderSettingsManager() {
   }
 
   async function handleDelete(provider: string) {
+    if (!canMutateProject) {
+      toast.error("This action requires editor role or higher.");
+      return;
+    }
     if (!activeProjectId) {
       toast.error("Create or select a project first.");
       return;
@@ -314,6 +331,12 @@ export function ProviderSettingsManager() {
             + "without hardcoding them in env files."
       }
     >
+      {!canMutateProject && activeProjectId ? (
+        <div className="rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          You have viewer access for this project. Provider configuration is read-only.
+        </div>
+      ) : null}
+
       {!activeProjectId ? (
         <Card>
           <CardHeader>
@@ -487,7 +510,7 @@ export function ProviderSettingsManager() {
                       }))
                     }
                     placeholder={`Paste ${providerSetting.display_name} API key`}
-                    disabled={isSaving || isRemoving || isLoadingModels}
+                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
                   />
                 </div>
 
@@ -508,7 +531,7 @@ export function ProviderSettingsManager() {
                         }))
                       }
                       placeholder="https://proxy.example.com/v1"
-                      disabled={isSaving || isRemoving || isLoadingModels}
+                      disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
                     />
                     <p className="text-xs text-muted-foreground">
                       Optional. Leave blank to use the default OpenAI API base URL.
@@ -521,9 +544,10 @@ export function ProviderSettingsManager() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={isSaving || isRemoving || isLoadingModels}
+                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
                     onClick={() => void handleLoadModels(providerSetting.provider)}
                     className="gap-2"
+                    title={canMutateProject ? undefined : "Requires editor role"}
                   >
                     {isLoadingModels ? <Spinner size="sm" /> : <RefreshCw className="h-4 w-4" />}
                     {isLoadingModels ? "Loading..." : "Load models"}
@@ -543,7 +567,8 @@ export function ProviderSettingsManager() {
                         [providerSetting.provider]: event.target.value,
                       }))
                     }
-                    disabled={isSaving || isRemoving || isLoadingModels}
+                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
+                    title={canMutateProject ? undefined : "Requires editor role"}
                     className={
                       "flex h-9 w-full rounded-md border border-input "
                       + "bg-transparent px-3 py-1 text-sm shadow-sm "
@@ -576,7 +601,8 @@ export function ProviderSettingsManager() {
                           [providerSetting.provider]: event.target.value,
                         }))
                       }
-                      disabled={isSaving || isRemoving || isLoadingModels}
+                      disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
+                      title={canMutateProject ? undefined : "Requires editor role"}
                       className={
                         "flex h-9 w-full rounded-md border border-input "
                         + "bg-transparent px-3 py-1 text-sm shadow-sm "
@@ -599,8 +625,9 @@ export function ProviderSettingsManager() {
                 <div className="flex flex-wrap gap-3">
                   <Button
                     type="submit"
-                    disabled={isSaving || isRemoving || isLoadingModels}
+                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
                     className="gap-2"
+                    title={canMutateProject ? undefined : "Requires editor role"}
                   >
                     {isSaving ? <Spinner size="sm" /> : <Save className="h-4 w-4" />}
                     {isSaving ? "Saving..." : "Save project key"}
@@ -612,10 +639,12 @@ export function ProviderSettingsManager() {
                       isSaving
                       || isRemoving
                       || isLoadingModels
+                      || !canMutateProject
                       || providerSetting.configured_source !== "project"
                     }
                     onClick={() => void handleDelete(providerSetting.provider)}
                     className="gap-2"
+                    title={canMutateProject ? undefined : "Requires editor role"}
                   >
                     {isRemoving ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
                     {isRemoving ? "Removing..." : "Remove override"}

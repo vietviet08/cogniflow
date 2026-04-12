@@ -25,7 +25,8 @@ import {
     listSources,
     deleteSources,
 } from "@/lib/api/client";
-import type { IntegrationConnectionData } from "@/lib/api/types";
+import type { IntegrationConnectionData, ProjectRole } from "@/lib/api/types";
+import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ export function SourceManager() {
     const queryClient = useQueryClient();
     const [activeProjectId, setActiveProjectId] = useState("");
     const [activeProjectName, setActiveProjectName] = useState("");
+    const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
     const [url, setUrl] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const [busy, setBusy] = useState(false);
@@ -79,8 +81,11 @@ export function SourceManager() {
         if (active) {
             setActiveProjectId(active.id);
             setActiveProjectName(active.name);
+            setActiveProjectRole(active.role ?? "editor");
         }
     }, []);
+
+    const canMutateProject = canEditProject(activeProjectRole);
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -175,6 +180,10 @@ export function SourceManager() {
 
     async function handleUrlSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) {
             toast.error("Create or select a project first.");
             return;
@@ -202,6 +211,10 @@ export function SourceManager() {
 
     async function handleFileSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) {
             toast.error("Create or select a project first.");
             return;
@@ -232,6 +245,10 @@ export function SourceManager() {
     }
 
     async function handleProcessAll() {
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) {
             toast.error("Create or select a project first.");
             return;
@@ -265,6 +282,10 @@ export function SourceManager() {
     }
 
     async function handleDeleteSelected() {
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (selectedIds.size === 0) return;
         if (
             !confirm(
@@ -311,6 +332,10 @@ export function SourceManager() {
     }
 
     async function handleSaveIntegration(integration: IntegrationConnectionData) {
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) return;
         const draft = integrationDrafts[integration.provider] ?? {
             accountLabel: "",
@@ -354,6 +379,10 @@ export function SourceManager() {
     async function handleDisconnectIntegration(
         integration: IntegrationConnectionData,
     ) {
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) return;
         setIntegrationBusy(`${integration.provider}:disconnect`);
         const toastId = toast.loading(`Disconnecting ${integration.display_name}...`);
@@ -381,6 +410,10 @@ export function SourceManager() {
     async function handleImportIntegration(
         integration: IntegrationConnectionData,
     ) {
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) return;
         const draft = integrationDrafts[integration.provider] ?? {
             accountLabel: "",
@@ -421,6 +454,10 @@ export function SourceManager() {
     }
 
     function handleOAuthConnect(integration: IntegrationConnectionData) {
+        if (!canMutateProject) {
+            toast.error("This action requires editor role or higher.");
+            return;
+        }
         if (!activeProjectId) {
             return;
         }
@@ -464,6 +501,11 @@ export function SourceManager() {
             title="Knowledge Sources"
             description={`Manage documents for: ${activeProjectName}`}
         >
+            {!canMutateProject ? (
+                <div className="mb-4 rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                    You have viewer access for this project. Upload, import, processing, and delete actions are disabled.
+                </div>
+            ) : null}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column: Input Forms */}
                 <div className="flex flex-col gap-6 lg:col-span-1">
@@ -492,7 +534,7 @@ export function SourceManager() {
                                         onChange={(e) =>
                                             setFile(e.target.files?.[0] || null)
                                         }
-                                        disabled={busy}
+                                        disabled={busy || !canMutateProject}
                                         className="cursor-pointer"
                                     />
                                     {file && (
@@ -503,7 +545,8 @@ export function SourceManager() {
                                 </div>
                                 <Button
                                     type="submit"
-                                    disabled={!file || busy}
+                                    disabled={!file || busy || !canMutateProject}
+                                    title={canMutateProject ? undefined : "Requires editor role"}
                                     className="w-full"
                                 >
                                     {busy && file ? (
@@ -540,12 +583,13 @@ export function SourceManager() {
                                         value={url}
                                         onChange={(e) => setUrl(e.target.value)}
                                         required
-                                        disabled={busy}
+                                        disabled={busy || !canMutateProject}
                                     />
                                 </div>
                                 <Button
                                     type="submit"
-                                    disabled={!url || busy}
+                                    disabled={!url || busy || !canMutateProject}
+                                    title={canMutateProject ? undefined : "Requires editor role"}
                                     variant="outline"
                                     className="w-full"
                                 >
@@ -649,6 +693,7 @@ export function SourceManager() {
                                                                     )
                                                                 }
                                                                 placeholder={`${integration.display_name} workspace`}
+                                                                disabled={!canMutateProject}
                                                             />
                                                         </div>
                                                         {integration.supports_base_url ? (
@@ -667,6 +712,7 @@ export function SourceManager() {
                                                                         )
                                                                     }
                                                                     placeholder="https://your-domain.atlassian.net"
+                                                                    disabled={!canMutateProject}
                                                                 />
                                                             </div>
                                                         ) : null}
@@ -690,6 +736,7 @@ export function SourceManager() {
                                                                         ? `Saved token: ${integration.masked_access_token || "configured"}`
                                                                         : "Paste access token"
                                                                 }
+                                                                disabled={!canMutateProject}
                                                             />
                                                         </div>
                                                     </>
@@ -708,11 +755,14 @@ export function SourceManager() {
                                                                   )
                                                         }
                                                         disabled={
-                                                            integration.supports_oauth
-                                                                ? false
-                                                                :
-                                                            integrationBusy ===
+                                                            !canMutateProject
+                                                            || integrationBusy ===
                                                             `${integration.provider}:connect`
+                                                        }
+                                                        title={
+                                                            canMutateProject
+                                                                ? undefined
+                                                                : "Requires editor role"
                                                         }
                                                     >
                                                         {integration.supports_oauth
@@ -737,6 +787,8 @@ export function SourceManager() {
                                                                 )
                                                             }
                                                             disabled={
+                                                                !canMutateProject
+                                                                ||
                                                                 integrationBusy ===
                                                                 `${integration.provider}:disconnect`
                                                             }
@@ -764,7 +816,7 @@ export function SourceManager() {
                                                             )
                                                         }
                                                         placeholder={integration.reference_label}
-                                                        disabled={!integration.configured}
+                                                        disabled={!integration.configured || !canMutateProject}
                                                     />
                                                     <p className="text-xs text-muted-foreground">
                                                         Supports Google Docs, PDF files, and plain text files from Drive.
@@ -781,8 +833,14 @@ export function SourceManager() {
                                                     }
                                                     disabled={
                                                         !integration.configured ||
+                                                        !canMutateProject ||
                                                         integrationBusy ===
                                                             `${integration.provider}:import`
+                                                    }
+                                                    title={
+                                                        canMutateProject
+                                                            ? undefined
+                                                            : "Requires editor role"
                                                     }
                                                 >
                                                     {integrationBusy ===
@@ -817,7 +875,8 @@ export function SourceManager() {
                                         variant="destructive"
                                         size="sm"
                                         onClick={handleDeleteSelected}
-                                        disabled={busy}
+                                        disabled={busy || !canMutateProject}
+                                        title={canMutateProject ? undefined : "Requires editor role"}
                                     >
                                         <Trash2 className="h-4 w-4 mr-1" />
                                         Delete ({selectedIds.size})
@@ -825,7 +884,8 @@ export function SourceManager() {
                                 )}
                                 <Button
                                     onClick={handleProcessAll}
-                                    disabled={busy || sources.length === 0}
+                                    disabled={busy || sources.length === 0 || !canMutateProject}
+                                    title={canMutateProject ? undefined : "Requires editor role"}
                                     size="sm"
                                 >
                                     {busy && !file && !url ? (

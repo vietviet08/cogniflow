@@ -5,9 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Toaster } from "sonner";
 
+import { AuthProvider } from "@/components/auth-provider";
 import { CitationViewerProvider } from "@/components/citation-viewer-provider";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children }: Readonly<{ children: React.ReactNode }>) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -27,7 +28,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         enableSystem
         disableTransitionOnChange
       >
-        <CitationViewerProvider>{children}</CitationViewerProvider>
+        <AuthProvider>
+          <CitationViewerProvider>{children}</CitationViewerProvider>
+        </AuthProvider>
         <Toaster
           position="bottom-right"
           richColors

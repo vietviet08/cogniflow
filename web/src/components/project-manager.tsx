@@ -6,7 +6,8 @@ import { Plus, FolderOpen, CheckCircle2, Trash2, Edit2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createProject, listProjects, updateProject, deleteProject } from "@/lib/api/client";
-import { getActiveProject, setActiveProject } from "@/lib/project-store";
+import { canDeleteProject, canEditProject } from "@/lib/permissions";
+import { clearActiveProject, getActiveProject, setActiveProject } from "@/lib/project-store";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +54,12 @@ export function ProjectManager() {
     try {
       const response = await createProject({ name, description });
       const project = response.data;
-      setActiveProject({ id: project.id, name: project.name, description: project.description });
+      setActiveProject({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        role: "owner",
+      });
       setName("");
       setDescription("");
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -66,7 +72,12 @@ export function ProjectManager() {
   }
 
   function handleSelect(project: any) {
-    setActiveProject({ id: project.id, name: project.name, description: project.description });
+    setActiveProject({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      role: project.role,
+    });
     toast.success(`Switched to "${project.name}".`);
     // re-render the page to show new active project
     window.location.reload(); 
@@ -79,7 +90,7 @@ export function ProjectManager() {
       await deleteProject(projectId);
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       if (activeProject?.id === projectId) {
-        window.localStorage.removeItem("cogniflow.active-project");
+        clearActiveProject();
         window.location.reload();
       }
       toast.success("Project deleted.", { id: toastId });
@@ -218,7 +229,7 @@ export function ProjectManager() {
                   {filteredProjects.map((project) => (
                     <div 
                       key={project.id} 
-                      className={`relative flex flex-col p-4 rounded-xl border transition-all ${
+                      className={`group relative flex flex-col p-4 rounded-xl border transition-all ${
                         activeProject?.id === project.id 
                           ? 'border-primary bg-primary/5 shadow-sm' 
                           : 'border-border hover:border-foreground/20 hover:bg-accent/30 cursor-pointer'
@@ -241,16 +252,35 @@ export function ProjectManager() {
                             <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setRenamingId(null)}>Cancel</Button>
                           </div>
                         ) : (
-                          <div className="font-semibold text-base line-clamp-1 pr-8">{project.name}</div>
+                          <div className="flex items-center gap-2 pr-8">
+                            <div className="font-semibold text-base line-clamp-1">{project.name}</div>
+                            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {project.role}
+                            </span>
+                          </div>
                         )}
                         
                         {renamingId !== project.id && (
                           <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 hover-opacity-override" 
                                onClick={e => e.stopPropagation()}>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setRenamingId(project.id); setNewName(project.name); }}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              disabled={!canEditProject(project.role)}
+                              title={canEditProject(project.role) ? "Rename project" : "Requires editor role"}
+                              onClick={() => { setRenamingId(project.id); setNewName(project.name); }}
+                            >
                               <Edit2 className="h-3.5 w-3.5 text-muted-foreground" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive" onClick={() => handleDelete(project.id, project.name)}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive"
+                              disabled={!canDeleteProject(project.role)}
+                              title={canDeleteProject(project.role) ? "Delete project" : "Requires owner role"}
+                              onClick={() => handleDelete(project.id, project.name)}
+                            >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>

@@ -1,19 +1,34 @@
 import type {
   ApiError,
   ApiSuccess,
+  AuthBootstrapData,
+  AuthMeData,
+  AuthTokenData,
+  ChatMessageListData,
+  ChatSendResponse,
+  ChatSessionData,
+  ChatSessionListData,
   HealthData,
+  InsightListData,
+  InsightResult,
   IntegrationConnectionData,
   IntegrationConnectionListData,
+  JobStatusData,
   ProcessingResultData,
+  ProjectListData,
   ProviderModelsData,
   ProviderSettingData,
   ProviderSettingsListData,
   ProjectData,
   QueryResultData,
+  ReportLineage,
+  ReportListData,
+  ReportResult,
   IntegrationProvider,
   ReportType,
   SourceIngestionData,
 } from "./types";
+import { clearStoredAuthSession, getStoredAuthToken } from "@/lib/auth-session";
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api/v1";
 
@@ -39,16 +54,27 @@ export function getProjectIntegrationOAuthStartUrl(
 }
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<ApiSuccess<T>> {
+  const token = getStoredAuthToken();
+  const defaultHeaders: HeadersInit = {
+    "content-type": "application/json",
+  };
+  if (token) {
+    defaultHeaders.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(createApiUrl(path), {
     ...init,
     headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
+      ...defaultHeaders,
+      ...init?.headers,
     },
   });
 
   const body = (await response.json()) as ApiSuccess<T> | ApiError;
   if (!response.ok) {
+    if (response.status === 401) {
+      clearStoredAuthSession();
+    }
     const error = body as ApiError;
     throw new Error(error.error?.message ?? "Request failed");
   }
@@ -78,8 +104,14 @@ export async function uploadSourceFile(payload: {
   form.append("project_id", payload.projectId);
   form.append("file", payload.file);
 
+  const token = getStoredAuthToken();
   const response = await fetch(createApiUrl("/sources/files"), {
     method: "POST",
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : undefined,
     body: form,
   });
 
@@ -90,6 +122,51 @@ export async function uploadSourceFile(payload: {
   }
 
   return body as ApiSuccess<SourceIngestionData>;
+}
+
+export function bootstrapAuth(payload: {
+  email: string;
+  displayName: string;
+}): Promise<ApiSuccess<AuthBootstrapData>> {
+  return requestJson<AuthBootstrapData>("/auth/bootstrap", {
+    method: "POST",
+    body: JSON.stringify({
+      email: payload.email,
+      display_name: payload.displayName,
+    }),
+  });
+}
+
+export function getCurrentUser(): Promise<ApiSuccess<AuthMeData>> {
+  return requestJson<AuthMeData>("/auth/me");
+}
+
+export function createPersonalToken(tokenName: string): Promise<ApiSuccess<AuthTokenData>> {
+  return requestJson<AuthTokenData>("/auth/tokens", {
+    method: "POST",
+    body: JSON.stringify({ token_name: tokenName }),
+  });
+}
+
+export function getJob(jobId: string): Promise<ApiSuccess<JobStatusData>> {
+  return requestJson<JobStatusData>(`/jobs/${jobId}`);
+}
+
+export function cancelJob(
+  jobId: string,
+): Promise<ApiSuccess<{ job_id: string; status: string; cancel_requested_at: string | null }>> {
+  return requestJson<{ job_id: string; status: string; cancel_requested_at: string | null }>(
+    `/jobs/${jobId}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export function retryJob(jobId: string): Promise<ApiSuccess<{ job_id: string; status: string }>> {
+  return requestJson<{ job_id: string; status: string }>(`/jobs/${jobId}/retry`, {
+    method: "POST",
+  });
 }
 
 export function ingestSourceUrl(payload: {
@@ -256,13 +333,6 @@ export function importProjectIntegrationSource(payload: {
 }
 
 // ---- Phase 2: Insight Layer ----
-import type {
-  InsightResult,
-  InsightListData,
-  ReportResult,
-  ReportListData,
-  ReportLineage,
-} from "./types";
 
 export function generateInsight(payload: {
   projectId: string;
@@ -337,13 +407,6 @@ export function listReports(projectId: string): Promise<ApiSuccess<ReportListDat
 }
 
 // ---- Phase 4: UX Polish (Projects & Chat) ----
-import type {
-  ProjectListData,
-  ChatSessionData,
-  ChatSessionListData,
-  ChatMessageListData,
-  ChatSendResponse,
-} from "./types";
 
 export function listProjects(): Promise<ApiSuccess<ProjectListData>> {
   return requestJson<ProjectListData>("/projects");

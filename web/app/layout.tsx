@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Inter } from "next/font/google";
 
+import { RootShell } from "@/components/layout/root-shell";
 import { Providers } from "@/components/providers";
-import { Sidebar } from "@/components/layout/sidebar";
 import "./globals.css";
 
 const inter = Inter({
@@ -25,12 +25,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning className={inter.variable}>
       <body className="bg-background text-foreground antialiased">
         <Providers>
-          <div className="flex h-screen overflow-hidden">
-            <Sidebar />
-            <main className="flex flex-1 flex-col overflow-y-auto">
-              {children}
-            </main>
-          </div>
+          <RootShell>{children}</RootShell>
         </Providers>
       </body>
     </html>

@@ -14,10 +14,12 @@ import {
     Moon,
     Sun,
     BrainCircuit,
+    LogOut,
     PanelLeftClose,
     PanelLeftOpen,
 } from "lucide-react";
 
+import { useAuth } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -33,6 +35,7 @@ const navItems = [
 export function Sidebar() {
     const pathname = usePathname();
     const { theme, setTheme } = useTheme();
+    const { user, logout } = useAuth();
     const [collapsed, setCollapsed] = useState(false);
 
     useEffect(() => {
@@ -154,6 +157,12 @@ export function Sidebar() {
                     collapsed ? "px-2" : "px-3",
                 )}
             >
+                {!collapsed && user ? (
+                    <div className="mb-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                        <p className="text-xs font-medium text-foreground truncate">{user.display_name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                ) : null}
                 <Button
                     variant="ghost"
                     size="sm"
@@ -173,6 +182,19 @@ export function Sidebar() {
                     {!collapsed ? (
                         <span className="text-sm">Toggle theme</span>
                     ) : null}
+                </Button>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                        "w-full text-muted-foreground",
+                        collapsed ? "mt-1 justify-center px-0" : "mt-1 justify-start gap-2",
+                    )}
+                    onClick={logout}
+                    title={collapsed ? "Log out" : undefined}
+                >
+                    <LogOut className="h-4 w-4" />
+                    {!collapsed ? <span className="text-sm">Log out</span> : null}
                 </Button>
             </div>
         </aside>
