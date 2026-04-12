@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, RefreshCcw } from "lucide-react";
+import { Copy, RefreshCcw, Network } from "lucide-react";
 
 import { generateReport, getReport, listReports } from "@/lib/api/client";
 import type {
@@ -130,12 +130,13 @@ export function MeshViewer() {
                 </div>
             ) : null}
 
-            <div className="grid gap-6 lg:grid-cols-4">
-                <div className="flex flex-col gap-6 lg:col-span-1">
+            <div className="flex flex-col lg:flex-row gap-6 w-full">
+                <div className="flex flex-col gap-6 lg:w-[320px] shrink-0">
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-base">
-                                Generate Mesh
+                            <CardTitle className="text-lg font-bold flex items-center gap-2">
+                                <Network className="w-5 h-5 text-primary" />
+                                Intelligence Mesh
                             </CardTitle>
                             <CardDescription>
                                 Map out concepts, relationships, and contradictions from your evidence.
@@ -235,9 +236,9 @@ export function MeshViewer() {
 
                 </div>
 
-                <div className="lg:col-span-3">
+                <div className="lg:col-span-4 flex-1 flex flex-col">
                     {report?.structured_payload ? (
-                        <div className="h-[600px] border border-border rounded-xl overflow-hidden bg-background">
+                        <div className="h-[82vh] min-h-[600px] border border-border rounded-xl overflow-hidden bg-background">
                             <MeshGraph payload={report.structured_payload as ConflictMeshPayload} />
                         </div>
                     ) : (

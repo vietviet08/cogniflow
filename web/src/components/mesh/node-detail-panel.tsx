@@ -66,9 +66,11 @@ export function NodeDetailPanel({ element }: NodeDetailPanelProps) {
         const { data } = element;
         return (
             <div className="flex flex-col h-full">
-                <CardHeader className="pb-3 border-b">
-                    <CardTitle className="text-lg">Concept: {data.label}</CardTitle>
-                    <Badge className="w-fit" variant="secondary">{data.type}</Badge>
+                <CardHeader className="pb-3 border-b bg-muted/20">
+                    <CardTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
+                        {data.label}
+                    </CardTitle>
+                    <Badge className="w-fit mt-1 shadow-sm" variant="secondary">{data.type}</Badge>
                 </CardHeader>
                 <div className="flex-1 p-6 overflow-y-auto">
                     <div className="space-y-4">
@@ -86,9 +88,9 @@ export function NodeDetailPanel({ element }: NodeDetailPanelProps) {
 
     return (
         <div className="flex flex-col h-full">
-            <CardHeader className="pb-3 border-b">
-                <CardTitle className="text-lg">Relationship</CardTitle>
-                <Badge className="w-fit" variant={isContradiction ? "destructive" : "secondary"}>
+            <CardHeader className="pb-3 border-b bg-muted/20">
+                <CardTitle className="text-xl font-bold text-foreground">Relationship</CardTitle>
+                <Badge className="w-fit mt-1 shadow-sm" variant={isContradiction ? "destructive" : "secondary"}>
                     {data.type.replace('_', ' ')}
                 </Badge>
             </CardHeader>

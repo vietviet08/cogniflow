@@ -4,6 +4,7 @@ import {
     Database,
     Search,
     ListChecks,
+    Share2,
     Lightbulb,
     FileText,
     ArrowRight,
@@ -48,6 +49,15 @@ const quickLinks = [
         icon: ListChecks,
         color: "text-orange-500",
         bg: "bg-orange-500/10",
+    },
+    {
+        href: "/mesh",
+        label: "Mesh",
+        description:
+            "Explore entity links and relationships across your research graph.",
+        icon: Share2,
+        color: "text-fuchsia-500",
+        bg: "bg-fuchsia-500/10",
     },
     {
         href: "/query",

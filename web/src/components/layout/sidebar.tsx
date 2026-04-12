@@ -9,6 +9,7 @@ import {
     Database,
     Search,
     ListChecks,
+    Share2,
     Lightbulb,
     FileText,
     KeyRound,
@@ -28,6 +29,7 @@ const navItems = [
     { href: "/projects", label: "Projects", icon: FolderOpen },
     { href: "/sources", label: "Sources", icon: Database },
     { href: "/jobs", label: "Jobs", icon: ListChecks },
+    { href: "/mesh", label: "Mesh", icon: Share2 },
     { href: "/query", label: "Query", icon: Search },
     { href: "/settings", label: "Settings", icon: KeyRound },
     { href: "/insights", label: "Insights", icon: Lightbulb },
@@ -85,9 +87,11 @@ export function Sidebar() {
             </Button>
 
             {/* Logo */}
-            <div
+            <Link
+                href="/"
+                aria-label="Go to home"
                 className={cn(
-                    "flex items-center border-b border-border py-5",
+                    "flex items-center border-b border-border py-5 transition-colors hover:bg-accent/30",
                     collapsed ? "justify-center px-3" : "gap-2.5 px-5",
                 )}
             >
@@ -104,7 +108,7 @@ export function Sidebar() {
                         </span>
                     </div>
                 ) : null}
-            </div>
+            </Link>
 
             {/* Navigation */}
             <nav
