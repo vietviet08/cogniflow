@@ -1,17 +1,17 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
 from app.core.security import require_current_user, require_project_role
-from app.services.processing_service import ProcessingError, process_sources
 from app.storage.models import User
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
 from app.storage.repositories.source_repository import SourceRepository
+from app.workers.tasks import run_job
 
 router = APIRouter(prefix="/jobs")
 
@@ -31,6 +31,7 @@ class StartProcessingRequest(BaseModel):
 def start_processing(
     payload: StartProcessingRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
@@ -59,51 +60,31 @@ def start_processing(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
-    job_repo = JobRepository(db)
-    job = job_repo.create(
+    for source in sources:
+        source.status = "queued"
+        db.add(source)
+    db.commit()
+
+    job = JobRepository(db).create(
         project_id=payload.project_id,
         job_type="processing",
-        status="running",
+        status="queued",
         progress=0,
+        queue_name="processing",
+        job_payload={
+            "project_id": str(payload.project_id),
+            "source_ids": [str(source_id) for source_id in payload.source_ids],
+            "chunk_size": payload.options.chunk_size,
+            "chunk_overlap": payload.options.chunk_overlap,
+        },
     )
-
-    try:
-        result = process_sources(
-            db=db,
-            project_id=payload.project_id,
-            job_id=job.id,
-            sources=sources,
-            chunk_size=payload.options.chunk_size,
-            chunk_overlap=payload.options.chunk_overlap,
-        )
-    except (ProcessingError, ValueError) as exc:
-        job_repo.update_status(job, status="failed", progress=0)
-        return error_response(
-            request,
-            code="PROCESSING_FAILED",
-            message=str(exc),
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        )
-    except Exception as exc:
-        job_repo.update_status(job, status="failed", progress=0)
-        return error_response(
-            request,
-            code="PROCESSING_INTERNAL_ERROR",
-            message="Unexpected processing failure.",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            details={"reason": str(exc)},
-        )
-
-    job = job_repo.update_status(job, status="completed", progress=100)
+    background_tasks.add_task(run_job, str(job.id))
 
     return success_response(
         request,
         {
             "job_id": str(job.id),
-            "run_id": result["run_id"],
             "status": job.status,
-            "documents_created": result["documents_created"],
-            "chunks_created": result["chunks_created"],
         },
-        status_code=201,
+        status_code=202,
     )

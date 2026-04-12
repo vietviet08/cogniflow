@@ -1,10 +1,11 @@
 import uuid
 
 from app.api.routes import processing as processing_route_module
+from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.source_repository import SourceRepository
 
 
-def test_start_processing_returns_completed_job_with_counts(client, db_session, monkeypatch):
+def test_start_processing_queues_worker_job(client, db_session, monkeypatch):
     project = _create_project(client)
     source_repo = SourceRepository(db_session)
     file_source = source_repo.create(
@@ -24,15 +25,12 @@ def test_start_processing_returns_completed_job_with_counts(client, db_session, 
         status="completed",
     )
 
-    def fake_process_sources(db, project_id, job_id, sources, chunk_size, chunk_overlap):
-        assert project_id == uuid.UUID(project["id"])
-        assert job_id
-        assert len(sources) == 2
-        assert chunk_size == 800
-        assert chunk_overlap == 120
-        return {"run_id": str(uuid.uuid4()), "documents_created": 2, "chunks_created": 6}
-
-    monkeypatch.setattr(processing_route_module, "process_sources", fake_process_sources)
+    scheduled_jobs: list[str] = []
+    monkeypatch.setattr(
+        processing_route_module,
+        "run_job",
+        lambda job_id: scheduled_jobs.append(job_id),
+    )
 
     response = client.post(
         "/api/v1/jobs/processing",
@@ -43,14 +41,17 @@ def test_start_processing_returns_completed_job_with_counts(client, db_session, 
         },
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     body = response.json()
 
-    assert body["data"]["status"] == "completed"
-    assert "run_id" in body["data"]
-    assert body["data"]["documents_created"] == 2
-    assert body["data"]["chunks_created"] == 6
+    assert body["data"]["status"] == "queued"
     assert "job_id" in body["data"]
+    assert scheduled_jobs == [body["data"]["job_id"]]
+
+    job = JobRepository(db_session).get(uuid.UUID(body["data"]["job_id"]))
+    assert job is not None
+    assert job.queue_name == "processing"
+    assert job.job_payload["source_ids"] == [str(file_source.id), str(url_source.id)]
 
 
 def _create_project(client):
