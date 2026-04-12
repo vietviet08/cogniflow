@@ -11,6 +11,34 @@ CREATE TABLE projects (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE auth_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_name TEXT NOT NULL DEFAULT 'default',
+    token_hash TEXT NOT NULL UNIQUE,
+    token_last_four TEXT NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ
+);
+
+CREATE TABLE project_memberships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_project_memberships_project_user UNIQUE (project_id, user_id)
+);
+
 CREATE TABLE sources (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -48,6 +76,9 @@ CREATE TABLE jobs (
     idempotency_key TEXT,
     error_code TEXT,
     error_message TEXT,
+    job_payload JSONB,
+    result_payload JSONB,
+    cancel_requested_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -103,24 +134,27 @@ CREATE TABLE query_runs (
 CREATE TABLE insights (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    processing_run_id UUID REFERENCES processing_runs(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL,
-    confidence_score NUMERIC(5,4),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    query TEXT NOT NULL,
+    summary TEXT,
+    findings JSONB,
+    provider TEXT,
+    model_id TEXT,
+    run_id UUID REFERENCES processing_runs(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    processing_run_id UUID REFERENCES processing_runs(id) ON DELETE SET NULL,
+    query TEXT NOT NULL,
     title TEXT NOT NULL,
     report_type TEXT NOT NULL,
     format TEXT NOT NULL, -- markdown | pdf | json
-    storage_path TEXT,
     content TEXT,
+    structured_payload JSONB,
     status TEXT NOT NULL DEFAULT 'completed',
+    run_id UUID REFERENCES processing_runs(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -161,6 +195,9 @@ CREATE TABLE audit_events (
 );
 
 CREATE INDEX idx_sources_project_id ON sources(project_id);
+CREATE INDEX idx_auth_tokens_user_id ON auth_tokens(user_id);
+CREATE INDEX idx_project_memberships_project_id ON project_memberships(project_id);
+CREATE INDEX idx_project_memberships_user_id ON project_memberships(user_id);
 CREATE UNIQUE INDEX uq_provider_credentials_project ON provider_credentials(project_id, provider);
 CREATE INDEX idx_provider_credentials_project_id ON provider_credentials(project_id);
 CREATE INDEX idx_jobs_project_status ON jobs(project_id, status);
