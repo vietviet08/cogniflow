@@ -14,6 +14,7 @@ import type {
     IntegrationConnectionData,
     IntegrationConnectionListData,
     GoogleDriveBrowseData,
+    JobListData,
     JobStatusData,
     ProcessingResultData,
     ProjectListData,
@@ -186,6 +187,12 @@ export function createPersonalToken(
 
 export function getJob(jobId: string): Promise<ApiSuccess<JobStatusData>> {
     return requestJson<JobStatusData>(`/jobs/${jobId}`);
+}
+
+export function listProjectJobs(
+    projectId: string,
+): Promise<ApiSuccess<JobListData>> {
+    return requestJson<JobListData>(`/jobs/project/${projectId}`);
 }
 
 export function cancelJob(jobId: string): Promise<

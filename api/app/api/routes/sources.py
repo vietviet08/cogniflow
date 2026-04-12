@@ -73,9 +73,16 @@ async def upload_file_source(
     source.storage_path = storage_path
     source.checksum = checksum
     source.status = "completed"
+    duplicate_of_source = _apply_source_versioning_and_dedup(
+        source_repo,
+        source,
+        project_id=project_uuid,
+    )
     db.add(source)
     db.commit()
     db.refresh(source)
+
+    source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
 
     job = JobRepository(db).create(
         project_id=project_uuid,
@@ -93,6 +100,8 @@ async def upload_file_source(
             "status": job.status,
             "source_type": source.type,
             "filename": file.filename,
+            "source_version": source_metadata.get("version", 1),
+            "duplicate_of_source_id": str(duplicate_of_source.id) if duplicate_of_source else None,
         },
         status_code=201,
     )
@@ -149,9 +158,16 @@ def ingest_url(
     source.storage_path = storage_path
     source.checksum = checksum
     source.status = "completed"
+    duplicate_of_source = _apply_source_versioning_and_dedup(
+        source_repo,
+        source,
+        project_id=payload.project_id,
+    )
     db.add(source)
     db.commit()
     db.refresh(source)
+
+    source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
 
     job = JobRepository(db).create(
         project_id=payload.project_id,
@@ -168,6 +184,8 @@ def ingest_url(
             "job_id": str(job.id),
             "status": job.status,
             "source_type": source.type,
+            "source_version": source_metadata.get("version", 1),
+            "duplicate_of_source_id": str(duplicate_of_source.id) if duplicate_of_source else None,
         },
         status_code=201,
     )
@@ -287,3 +305,35 @@ def bulk_delete_sources(
     except Exception as e:
         db.rollback()
         return error_response(request, "DELETE_FAILED", str(e), status_code=500)
+
+
+def _apply_source_versioning_and_dedup(
+    source_repo: SourceRepository,
+    source: Source,
+    *,
+    project_id: uuid.UUID,
+) -> Source | None:
+    duplicate_of_source = None
+    if source.checksum:
+        duplicate_of_source = source_repo.find_by_checksum(
+            project_id=project_id,
+            checksum=source.checksum,
+            exclude_source_id=source.id,
+        )
+
+    source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+    source_metadata["version"] = source_repo.next_version(
+        project_id=project_id,
+        original_uri=source.original_uri,
+        exclude_source_id=source.id,
+    )
+    source_metadata["ingestion_policy"] = {
+        "dedup_key": "checksum",
+        "is_duplicate": duplicate_of_source is not None,
+    }
+    if duplicate_of_source is not None:
+        source_metadata["duplicate_of_source_id"] = str(duplicate_of_source.id)
+    else:
+        source_metadata.pop("duplicate_of_source_id", None)
+    source.source_metadata = source_metadata
+    return duplicate_of_source

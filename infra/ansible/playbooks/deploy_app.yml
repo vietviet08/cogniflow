@@ -15,7 +15,7 @@
         community.docker.docker_compose_v2:
             project_src: "{{ app_dir }}"
             pull: always
-        notify: restart api
+        notify: restart app services
 
       - name: Run database migrations
         community.docker.docker_container_exec:
@@ -38,9 +38,10 @@
             msg: "✅ Deploy successful! API is healthy."
 
   handlers:
-      - name: restart api
+      - name: restart app services
         community.docker.docker_compose_v2:
             project_src: "{{ app_dir }}"
             services:
                 - api
+                - worker
             state: restarted

@@ -167,6 +167,10 @@ def generate_report(
     provider: str,
 ) -> dict[str, Any]:
     """Generate a structured research report backed by RAG insights."""
+    if report_type == "conflict_mesh":
+        from app.engines.report.mesh_pipeline import generate_conflict_mesh
+        return generate_conflict_mesh(db, project_id, query, provider)
+
     # Step 1: Run insight synthesis
     try:
         insight_result = generate_insight(
@@ -546,6 +550,7 @@ def _derive_title(query: str, report_type: str) -> str:
         "action_items": "Action Items",
         "risk_analysis": "Risk Analysis",
         "executive_brief": "Executive Brief",
+        "conflict_mesh": "Conflict Mesh",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
 

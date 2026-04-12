@@ -62,6 +62,8 @@ export interface SourceIngestionData {
     status: string;
     source_type: string;
     filename?: string | null;
+    source_version?: number;
+    duplicate_of_source_id?: string | null;
 }
 
 export interface ProcessingResultData {
@@ -75,7 +77,13 @@ export interface ProcessingResultData {
 export interface JobStatusData {
     job_id: string;
     type: string;
-    status: "queued" | "running" | "completed" | "failed" | "cancelled";
+    status:
+        | "queued"
+        | "running"
+        | "completed"
+        | "failed"
+        | "cancelled"
+        | "dead_letter";
     progress: number;
     attempt_count: number;
     max_retries: number;
@@ -87,6 +95,11 @@ export interface JobStatusData {
         message: string | null;
     } | null;
     result: Record<string, unknown> | null;
+}
+
+export interface JobListData {
+    items: JobStatusData[];
+    total: number;
 }
 
 export interface SourceListItemData {
@@ -121,7 +134,8 @@ export type ReportType =
     | "comparison"
     | "action_items"
     | "risk_analysis"
-    | "executive_brief";
+    | "executive_brief"
+    | "conflict_mesh";
 
 export interface ActionItemData {
     id: string;
@@ -152,6 +166,22 @@ export interface ExecutiveBriefData {
     citations: CitationData[];
 }
 
+export interface MeshNodeData {
+    id: string;
+    label: string;
+    type: string;
+}
+
+export interface MeshEdgeData {
+    id: string;
+    source: string;
+    target: string;
+    type: "agrees_with" | "contradicts" | "relates_to" | string;
+    description: string;
+    citation_indexes?: number[];
+    citations?: CitationData[];
+}
+
 export interface ActionItemsPayload {
     overview: string;
     items: ActionItemData[];
@@ -170,10 +200,17 @@ export interface ExecutiveBriefPayload {
     citations: CitationData[];
 }
 
+export interface ConflictMeshPayload {
+    overview: string;
+    nodes: MeshNodeData[];
+    edges: MeshEdgeData[];
+}
+
 export type StructuredReportPayload =
     | ActionItemsPayload
     | RiskAnalysisPayload
     | ExecutiveBriefPayload
+    | ConflictMeshPayload
     | Record<string, unknown>;
 
 export interface QueryResultData {

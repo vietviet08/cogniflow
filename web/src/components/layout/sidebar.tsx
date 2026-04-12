@@ -8,6 +8,8 @@ import {
     FolderOpen,
     Database,
     Search,
+    ListChecks,
+    Share2,
     Lightbulb,
     FileText,
     KeyRound,
@@ -26,6 +28,8 @@ import { Button } from "@/components/ui/button";
 const navItems = [
     { href: "/projects", label: "Projects", icon: FolderOpen },
     { href: "/sources", label: "Sources", icon: Database },
+    { href: "/jobs", label: "Jobs", icon: ListChecks },
+    { href: "/mesh", label: "Mesh", icon: Share2 },
     { href: "/query", label: "Query", icon: Search },
     { href: "/settings", label: "Settings", icon: KeyRound },
     { href: "/insights", label: "Insights", icon: Lightbulb },
@@ -83,9 +87,11 @@ export function Sidebar() {
             </Button>
 
             {/* Logo */}
-            <div
+            <Link
+                href="/"
+                aria-label="Go to home"
                 className={cn(
-                    "flex items-center border-b border-border py-5",
+                    "flex items-center border-b border-border py-5 transition-colors hover:bg-accent/30",
                     collapsed ? "justify-center px-3" : "gap-2.5 px-5",
                 )}
             >
@@ -102,7 +108,7 @@ export function Sidebar() {
                         </span>
                     </div>
                 ) : null}
-            </div>
+            </Link>
 
             {/* Navigation */}
             <nav
@@ -159,8 +165,12 @@ export function Sidebar() {
             >
                 {!collapsed && user ? (
                     <div className="mb-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                        <p className="text-xs font-medium text-foreground truncate">{user.display_name}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                        <p className="text-xs font-medium text-foreground truncate">
+                            {user.display_name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                            {user.email}
+                        </p>
                     </div>
                 ) : null}
                 <Button
@@ -188,13 +198,17 @@ export function Sidebar() {
                     size="sm"
                     className={cn(
                         "w-full text-muted-foreground",
-                        collapsed ? "mt-1 justify-center px-0" : "mt-1 justify-start gap-2",
+                        collapsed
+                            ? "mt-1 justify-center px-0"
+                            : "mt-1 justify-start gap-2",
                     )}
                     onClick={logout}
                     title={collapsed ? "Log out" : undefined}
                 >
                     <LogOut className="h-4 w-4" />
-                    {!collapsed ? <span className="text-sm">Log out</span> : null}
+                    {!collapsed ? (
+                        <span className="text-sm">Log out</span>
+                    ) : null}
                 </Button>
             </div>
         </aside>

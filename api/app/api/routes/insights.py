@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
 from app.services.citation_service import hydrate_citations
 from app.services.insight_service import InsightError, generate_insight
@@ -57,7 +58,8 @@ def generate_insight_route(
                 "request_id": request.state.request_id,
             },
         )
-        background_tasks.add_task(run_job, str(job.id))
+        if get_settings().worker_inline_execution:
+            background_tasks.add_task(run_job, str(job.id))
         return success_response(
             request,
             {
