@@ -35,6 +35,7 @@ def _discover_openai_models(
     base_url: str | None,
 ) -> dict[str, list[str]]:
     resolved_base_url = (base_url or DEFAULT_OPENAI_BASE_URL).rstrip("/")
+    is_custom_base_url = resolved_base_url != DEFAULT_OPENAI_BASE_URL
     try:
         response = requests.get(
             f"{resolved_base_url}/models",
@@ -59,7 +60,12 @@ def _discover_openai_models(
             if isinstance(item, dict) and str(item.get("id", "")).strip()
         },
     )
-    chat_models = [model_id for model_id in model_ids if _is_openai_chat_model(model_id)]
+    if is_custom_base_url:
+        # Compatible gateways may expose non-OpenAI naming conventions.
+        # For custom base URLs, keep all non-embedding models selectable as chat models.
+        chat_models = [model_id for model_id in model_ids if not _is_openai_embedding_model(model_id)]
+    else:
+        chat_models = [model_id for model_id in model_ids if _is_openai_chat_model(model_id)]
     embedding_models = [model_id for model_id in model_ids if _is_openai_embedding_model(model_id)]
     return {
         "chat_models": chat_models,
