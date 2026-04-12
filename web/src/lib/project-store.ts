@@ -1,19 +1,22 @@
 "use client";
 
+import type { ProjectRole } from "@/lib/api/types";
+
 export interface StoredProject {
     id: string;
     name: string;
     description: string | null;
+    role?: ProjectRole;
 }
 
 const ACTIVE_PROJECT_KEY = "cogniflow.active-project";
 
 export function getActiveProject(): StoredProject | null {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
         return null;
     }
 
-    const raw = window.localStorage.getItem(ACTIVE_PROJECT_KEY);
+    const raw = globalThis.localStorage.getItem(ACTIVE_PROJECT_KEY);
     if (!raw) {
         return null;
     }
@@ -26,10 +29,17 @@ export function getActiveProject(): StoredProject | null {
 }
 
 export function setActiveProject(project: StoredProject): void {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
         return;
     }
-    window.localStorage.setItem(ACTIVE_PROJECT_KEY, JSON.stringify(project));
+    globalThis.localStorage.setItem(ACTIVE_PROJECT_KEY, JSON.stringify(project));
+}
+
+export function clearActiveProject(): void {
+    if (typeof globalThis.window === "undefined") {
+        return;
+    }
+    globalThis.localStorage.removeItem(ACTIVE_PROJECT_KEY);
 }
 
 // export function listStoredProjects is removed in Phase 4

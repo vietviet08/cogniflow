@@ -11,12 +11,16 @@ class ProjectRepository(BaseRepository[Project]):
     def __init__(self, db: Session):
         super().__init__(db)
 
-    def create(self, name: str, description: str | None, owner_user_id: uuid.UUID) -> Project:
+    def create(
+        self, name: str, description: str | None, owner_user_id: uuid.UUID
+    ) -> Project:
         project = Project(name=name, description=description)
         self.db.add(project)
         self.db.commit()
         self.db.refresh(project)
-        membership = ProjectMembership(project_id=project.id, user_id=owner_user_id, role="owner")
+        membership = ProjectMembership(
+            project_id=project.id, user_id=owner_user_id, role="owner"
+        )
         self.db.add(membership)
         self.db.commit()
         return project
@@ -27,14 +31,14 @@ class ProjectRepository(BaseRepository[Project]):
     def list_with_stats(self, user_id: uuid.UUID) -> list[dict]:
         # Basic implementation: list projects with source count and report count
         projects = (
-            self.db.query(Project)
+            self.db.query(Project, ProjectMembership.role)
             .join(ProjectMembership, ProjectMembership.project_id == Project.id)
             .filter(ProjectMembership.user_id == user_id)
             .order_by(Project.created_at.desc())
             .all()
         )
         result = []
-        for p in projects:
+        for p, role in projects:
             source_count = (
                 self.db.query(func.count(Source.id))
                 .filter(Source.project_id == p.id)
@@ -47,17 +51,22 @@ class ProjectRepository(BaseRepository[Project]):
                 .scalar()
                 or 0
             )
-            result.append({
-                "id": str(p.id),
-                "name": p.name,
-                "description": p.description,
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-                "source_count": source_count,
-                "report_count": report_count,
-            })
+            result.append(
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "description": p.description,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "role": role,
+                    "source_count": source_count,
+                    "report_count": report_count,
+                }
+            )
         return result
 
-    def update(self, project_id: uuid.UUID, name: str, description: str | None) -> Project | None:
+    def update(
+        self, project_id: uuid.UUID, name: str, description: str | None
+    ) -> Project | None:
         project = self.get(project_id)
         if project:
             project.name = name

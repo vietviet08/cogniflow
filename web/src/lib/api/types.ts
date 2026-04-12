@@ -22,6 +22,32 @@ export interface HealthData {
   service: string;
 }
 
+export type ProjectRole = "viewer" | "editor" | "owner";
+
+export interface AuthUserData {
+  id: string;
+  email: string;
+  display_name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthBootstrapData {
+  user: AuthUserData;
+  token: string;
+  token_last_four: string;
+}
+
+export interface AuthMeData {
+  user: AuthUserData;
+}
+
+export interface AuthTokenData {
+  user: AuthUserData;
+  token: string;
+  token_last_four: string;
+}
+
 export interface ProjectData {
   id: string;
   name: string;
@@ -43,6 +69,23 @@ export interface ProcessingResultData {
   run_id?: string;
   documents_created?: number;
   chunks_created?: number;
+}
+
+export interface JobStatusData {
+  job_id: string;
+  type: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  attempt_count: number;
+  max_retries: number;
+  queue_name: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: {
+    code: string | null;
+    message: string | null;
+  } | null;
+  result: Record<string, unknown> | null;
 }
 
 export interface SourceListItemData {
@@ -273,6 +316,7 @@ export interface ReportListData {
 // ---- Phase 4: UX Polish (Projects & Chat) ----
 
 export interface ProjectListItemData extends ProjectData {
+  role: ProjectRole;
   source_count?: number;
   report_count?: number;
 }

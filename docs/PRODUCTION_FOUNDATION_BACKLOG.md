@@ -23,7 +23,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 ### Frontend
 
-- [ ] Auth flow and permission-aware UI states
+- [x] Auth flow and permission-aware UI states
 - [ ] Job operations screen with progress, retry, cancel, and failure detail
 - [ ] Lineage explorer from report and insight to source, document, and chunk
 
@@ -86,10 +86,3 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 ### Data
 
 - [ ] Cross-project source graph and entity normalization
-
-## Implementation Focus For This Change
-
-- [x] Auth/RBAC
-- [x] Async worker
-- [x] Observability
-- [x] Contract sync

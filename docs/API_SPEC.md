@@ -41,6 +41,7 @@ Error response:
 ### JobStatus
 
 Allowed values:
+
 - `queued`
 - `running`
 - `completed`
@@ -102,6 +103,33 @@ Request:
   "description": "Research project for market mapping"
 }
 ```
+
+### List Projects
+
+`GET /projects`
+
+Response data:
+
+```json
+{
+  "items": [
+    {
+      "id": "prj_001",
+      "name": "AI agents landscape",
+      "description": "Research project for market mapping",
+      "created_at": "2026-04-12T10:00:00Z",
+      "role": "owner",
+      "source_count": 12,
+      "report_count": 4
+    }
+  ],
+  "total": 1
+}
+```
+
+Notes:
+
+- `role` is the current authenticated user's membership role in the project.
 
 ## Provider Settings
 
@@ -203,6 +231,7 @@ Request:
 ```
 
 Notes:
+
 - `api_key` and `base_url` are optional.
 - If omitted, the backend falls back to the saved project-scoped provider config.
 
@@ -253,6 +282,7 @@ Response data:
 `POST /sources/files`
 
 Request: `multipart/form-data`
+
 - `project_id`
 - `file` (pdf, docx, txt)
 
@@ -321,6 +351,7 @@ Response data:
 ```
 
 Notes:
+
 - The processing workload is now queued and executed by the worker runtime.
 - Final run metadata and counts are available from `GET /jobs/{job_id}` and project inventories.
 
@@ -353,6 +384,7 @@ Response data:
 `GET /projects/{project_id}/chunks`
 
 Query params:
+
 - `source_id` (optional)
 - `document_id` (optional)
 - `limit` (optional, default `50`)
@@ -484,6 +516,7 @@ Response data:
 ```
 
 Notes:
+
 - `provider` supports `openai` and `gemini`
 - the answer model comes from the project provider settings UI/API
 - retrieval still uses the project OpenAI embedding pipeline, so Gemini query mode also requires
