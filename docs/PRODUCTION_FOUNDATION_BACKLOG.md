@@ -17,7 +17,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Async worker runtime for ingestion, processing, insight, and report jobs
 - [~] Job lifecycle controls for retry, cancellation, attempt tracking, and dead-letter states
 - [x] Structured observability with correlation IDs, metrics, and traces across request and job flows
-- [ ] Contract sync guardrail for ORM models, SQL docs, migrations, and API envelopes
+- [x] Contract sync guardrail for ORM models, SQL docs, migrations, and API envelopes
 - [ ] Hybrid retrieval and reranking baseline
 - [ ] Replay and compare runs for query, insight, and report flows
 
@@ -92,4 +92,4 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Auth/RBAC
 - [x] Async worker
 - [x] Observability
-- [ ] Contract sync
+- [x] Contract sync
