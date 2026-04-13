@@ -18,6 +18,7 @@ router = APIRouter(prefix="/projects")
 class CreateProjectRequest(BaseModel):
     name: str
     description: str | None = None
+    organization_id: str | None = None
 
 
 @router.post("")
@@ -27,11 +28,23 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_current_user),
 ):
+    if payload.organization_id:
+        from app.core.security import require_organization_role
+        require_organization_role(
+            db, 
+            organization_id=uuid.UUID(payload.organization_id), 
+            user=current_user, 
+            minimum_role="admin"
+        )
+        
     repo = ProjectRepository(db)
+    org_id_uuid = uuid.UUID(payload.organization_id) if payload.organization_id else None
+    
     project = repo.create(
         name=payload.name,
         description=payload.description,
         owner_user_id=current_user.id,
+        organization_id=org_id_uuid,
     )
     return success_response(
         request,

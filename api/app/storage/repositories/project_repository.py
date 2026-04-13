@@ -12,9 +12,9 @@ class ProjectRepository(BaseRepository[Project]):
         super().__init__(db)
 
     def create(
-        self, name: str, description: str | None, owner_user_id: uuid.UUID
+        self, name: str, description: str | None, owner_user_id: uuid.UUID, organization_id: uuid.UUID | None = None
     ) -> Project:
-        project = Project(name=name, description=description)
+        project = Project(name=name, description=description, organization_id=organization_id)
         self.db.add(project)
         self.db.commit()
         self.db.refresh(project)

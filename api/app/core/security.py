@@ -12,8 +12,10 @@ from app.storage.models import User
 from app.storage.repositories.auth_token_repository import AuthTokenRepository
 from app.storage.repositories.project_membership_repository import ProjectMembershipRepository
 from app.storage.repositories.user_repository import UserRepository
+from app.storage.repositories.organization_membership_repository import OrganizationMembershipRepository
 
-ROLE_ORDER = {"viewer": 10, "editor": 20, "owner": 30}
+ROLE_ORDER = {"viewer": 10, "editor": 20, "admin": 30}
+ORG_ROLE_ORDER = {"member": 10, "admin": 20, "owner": 30}
 PASSWORD_HASH_ITERATIONS = 600_000
 
 
@@ -99,5 +101,33 @@ def require_project_role(
         raise APIError(
             code="PROJECT_ROLE_FORBIDDEN",
             message=f"This operation requires project role '{minimum_role}' or higher.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+def require_organization_role(
+    db: Session,
+    *,
+    organization_id: uuid.UUID,
+    user: User,
+    minimum_role: str = "member",
+) -> None:
+    membership = OrganizationMembershipRepository(db).get_membership(
+        organization_id=organization_id,
+        user_id=user.id,
+    )
+    # Give full access if user is superadmin (system-wide)
+    if user.role == "admin":
+        return
+        
+    if membership is None:
+        raise APIError(
+            code="ORGANIZATION_FORBIDDEN",
+            message="You do not have access to this organization.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    if ORG_ROLE_ORDER.get(membership.role, 0) < ORG_ROLE_ORDER.get(minimum_role, 0):
+        raise APIError(
+            code="ORGANIZATION_ROLE_FORBIDDEN",
+            message=f"This operation requires organization role '{minimum_role}' or higher.",
             status_code=status.HTTP_403_FORBIDDEN,
         )

@@ -10,16 +10,40 @@ USERS_ID_FK = "users.id"
 PROJECTS_ID_FK = "projects.id"
 PROCESSING_RUNS_ID_FK = "processing_runs.id"
 RADAR_EVENTS_ID_FK = "radar_events.id"
+ORGANIZATIONS_ID_FK = "organizations.id"
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255))
+    slug: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OrganizationMembership(Base):
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_org_memberships_org_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(ORGANIZATIONS_ID_FK), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(USERS_ID_FK), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="member") # owner, admin, member
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(ORGANIZATIONS_ID_FK), nullable=True)
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
