@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from app.core.logging import bind_request_id, clear_request_id
 from app.observability.telemetry import emit_event, record_job_run
+from app.services.intelligence_service import IntelligenceError, scan_project_sources
 from app.services.insight_service import InsightError, generate_insight
 from app.services.processing_service import ProcessingError, process_sources
 from app.services.report_service import ReportError, generate_report
@@ -24,6 +25,7 @@ def register_worker_tasks() -> dict[str, WorkerHandler]:
         "processing": _run_processing_job,
         "insight_generation": _run_insight_job,
         "report_generation": _run_report_job,
+        "intelligence_monitoring": _run_intelligence_monitoring_job,
     }
 
 
@@ -91,7 +93,7 @@ def run_job(job_id: str) -> None:
                 "duration_ms": round(duration_ms, 3),
             },
         )
-    except (ProcessingError, InsightError, ReportError, ValueError) as exc:
+    except (ProcessingError, InsightError, ReportError, IntelligenceError, ValueError) as exc:
         if "job_repo" in locals() and "job" in locals():
             _handle_retryable_failure(
                 job_repo,
@@ -243,6 +245,21 @@ def _run_report_job(job: Job) -> dict[str, Any]:
             report_type=str(payload.get("type", "research_brief")),
             format=str(payload.get("format", "markdown")),
             provider=str(payload.get("provider", "openai")),
+        )
+    finally:
+        db.close()
+
+
+def _run_intelligence_monitoring_job(job: Job) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        payload = job.job_payload or {}
+        source_ids = [uuid.UUID(value) for value in payload.get("source_ids", [])]
+        return scan_project_sources(
+            db,
+            project_id=uuid.UUID(payload["project_id"]),
+            source_ids=source_ids or None,
+            threshold=str(payload.get("alert_threshold", "medium")),
         )
     finally:
         db.close()

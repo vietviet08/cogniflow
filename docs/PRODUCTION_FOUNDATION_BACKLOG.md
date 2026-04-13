@@ -9,6 +9,40 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - `[~]` Partial / baseline only
 - `[ ]` Not implemented
 
+## Critical (Implement First)
+
+### Product Differentiation and GTM
+
+- [x] Live intelligence radar with continuous monitoring of competitor websites, pricing pages, policy updates, industry news, and customer review sources
+- [x] Daily "What Changed Today" digest summarizing meaningful changes with business impact level
+- [x] Threshold-based alerting for key events (price change, new competitor feature, legal or compliance risk signal)
+- [x] Action center to convert alerts into tracked tasks with owner, due date, status, and escalation
+- [x] One-click go-to-market outputs (battlecards, talking points, response plan, outreach drafts)
+- [x] Integrations for execution workflows (Jira, Slack, email, CRM)
+- [x] Approval workflow for high-impact insights and reports before team-wide broadcast
+- [x] Outcome and ROI dashboard (response time reduction, opportunities created, risk mitigated, action closure rate)
+
+### Readiness Gate
+
+- [ ] Pilot team can run daily workflow end-to-end: monitor -> detect change -> assign action -> publish output
+- [ ] At least one real customer-facing use case shows measurable weekly value (time saved, faster response, better conversion support)
+- [ ] Core business alerts are delivered reliably with actionable context and owner assignment
+
+### Execution Order (Next 8 Weeks)
+
+- [x] Weeks 1-2: Live intelligence radar, "What Changed Today", baseline alerts
+- [x] Weeks 3-4: Action center and Jira/Slack integration
+- [x] Weeks 5-6: One-click outputs and approval workflow
+- [x] Weeks 7-8: Outcome and ROI dashboard with pilot metrics
+
+### Implemented in Current Iteration
+
+- [x] Backend APIs for intelligence sources, scans, change events, acknowledgements, and daily digest
+- [x] Async worker job type `intelligence_monitoring` wired into job runtime
+- [x] Backend APIs for action center, dispatch workflow status, and ROI summary metrics
+- [x] Backend APIs for one-click GTM outputs and approval request/review flow
+- [x] Contract tests for intelligence end-to-end baseline
+
 ## Must
 
 ### Backend
