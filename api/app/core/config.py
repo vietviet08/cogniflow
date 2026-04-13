@@ -29,6 +29,26 @@ class Settings(BaseSettings):
     worker_inline_execution: bool = Field(default=True, alias="WORKER_INLINE_EXECUTION")
     worker_poll_interval_seconds: float = Field(default=2.0, alias="WORKER_POLL_INTERVAL_SECONDS")
     worker_queue_name: str | None = Field(default=None, alias="WORKER_QUEUE_NAME")
+    intelligence_autoschedule_enabled: bool = Field(
+        default=True,
+        alias="INTELLIGENCE_AUTOSCHEDULE_ENABLED",
+    )
+    intelligence_autoschedule_interval_seconds: float = Field(
+        default=60.0,
+        alias="INTELLIGENCE_AUTOSCHEDULE_INTERVAL_SECONDS",
+    )
+    intelligence_autoschedule_batch_size: int = Field(
+        default=50,
+        alias="INTELLIGENCE_AUTOSCHEDULE_BATCH_SIZE",
+    )
+    intelligence_monitoring_queue_name: str = Field(
+        default="monitoring",
+        alias="INTELLIGENCE_MONITORING_QUEUE_NAME",
+    )
+    intelligence_default_alert_threshold: str = Field(
+        default="medium",
+        alias="INTELLIGENCE_DEFAULT_ALERT_THRESHOLD",
+    )
     api_cors_allow_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         alias="API_CORS_ALLOW_ORIGINS",

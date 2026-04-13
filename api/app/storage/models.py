@@ -6,6 +6,12 @@ from sqlalchemy import Boolean, JSON, DateTime, ForeignKey, Integer, String, Tex
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
+USERS_ID_FK = "users.id"
+PROJECTS_ID_FK = "projects.id"
+PROCESSING_RUNS_ID_FK = "processing_runs.id"
+RADAR_EVENTS_ID_FK = "radar_events.id"
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -35,7 +41,7 @@ class AuthToken(Base):
     __tablename__ = "auth_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(USERS_ID_FK), nullable=False)
     token_name: Mapped[str] = mapped_column(String(255), default="default")
     token_hash: Mapped[str] = mapped_column(String(128), unique=True)
     token_last_four: Mapped[str] = mapped_column(String(4))
@@ -48,7 +54,7 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     type: Mapped[str] = mapped_column(String(50))
     original_uri: Mapped[str | None] = mapped_column(Text())
     storage_path: Mapped[str | None] = mapped_column(Text())
@@ -70,7 +76,7 @@ class IntegrationConnection(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     provider: Mapped[str] = mapped_column(String(50))
     account_label: Mapped[str | None] = mapped_column(String(255))
     access_token: Mapped[str] = mapped_column(Text())
@@ -92,7 +98,7 @@ class ProviderCredential(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     provider: Mapped[str] = mapped_column(String(50))
     api_key: Mapped[str] = mapped_column(Text())
     base_url: Mapped[str | None] = mapped_column(Text())
@@ -110,7 +116,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sources.id"), nullable=True)
     job_type: Mapped[str] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(20))
@@ -147,7 +153,7 @@ class ProcessingRun(Base):
     __tablename__ = "processing_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
     run_type: Mapped[str] = mapped_column(String(50))
     model_id: Mapped[str | None] = mapped_column(Text())
@@ -156,7 +162,7 @@ class ProcessingRun(Base):
     retrieval_config: Mapped[dict | None] = mapped_column(JSON())
     run_metadata: Mapped[dict | None] = mapped_column(JSON())
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("processing_runs.id"),
+        ForeignKey(PROCESSING_RUNS_ID_FK),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -169,8 +175,8 @@ class ProjectMembership(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(USERS_ID_FK), nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -209,7 +215,7 @@ class QueryRun(Base):
     __tablename__ = "query_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     query_text: Mapped[str] = mapped_column(Text())
     top_k: Mapped[int] = mapped_column(Integer, default=5)
     filters: Mapped[dict | None] = mapped_column(JSON())
@@ -221,7 +227,7 @@ class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     query: Mapped[str] = mapped_column(Text())
     title: Mapped[str] = mapped_column(String(255))
     report_type: Mapped[str] = mapped_column(String(50))
@@ -230,7 +236,7 @@ class Report(Base):
     structured_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON())
     status: Mapped[str] = mapped_column(String(20), default="completed")
     run_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("processing_runs.id"),
+        ForeignKey(PROCESSING_RUNS_ID_FK),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -240,14 +246,14 @@ class Insight(Base):
     __tablename__ = "insights"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     query: Mapped[str] = mapped_column(Text())
     summary: Mapped[str | None] = mapped_column(Text())
     findings: Mapped[dict | None] = mapped_column(JSON())  # list of {theme, points}
     provider: Mapped[str | None] = mapped_column(String(50))
     model_id: Mapped[str | None] = mapped_column(String(128))
     run_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("processing_runs.id"),
+        ForeignKey(PROCESSING_RUNS_ID_FK),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(String(20), default="completed")
@@ -284,7 +290,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     title: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -311,10 +317,11 @@ class RadarSource(Base):
     __tablename__ = "radar_sources"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     name: Mapped[str] = mapped_column(String(255))
     source_url: Mapped[str] = mapped_column(Text())
     category: Mapped[str] = mapped_column(String(50), default="general")
+    default_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     poll_interval_minutes: Mapped[int] = mapped_column(Integer, default=1440)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -332,7 +339,7 @@ class RadarEvent(Base):
     __tablename__ = "radar_events"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_sources.id"), nullable=True)
     event_type: Mapped[str] = mapped_column(String(50), default="change_detected")
     severity: Mapped[str] = mapped_column(String(20), default="medium")
@@ -347,8 +354,8 @@ class RadarAction(Base):
     __tablename__ = "radar_actions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
-    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_events.id"), nullable=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(RADAR_EVENTS_ID_FK), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text())
     owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -369,12 +376,12 @@ class Approval(Base):
     __tablename__ = "approvals"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     target_type: Mapped[str] = mapped_column(String(50))
     target_id: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), default="pending")
-    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS_ID_FK), nullable=True)
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS_ID_FK), nullable=True)
     review_notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -384,8 +391,8 @@ class GtmOutput(Base):
     __tablename__ = "gtm_outputs"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
-    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_events.id"), nullable=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(RADAR_EVENTS_ID_FK), nullable=True)
     output_type: Mapped[str] = mapped_column(String(50))
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text())
@@ -396,3 +403,19 @@ class GtmOutput(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class AlertDelivery(Base):
+    __tablename__ = "alert_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(RADAR_EVENTS_ID_FK), nullable=True)
+    action_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("radar_actions.id"), nullable=True)
+    provider: Mapped[str] = mapped_column(String(50))
+    destination: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_excerpt: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1)
+    dispatched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

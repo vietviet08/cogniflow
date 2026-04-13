@@ -176,7 +176,7 @@ export interface MeshEdgeData {
     id: string;
     source: string;
     target: string;
-    type: "agrees_with" | "contradicts" | "relates_to" | string;
+    type: string;
     description: string;
     citation_indexes?: number[];
     citations?: CitationData[];
@@ -377,6 +377,7 @@ export interface IntelligenceSourceData {
     name: string;
     source_url: string;
     category: string;
+    default_owner: string | null;
     is_active: boolean;
     poll_interval_minutes: number;
     last_checked_at: string | null;
@@ -499,6 +500,8 @@ export interface IntelligenceIntegrationStatusData {
     connected: boolean;
     status: string;
     account_label: string | null;
+    base_url: string | null;
+    masked_access_token: string | null;
     updated_at: string | null;
 }
 

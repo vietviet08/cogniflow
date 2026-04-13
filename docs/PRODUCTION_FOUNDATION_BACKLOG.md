@@ -13,14 +13,14 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 ### Product Differentiation and GTM
 
-- [~] Live intelligence radar with continuous monitoring of competitor websites, pricing pages, policy updates, industry news, and customer review sources
-- [~] Daily "What Changed Today" digest summarizing meaningful changes with business impact level
-- [~] Threshold-based alerting for key events (price change, new competitor feature, legal or compliance risk signal)
-- [~] Action center to convert alerts into tracked tasks with owner, due date, status, and escalation
-- [~] One-click go-to-market outputs (battlecards, talking points, response plan, outreach drafts)
-- [~] Integrations for execution workflows (Jira, Slack, email, CRM)
-- [~] Approval workflow for high-impact insights and reports before team-wide broadcast
-- [~] Outcome and ROI dashboard (response time reduction, opportunities created, risk mitigated, action closure rate)
+- [x] Live intelligence radar with continuous monitoring of competitor websites, pricing pages, policy updates, industry news, and customer review sources
+- [x] Daily "What Changed Today" digest summarizing meaningful changes with business impact level
+- [x] Threshold-based alerting for key events (price change, new competitor feature, legal or compliance risk signal)
+- [x] Action center to convert alerts into tracked tasks with owner, due date, status, and escalation
+- [x] One-click go-to-market outputs (battlecards, talking points, response plan, outreach drafts)
+- [x] Integrations for execution workflows (Jira, Slack, email, CRM)
+- [x] Approval workflow for high-impact insights and reports before team-wide broadcast
+- [x] Outcome and ROI dashboard (response time reduction, opportunities created, risk mitigated, action closure rate)
 
 ### Readiness Gate
 
@@ -30,12 +30,12 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 ### Execution Order (Next 8 Weeks)
 
-- [ ] Weeks 1-2: Live intelligence radar, "What Changed Today", baseline alerts
-- [ ] Weeks 3-4: Action center and Jira/Slack integration
-- [ ] Weeks 5-6: One-click outputs and approval workflow
-- [ ] Weeks 7-8: Outcome and ROI dashboard with pilot metrics
+- [x] Weeks 1-2: Live intelligence radar, "What Changed Today", baseline alerts
+- [x] Weeks 3-4: Action center and Jira/Slack integration
+- [x] Weeks 5-6: One-click outputs and approval workflow
+- [x] Weeks 7-8: Outcome and ROI dashboard with pilot metrics
 
-### Baseline Implemented in Current Iteration
+### Implemented in Current Iteration
 
 - [x] Backend APIs for intelligence sources, scans, change events, acknowledgements, and daily digest
 - [x] Async worker job type `intelligence_monitoring` wired into job runtime

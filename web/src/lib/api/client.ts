@@ -526,6 +526,7 @@ export function createIntelligenceSource(payload: {
     name: string;
     sourceUrl: string;
     category?: string;
+    defaultOwner?: string;
     pollIntervalMinutes?: number;
     isActive?: boolean;
 }): Promise<ApiSuccess<IntelligenceSourceData>> {
@@ -537,6 +538,7 @@ export function createIntelligenceSource(payload: {
                 name: payload.name,
                 source_url: payload.sourceUrl,
                 category: payload.category ?? "general",
+                default_owner: payload.defaultOwner,
                 poll_interval_minutes: payload.pollIntervalMinutes ?? 1440,
                 is_active: payload.isActive ?? true,
             }),
@@ -550,6 +552,7 @@ export function updateIntelligenceSource(payload: {
     name?: string;
     sourceUrl?: string;
     category?: string;
+    defaultOwner?: string;
     pollIntervalMinutes?: number;
     isActive?: boolean;
 }): Promise<ApiSuccess<IntelligenceSourceData>> {
@@ -561,6 +564,7 @@ export function updateIntelligenceSource(payload: {
                 name: payload.name,
                 source_url: payload.sourceUrl,
                 category: payload.category,
+                default_owner: payload.defaultOwner,
                 poll_interval_minutes: payload.pollIntervalMinutes,
                 is_active: payload.isActive,
             }),
@@ -710,6 +714,40 @@ export function listIntelligenceIntegrations(
 ): Promise<ApiSuccess<IntelligenceIntegrationListData>> {
     return requestJson<IntelligenceIntegrationListData>(
         `/projects/${projectId}/intelligence/integrations`,
+    );
+}
+
+export function saveIntelligenceIntegrationConnection(payload: {
+    projectId: string;
+    provider: "jira" | "slack" | "email" | "crm";
+    accessToken?: string;
+    accountLabel?: string;
+    baseUrl?: string;
+    connectionMetadata?: Record<string, unknown>;
+}): Promise<ApiSuccess<import("./types").IntelligenceIntegrationStatusData>> {
+    return requestJson<import("./types").IntelligenceIntegrationStatusData>(
+        `/projects/${payload.projectId}/intelligence/integrations/${payload.provider}`,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                access_token: payload.accessToken,
+                account_label: payload.accountLabel,
+                base_url: payload.baseUrl,
+                connection_metadata: payload.connectionMetadata,
+            }),
+        },
+    );
+}
+
+export function deleteIntelligenceIntegrationConnection(payload: {
+    projectId: string;
+    provider: "jira" | "slack" | "email" | "crm";
+}): Promise<ApiSuccess<import("./types").IntelligenceIntegrationStatusData>> {
+    return requestJson<import("./types").IntelligenceIntegrationStatusData>(
+        `/projects/${payload.projectId}/intelligence/integrations/${payload.provider}`,
+        {
+            method: "DELETE",
+        },
     );
 }
 

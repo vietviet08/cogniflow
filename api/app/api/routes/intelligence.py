@@ -15,6 +15,7 @@ from app.services.intelligence_service import (
     create_action,
     create_output,
     create_source,
+    delete_execution_integration,
     dispatch_action,
     get_roi_dashboard,
     get_today_digest,
@@ -27,6 +28,7 @@ from app.services.intelligence_service import (
     request_approval,
     review_approval,
     scan_project_sources,
+    upsert_execution_integration,
     update_action,
     update_source,
 )
@@ -45,6 +47,7 @@ class CreateRadarSourceRequest(BaseModel):
     name: str
     source_url: str
     category: str = "general"
+    default_owner: str | None = None
     poll_interval_minutes: int = 1440
     is_active: bool = True
 
@@ -53,6 +56,7 @@ class UpdateRadarSourceRequest(BaseModel):
     name: str | None = None
     source_url: str | None = None
     category: str | None = None
+    default_owner: str | None = None
     poll_interval_minutes: int | None = None
     is_active: bool | None = None
 
@@ -102,6 +106,13 @@ class ReviewApprovalRequest(BaseModel):
     review_notes: str | None = None
 
 
+class UpsertExecutionIntegrationRequest(BaseModel):
+    access_token: str | None = None
+    account_label: str | None = None
+    base_url: str | None = None
+    connection_metadata: dict | None = None
+
+
 def _ensure_project_exists(db: Session, project_id: uuid.UUID, request: Request):
     if ProjectRepository(db).get(project_id):
         return None
@@ -149,6 +160,7 @@ def create_intelligence_source(
             name=payload.name,
             source_url=payload.source_url,
             category=payload.category,
+            default_owner=payload.default_owner,
             poll_interval_minutes=payload.poll_interval_minutes,
             is_active=payload.is_active,
         )
@@ -454,6 +466,73 @@ def get_intelligence_integration_status(
         return missing_project_response
 
     result = list_integration_statuses(db, project_id=project_id)
+    return success_response(request, result)
+
+
+@router.put("/integrations/{provider}")
+def save_intelligence_integration(
+    project_id: uuid.UUID,
+    provider: str,
+    payload: UpsertExecutionIntegrationRequest,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
+    missing_project_response = _ensure_project_exists(db, project_id, request)
+    if missing_project_response is not None:
+        return missing_project_response
+
+    try:
+        result = upsert_execution_integration(
+            db,
+            project_id=project_id,
+            provider=provider,
+            access_token=payload.access_token,
+            account_label=payload.account_label,
+            base_url=payload.base_url,
+            connection_metadata=payload.connection_metadata,
+        )
+    except IntelligenceError as exc:
+        return error_response(
+            request,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
+        )
+
+    return success_response(request, result)
+
+
+@router.delete("/integrations/{provider}")
+def remove_intelligence_integration(
+    project_id: uuid.UUID,
+    provider: str,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
+    missing_project_response = _ensure_project_exists(db, project_id, request)
+    if missing_project_response is not None:
+        return missing_project_response
+
+    try:
+        result = delete_execution_integration(
+            db,
+            project_id=project_id,
+            provider=provider,
+        )
+    except IntelligenceError as exc:
+        return error_response(
+            request,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
+        )
+
     return success_response(request, result)
 
 

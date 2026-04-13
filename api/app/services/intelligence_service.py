@@ -15,12 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.storage.models import (
     Approval,
+    AlertDelivery,
     GtmOutput,
     IntegrationConnection,
+    Job,
     RadarAction,
     RadarEvent,
     RadarSource,
 )
+from app.storage.repositories.job_repository import JobRepository
 
 
 class IntelligenceError(Exception):
@@ -44,6 +47,7 @@ _ALLOWED_SEVERITIES = set(SEVERITY_RANK.keys())
 _ALLOWED_OUTPUT_TYPES = {"battlecard", "talking_points", "response_plan", "outreach_draft"}
 _ALLOWED_ACTION_STATUSES = {"open", "in_progress", "done", "escalated"}
 _ALLOWED_APPROVAL_STATUSES = {"pending", "approved", "rejected"}
+_ALLOWED_EXECUTION_PROVIDERS = {"jira", "slack", "email", "crm"}
 
 
 @dataclass
@@ -72,6 +76,7 @@ def create_source(
     name: str,
     source_url: str,
     category: str,
+    default_owner: str | None,
     poll_interval_minutes: int,
     is_active: bool,
 ) -> dict[str, Any]:
@@ -95,6 +100,7 @@ def create_source(
         name=normalized_name,
         source_url=normalized_url,
         category=(category or "general").strip() or "general",
+        default_owner=(default_owner or "").strip() or None,
         poll_interval_minutes=poll_interval_minutes,
         is_active=is_active,
     )
@@ -165,7 +171,10 @@ def scan_project_sources(
         if has_changed:
             event = _build_change_event(source=source, snapshot=snapshot, project_id=project_id, detected_at=now)
             db.add(event)
+            db.flush()
             new_events.append(event)
+            if SEVERITY_RANK.get(event.severity, 1) >= SEVERITY_RANK[normalized_threshold]:
+                _create_action_from_event(db, event=event, default_owner=source.default_owner)
 
         source.last_checked_at = now
         source.last_content_hash = snapshot.content_hash
@@ -349,10 +358,38 @@ def dispatch_action(
             status_code=409,
         )
 
+    event = None
+    if action.event_id is not None:
+        event = _get_event_or_raise(db, project_id, action.event_id)
+
+    resolved_destination = (destination or "").strip() or connection.account_label
+    status, status_code, response_excerpt = _dispatch_to_provider(
+        provider=provider_key,
+        connection=connection,
+        action=action,
+        event=event,
+        destination=resolved_destination,
+    )
+
+    delivery = AlertDelivery(
+        project_id=project_id,
+        event_id=action.event_id,
+        action_id=action.id,
+        provider=provider_key,
+        destination=resolved_destination,
+        status=status,
+        status_code=status_code,
+        response_excerpt=response_excerpt,
+        attempt_count=1,
+    )
+    db.add(delivery)
+
     targets = dict(action.channel_targets or {})
     targets[provider_key] = {
-        "destination": (destination or "").strip() or connection.account_label,
+        "destination": resolved_destination,
         "dispatched_at": datetime.now(UTC).isoformat(),
+        "status": status,
+        "status_code": status_code,
     }
     action.channel_targets = targets
     db.add(action)
@@ -363,8 +400,10 @@ def dispatch_action(
         "action": _serialize_action(action),
         "dispatch": {
             "provider": provider_key,
-            "destination": targets[provider_key]["destination"],
-            "status": "queued",
+            "destination": resolved_destination,
+            "status": status,
+            "status_code": status_code,
+            "response_excerpt": response_excerpt,
         },
     }
 
@@ -380,17 +419,149 @@ def list_integration_statuses(db: Session, *, project_id: uuid.UUID) -> dict[str
 
     return {
         "items": [
-            {
-                "provider": provider,
-                "connected": provider in index and index[provider].status == "connected",
-                "status": index[provider].status if provider in index else "missing",
-                "account_label": index[provider].account_label if provider in index else None,
-                "updated_at": (
-                    index[provider].updated_at.isoformat() if provider in index and index[provider].updated_at else None
-                ),
-            }
+            _serialize_integration_status(provider, index.get(provider))
             for provider in required
         ]
+    }
+
+
+def upsert_execution_integration(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    provider: str,
+    access_token: str | None,
+    account_label: str | None,
+    base_url: str | None,
+    connection_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    provider_key = _validate_execution_integration_input(
+        provider=provider,
+        access_token=access_token,
+        base_url=base_url,
+    )
+    row = _get_execution_integration(db, project_id=project_id, provider_key=provider_key)
+    if row is None:
+        row = IntegrationConnection(
+            project_id=project_id,
+            provider=provider_key,
+            access_token=access_token or "",
+            account_label=(account_label or "").strip() or None,
+            base_url=(base_url or "").strip() or None,
+            connection_metadata=connection_metadata or {},
+            status="connected",
+        )
+    else:
+        _apply_execution_integration_patch(
+            row,
+            access_token=access_token,
+            account_label=account_label,
+            base_url=base_url,
+            connection_metadata=connection_metadata,
+        )
+
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _serialize_integration_status(provider_key, row)
+
+
+def delete_execution_integration(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    provider: str,
+) -> dict[str, Any]:
+    provider_key = provider.strip().lower()
+    row = (
+        db.query(IntegrationConnection)
+        .filter(
+            IntegrationConnection.project_id == project_id,
+            IntegrationConnection.provider == provider_key,
+        )
+        .first()
+    )
+    if row is None:
+        raise IntelligenceError(
+            "Execution integration does not exist.",
+            code="INTELLIGENCE_INTEGRATION_NOT_FOUND",
+            status_code=404,
+        )
+
+    db.delete(row)
+    db.commit()
+    return {
+        "provider": provider_key,
+        "connected": False,
+        "status": "missing",
+        "account_label": None,
+        "base_url": None,
+        "masked_access_token": None,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def enqueue_due_monitoring_jobs(
+    db: Session,
+    *,
+    queue_name: str,
+    alert_threshold: str,
+    limit_projects: int = 50,
+) -> dict[str, Any]:
+    normalized_threshold = _normalize_severity(alert_threshold)
+    now = datetime.now(UTC)
+
+    sources = (
+        db.query(RadarSource)
+        .filter(RadarSource.is_active.is_(True))
+        .order_by(RadarSource.project_id.asc(), RadarSource.created_at.asc())
+        .all()
+    )
+    due_by_project: dict[uuid.UUID, list[str]] = {}
+    for source in sources:
+        if len(due_by_project) >= max(limit_projects, 1):
+            break
+        if not _is_source_due(source, now):
+            continue
+        due_by_project.setdefault(source.project_id, []).append(str(source.id))
+
+    if not due_by_project:
+        return {"queued_jobs": 0, "projects_considered": 0, "threshold": normalized_threshold}
+
+    busy_rows = (
+        db.query(Job.project_id)
+        .filter(
+            Job.project_id.in_(list(due_by_project.keys())),
+            Job.job_type == "intelligence_monitoring",
+            Job.status.in_(["queued", "running"]),
+        )
+        .distinct()
+        .all()
+    )
+    busy_projects = {row[0] for row in busy_rows}
+
+    queued_jobs = 0
+    for project_id, source_ids in due_by_project.items():
+        if project_id in busy_projects:
+            continue
+        JobRepository(db).create(
+            project_id=project_id,
+            job_type="intelligence_monitoring",
+            status="queued",
+            queue_name=queue_name,
+            job_payload={
+                "project_id": str(project_id),
+                "source_ids": source_ids,
+                "alert_threshold": normalized_threshold,
+                "request_id": f"autoschedule:{project_id}",
+            },
+        )
+        queued_jobs += 1
+
+    return {
+        "queued_jobs": queued_jobs,
+        "projects_considered": len(due_by_project),
+        "threshold": normalized_threshold,
     }
 
 
@@ -610,11 +781,170 @@ def _build_change_event(
     )
 
 
+def _create_action_from_event(
+    db: Session,
+    *,
+    event: RadarEvent,
+    default_owner: str | None,
+) -> RadarAction:
+    action = RadarAction(
+        project_id=event.project_id,
+        event_id=event.id,
+        title=f"Respond: {event.title}",
+        description=event.summary,
+        owner=default_owner,
+        due_date_suggested=None,
+        priority=event.severity if event.severity in _ALLOWED_SEVERITIES else "medium",
+        status="open",
+        channel_targets={},
+    )
+    db.add(action)
+    return action
+
+
+def _is_source_due(source: RadarSource, now: datetime) -> bool:
+    if source.last_checked_at is None:
+        return True
+    last_checked_at = source.last_checked_at
+    if last_checked_at.tzinfo is None:
+        last_checked_at = last_checked_at.replace(tzinfo=UTC)
+    due_after = last_checked_at + timedelta(minutes=max(source.poll_interval_minutes, 5))
+    return due_after <= now
+
+
+def _validate_execution_integration_input(
+    *,
+    provider: str,
+    access_token: str | None,
+    base_url: str | None,
+) -> str:
+    provider_key = provider.strip().lower()
+    if provider_key not in _ALLOWED_EXECUTION_PROVIDERS:
+        raise IntelligenceError(
+            "Execution integration provider is unsupported.",
+            code="INTELLIGENCE_INTEGRATION_PROVIDER_INVALID",
+            details={"allowed": sorted(_ALLOWED_EXECUTION_PROVIDERS)},
+        )
+    if not (access_token or base_url):
+        raise IntelligenceError(
+            "Either access token or base URL must be provided.",
+            code="INTELLIGENCE_INTEGRATION_CONFIG_INVALID",
+        )
+    return provider_key
+
+
+def _get_execution_integration(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    provider_key: str,
+) -> IntegrationConnection | None:
+    return (
+        db.query(IntegrationConnection)
+        .filter(
+            IntegrationConnection.project_id == project_id,
+            IntegrationConnection.provider == provider_key,
+        )
+        .first()
+    )
+
+
+def _apply_execution_integration_patch(
+    row: IntegrationConnection,
+    *,
+    access_token: str | None,
+    account_label: str | None,
+    base_url: str | None,
+    connection_metadata: dict[str, Any] | None,
+) -> None:
+    if access_token is not None:
+        row.access_token = access_token
+    if account_label is not None:
+        row.account_label = account_label.strip() or None
+    if base_url is not None:
+        row.base_url = base_url.strip() or None
+    if connection_metadata is not None:
+        row.connection_metadata = connection_metadata
+    row.status = "connected"
+
+
+def _dispatch_to_provider(
+    *,
+    provider: str,
+    connection: IntegrationConnection,
+    action: RadarAction,
+    event: RadarEvent | None,
+    destination: str | None,
+) -> tuple[str, int | None, str | None]:
+    if not connection.base_url:
+        return "queued", None, "No base_url configured; dispatch marked queued."
+
+    payload = {
+        "provider": provider,
+        "destination": destination,
+        "action": {
+            "id": str(action.id),
+            "title": action.title,
+            "description": action.description,
+            "priority": action.priority,
+            "owner": action.owner,
+            "status": action.status,
+        },
+        "event": {
+            "id": str(event.id),
+            "title": event.title,
+            "summary": event.summary,
+            "severity": event.severity,
+        }
+        if event is not None
+        else None,
+    }
+
+    headers = {"content-type": "application/json"}
+    if connection.access_token:
+        headers["authorization"] = f"Bearer {connection.access_token}"
+
+    try:
+        response = requests.post(
+            connection.base_url,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        excerpt = (response.text or "")[:240]
+        return "delivered", response.status_code, excerpt
+    except Exception as exc:
+        return "failed", None, str(exc)[:240]
+
+
+def _serialize_integration_status(
+    provider: str,
+    row: IntegrationConnection | None,
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "connected": row is not None and row.status == "connected",
+        "status": row.status if row is not None else "missing",
+        "account_label": row.account_label if row is not None else None,
+        "base_url": row.base_url if row is not None else None,
+        "masked_access_token": _mask_token(row.access_token) if row is not None else None,
+        "updated_at": row.updated_at.isoformat() if row is not None and row.updated_at else None,
+    }
+
+
+def _mask_token(token: str | None) -> str | None:
+    if not token:
+        return None
+    return f"***{token[-4:]}" if len(token) >= 4 else "***"
+
+
 def _apply_source_patch(row: RadarSource, patch: dict[str, Any]) -> None:
     handlers = {
         "name": _set_source_name,
         "source_url": _set_source_url,
         "category": _set_source_category,
+        "default_owner": _set_source_default_owner,
         "poll_interval_minutes": _set_source_interval,
         "is_active": _set_source_active,
     }
@@ -642,6 +972,10 @@ def _set_source_url(row: RadarSource, value: Any) -> None:
 
 def _set_source_category(row: RadarSource, value: Any) -> None:
     row.category = str(value).strip() or "general"
+
+
+def _set_source_default_owner(row: RadarSource, value: Any) -> None:
+    row.default_owner = str(value).strip() if value else None
 
 
 def _set_source_interval(row: RadarSource, value: Any) -> None:
@@ -888,6 +1222,7 @@ def _serialize_source(row: RadarSource) -> dict[str, Any]:
         "name": row.name,
         "source_url": row.source_url,
         "category": row.category,
+        "default_owner": row.default_owner,
         "is_active": row.is_active,
         "poll_interval_minutes": row.poll_interval_minutes,
         "last_checked_at": row.last_checked_at.isoformat() if row.last_checked_at else None,
