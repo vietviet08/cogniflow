@@ -14,7 +14,9 @@ from app.api.routes import (
     query,
     reports,
     runs,
+    share_links,
     sources,
+    organizations,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -33,3 +35,6 @@ api_router.include_router(query.router, tags=["query"])
 api_router.include_router(insights.router, tags=["insights"])
 api_router.include_router(reports.router, tags=["reports"])
 api_router.include_router(runs.router, tags=["runs"])
+api_router.include_router(share_links.router, tags=["share-links"])
+api_router.include_router(share_links.public_router, tags=["public"])
+api_router.include_router(organizations.router, tags=["organizations"])

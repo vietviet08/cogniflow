@@ -90,7 +90,22 @@ def search_knowledge_base(
     metadatas = result.get("metadatas", [[]])[0]
     ids = result.get("ids", [[]])[0]
 
+    has_non_local_chunks = False
+    if not documents and retrieval_error is None:
+        has_non_local_chunks = _project_has_non_local_chunks(db, project_id)
+
     if not documents:
+        if has_non_local_chunks:
+            raise QueryError(
+                "This project must be reprocessed to use the local multilingual embedding backend.",
+                code="QUERY_REINDEX_REQUIRED",
+                status_code=409,
+                details={
+                    "provider": LOCAL_EMBEDDING_PROVIDER,
+                    "stage": "retrieval",
+                    "model": LOCAL_EMBEDDING_MODEL,
+                },
+            )
         fallback_records = _load_document_fallback_records(
             db,
             project_id=project_id,
@@ -116,7 +131,7 @@ def search_knowledge_base(
                     or "Vector store unavailable.",
                 },
             ) from retrieval_error
-        if _project_has_non_local_chunks(db, project_id):
+        if has_non_local_chunks or _project_has_non_local_chunks(db, project_id):
             raise QueryError(
                 "This project must be reprocessed to use the local multilingual embedding backend.",
                 code="QUERY_REINDEX_REQUIRED",

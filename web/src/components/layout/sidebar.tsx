@@ -9,6 +9,7 @@ import {
     Database,
     Search,
     ListChecks,
+    ListTree,
     Share2,
     Lightbulb,
     FileText,
@@ -24,11 +25,13 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { OrganizationSwitcher } from "./organization-switcher";
 
 const navItems = [
     { href: "/projects", label: "Projects", icon: FolderOpen },
     { href: "/sources", label: "Sources", icon: Database },
     { href: "/jobs", label: "Jobs", icon: ListChecks },
+    { href: "/actions", label: "Actions", icon: ListTree },
     { href: "/mesh", label: "Mesh", icon: Share2 },
     { href: "/query", label: "Query", icon: Search },
     { href: "/settings", label: "Settings", icon: KeyRound },
@@ -117,11 +120,8 @@ export function Sidebar() {
                     collapsed ? "px-2" : "px-3",
                 )}
             >
-                {!collapsed ? (
-                    <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        Workspace
-                    </p>
-                ) : null}
+                <OrganizationSwitcher collapsed={collapsed} />
+
                 {navItems.map(({ href, label, icon: Icon }) => {
                     const active = pathname.startsWith(href);
                     return (

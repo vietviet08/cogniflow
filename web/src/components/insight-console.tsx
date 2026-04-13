@@ -9,10 +9,20 @@ import {
     ExternalLink,
     History,
     RefreshCcw,
+    Download,
 } from "lucide-react";
 
-import { generateInsight, getInsight, listInsights } from "@/lib/api/client";
-import type { InsightResult, InsightListItem, ProjectRole } from "@/lib/api/types";
+import {
+    exportProjectInsights,
+    generateInsight,
+    getInsight,
+    listInsights,
+} from "@/lib/api/client";
+import type {
+    InsightResult,
+    InsightListItem,
+    ProjectRole,
+} from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
@@ -36,7 +46,8 @@ export function InsightConsole() {
     const { openCitation } = useCitationViewer();
     const [activeProjectId, setActiveProjectId] = useState("");
     const [activeProjectName, setActiveProjectName] = useState("");
-    const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
+    const [activeProjectRole, setActiveProjectRole] =
+        useState<ProjectRole | null>(null);
     const [query, setQuery] = useState("");
     const [provider, setProvider] = useState("openai");
 
@@ -127,6 +138,42 @@ export function InsightConsole() {
         }
     }
 
+    async function handleExportInsights() {
+        if (!activeProjectId) {
+            toast.error("Select a project first.");
+            return;
+        }
+        const toastId = toast.loading("Exporting insights...");
+        try {
+            const response = await exportProjectInsights({
+                projectId: activeProjectId,
+                format: "json",
+            });
+            const blob = new Blob(
+                [JSON.stringify(response.data.items, null, 2)],
+                {
+                    type: "application/json",
+                },
+            );
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `insights-${activeProjectId}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success("Insights exported.", { id: toastId });
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to export insights.",
+                {
+                    id: toastId,
+                },
+            );
+        }
+    }
+
     function handleCitationClick(citation: InsightResult["citations"][number]) {
         if (citation.source_type === "file" && citation.source_id) {
             openCitation(citation);
@@ -148,7 +195,8 @@ export function InsightConsole() {
         >
             {!canMutateProject && activeProjectId ? (
                 <div className="rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-                    You have viewer access for this project. Insight generation is disabled.
+                    You have viewer access for this project. Insight generation
+                    is disabled.
                 </div>
             ) : null}
 
@@ -210,9 +258,16 @@ export function InsightConsole() {
                                 <Button
                                     type="submit"
                                     disabled={
-                                        busy || !activeProjectId || !query || !canMutateProject
+                                        busy ||
+                                        !activeProjectId ||
+                                        !query ||
+                                        !canMutateProject
                                     }
-                                    title={canMutateProject ? undefined : "Requires editor role"}
+                                    title={
+                                        canMutateProject
+                                            ? undefined
+                                            : "Requires editor role"
+                                    }
                                     className="w-full gap-2 mt-2"
                                 >
                                     {busy ? (
@@ -241,6 +296,15 @@ export function InsightConsole() {
                                 disabled={loadingHistory || !activeProjectId}
                             >
                                 <RefreshCcw className="h-3 w-3" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleExportInsights}
+                                disabled={!activeProjectId}
+                                title="Export insights"
+                            >
+                                <Download className="h-3 w-3" />
                             </Button>
                         </CardHeader>
                         <Separator />

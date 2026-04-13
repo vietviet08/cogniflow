@@ -14,7 +14,7 @@ from app.storage.repositories.project_membership_repository import ProjectMember
 from app.storage.repositories.user_repository import UserRepository
 from app.storage.repositories.organization_membership_repository import OrganizationMembershipRepository
 
-ROLE_ORDER = {"viewer": 10, "editor": 20, "admin": 30}
+ROLE_ORDER = {"viewer": 10, "editor": 20, "owner": 30, "admin": 30}
 ORG_ROLE_ORDER = {"member": 10, "admin": 20, "owner": 30}
 PASSWORD_HASH_ITERATIONS = 600_000
 

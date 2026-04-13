@@ -28,13 +28,19 @@ class ProjectRepository(BaseRepository[Project]):
     def get(self, project_id: uuid.UUID) -> Project | None:
         return self.db.get(Project, project_id)
 
-    def list_with_stats(self, user_id: uuid.UUID) -> list[dict]:
+    def list_with_stats(self, user_id: uuid.UUID, organization_id: uuid.UUID | None = None) -> list[dict]:
         # Basic implementation: list projects with source count and report count
-        projects = (
+        query = (
             self.db.query(Project, ProjectMembership.role)
             .join(ProjectMembership, ProjectMembership.project_id == Project.id)
             .filter(ProjectMembership.user_id == user_id)
-            .order_by(Project.created_at.desc())
+        )
+        
+        if organization_id:
+            query = query.filter(Project.organization_id == organization_id)
+            
+        projects = (
+            query.order_by(Project.created_at.desc())
             .all()
         )
         result = []

@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 
 import { AuthProvider } from "@/components/auth-provider";
 import { CitationViewerProvider } from "@/components/citation-viewer-provider";
+import { OrganizationProvider } from "@/components/organization-provider";
 
 export function Providers({ children }: Readonly<{ children: React.ReactNode }>) {
   const [queryClient] = useState(
@@ -29,7 +30,9 @@ export function Providers({ children }: Readonly<{ children: React.ReactNode }>)
         disableTransitionOnChange
       >
         <AuthProvider>
-          <CitationViewerProvider>{children}</CitationViewerProvider>
+          <OrganizationProvider>
+            <CitationViewerProvider>{children}</CitationViewerProvider>
+          </OrganizationProvider>
         </AuthProvider>
         <Toaster
           position="bottom-right"

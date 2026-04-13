@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createProject, listProjects, updateProject, deleteProject } from "@/lib/api/client";
 import { canDeleteProject, canEditProject } from "@/lib/permissions";
 import { clearActiveProject, getActiveProject, setActiveProject } from "@/lib/project-store";
+import { useOrganization } from "@/components/organization-provider";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,11 +28,12 @@ export function ProjectManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "name">("newest");
 
+  const { activeOrganization } = useOrganization();
   const activeProject = getActiveProject();
 
   const { data: projectsData, isLoading } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => listProjects(),
+    queryKey: ["projects", activeOrganization?.id],
+    queryFn: () => listProjects({ organizationId: activeOrganization?.id }),
   });
 
   const projects = projectsData?.data.items || [];
@@ -52,7 +54,11 @@ export function ProjectManager() {
     const toastId = toast.loading("Creating project...");
 
     try {
-      const response = await createProject({ name, description });
+      const response = await createProject({ 
+        name, 
+        description, 
+        organizationId: activeOrganization?.id 
+      });
       const project = response.data;
       setActiveProject({
         id: project.id,
@@ -62,7 +68,7 @@ export function ProjectManager() {
       });
       setName("");
       setDescription("");
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["projects", activeOrganization?.id] });
       toast.success(`Project "${project.name}" created and set as active.`, { id: toastId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create project.", { id: toastId });
@@ -88,7 +94,7 @@ export function ProjectManager() {
     const toastId = toast.loading("Deleting project...");
     try {
       await deleteProject(projectId);
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["projects", activeOrganization?.id] });
       if (activeProject?.id === projectId) {
         clearActiveProject();
         window.location.reload();
@@ -104,7 +110,7 @@ export function ProjectManager() {
     const toastId = toast.loading("Renaming project...");
     try {
       await updateProject(projectId, { name: newName });
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await queryClient.invalidateQueries({ queryKey: ["projects", activeOrganization?.id] });
       setRenamingId(null);
       
       // Update active project label if needed

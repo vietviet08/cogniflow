@@ -14,6 +14,7 @@ import {
 import type { ProjectRole } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject, setActiveProject } from "@/lib/project-store";
+import { useOrganization } from "@/components/organization-provider";
 
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
@@ -40,10 +41,11 @@ export function JobOperations() {
     const [activeProjectRole, setActiveProjectRole] =
         useState<ProjectRole | null>(null);
     const [busyAction, setBusyAction] = useState<string | null>(null);
+    const { activeOrganization } = useOrganization();
 
     const { data: projectsData, isLoading: projectsLoading } = useQuery({
-        queryKey: ["projects"],
-        queryFn: () => listProjects(),
+        queryKey: ["projects", activeOrganization?.id],
+        queryFn: () => listProjects({ organizationId: activeOrganization?.id }),
     });
 
     const projects = projectsData?.data.items ?? [];

@@ -13,6 +13,7 @@ import type {
     InsightResult,
     IntelligenceActionData,
     IntelligenceActionListData,
+    IntelligenceActionStatus,
     IntelligenceApprovalData,
     IntelligenceApprovalListData,
     IntelligenceDigestData,
@@ -44,7 +45,10 @@ import type {
     ReportResult,
     IntegrationProvider,
     ReportType,
+    ShareLinkData,
+    ShareLinkListData,
     SourceIngestionData,
+    OrganizationListData,
 } from "./types";
 import { clearStoredAuthSession, getStoredAuthToken } from "../auth-session";
 
@@ -118,13 +122,79 @@ export function getHealth(): Promise<ApiSuccess<HealthData>> {
     return requestJson<HealthData>("/health");
 }
 
+export function listOrganizations(): Promise<ApiSuccess<OrganizationListData>> {
+    return requestJson<OrganizationListData>("/organizations");
+}
+
+export function listOrganizationMembers(
+    organizationId: string,
+): Promise<
+    ApiSuccess<{
+        items: Array<{
+            membership_id: string;
+            user_id: string;
+            email: string;
+            display_name: string;
+            role: string;
+            joined_at: string | null;
+        }>;
+    }>
+> {
+    return requestJson<{
+        items: Array<{
+            membership_id: string;
+            user_id: string;
+            email: string;
+            display_name: string;
+            role: string;
+            joined_at: string | null;
+        }>;
+    }>(`/organizations/${organizationId}/members`);
+}
+
+export function addOrganizationMember(
+    organizationId: string,
+    email: string,
+    role: string = "member",
+): Promise<ApiSuccess<any>> {
+    return requestJson(`/organizations/${organizationId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ email, role }),
+    });
+}
+
+export function updateOrganizationMember(
+    organizationId: string,
+    userId: string,
+    role: string,
+): Promise<ApiSuccess<any>> {
+    return requestJson(`/organizations/${organizationId}/members/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+    });
+}
+
+export function removeOrganizationMember(
+    organizationId: string,
+    userId: string,
+): Promise<ApiSuccess<any>> {
+    return requestJson(`/organizations/${organizationId}/members/${userId}`, {
+        method: "DELETE",
+    });
+}
+
 export function createProject(payload: {
     name: string;
     description?: string;
+    organizationId?: string;
 }): Promise<ApiSuccess<ProjectData>> {
     return requestJson<ProjectData>("/projects", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+            name: payload.name,
+            description: payload.description,
+            organization_id: payload.organizationId,
+        }),
     });
 }
 
@@ -635,6 +705,8 @@ export function createIntelligenceAction(payload: {
     title: string;
     description: string;
     eventId?: string;
+    parentActionId?: string;
+    assignedUserId?: string;
     owner?: string;
     dueDateSuggested?: string;
     priority?: IntelligenceSeverity;
@@ -647,6 +719,8 @@ export function createIntelligenceAction(payload: {
                 title: payload.title,
                 description: payload.description,
                 event_id: payload.eventId,
+                parent_action_id: payload.parentActionId,
+                assigned_user_id: payload.assignedUserId,
                 owner: payload.owner,
                 due_date_suggested: payload.dueDateSuggested,
                 priority: payload.priority ?? "medium",
@@ -657,9 +731,14 @@ export function createIntelligenceAction(payload: {
 
 export function listIntelligenceActions(payload: {
     projectId: string;
-    status?: "open" | "in_progress" | "done" | "escalated";
+    status?: IntelligenceActionStatus;
+    parentActionId?: string;
 }): Promise<ApiSuccess<IntelligenceActionListData>> {
-    const suffix = payload.status ? `?status=${payload.status}` : "";
+    const params = new URLSearchParams();
+    if (payload.status) params.set("status", payload.status);
+    if (payload.parentActionId)
+        params.set("parent_action_id", payload.parentActionId);
+    const suffix = params.size ? `?${params.toString()}` : "";
     return requestJson<IntelligenceActionListData>(
         `/projects/${payload.projectId}/intelligence/actions${suffix}`,
     );
@@ -670,10 +749,12 @@ export function updateIntelligenceAction(payload: {
     actionId: string;
     title?: string;
     description?: string;
+    parentActionId?: string;
+    assignedUserId?: string;
     owner?: string;
     dueDateSuggested?: string;
     priority?: IntelligenceSeverity;
-    status?: "open" | "in_progress" | "done" | "escalated";
+    status?: IntelligenceActionStatus;
 }): Promise<ApiSuccess<IntelligenceActionData>> {
     return requestJson<IntelligenceActionData>(
         `/projects/${payload.projectId}/intelligence/actions/${payload.actionId}`,
@@ -682,12 +763,95 @@ export function updateIntelligenceAction(payload: {
             body: JSON.stringify({
                 title: payload.title,
                 description: payload.description,
+                parent_action_id: payload.parentActionId,
+                assigned_user_id: payload.assignedUserId,
                 owner: payload.owner,
                 due_date_suggested: payload.dueDateSuggested,
                 priority: payload.priority,
                 status: payload.status,
             }),
         },
+    );
+}
+
+export function breakDownIntelligenceEvent(payload: {
+    projectId: string;
+    eventId: string;
+}): Promise<
+    ApiSuccess<{
+        event_id: string;
+        root_action: IntelligenceActionData;
+        subtasks: IntelligenceActionData[];
+        generated_count: number;
+    }>
+> {
+    return requestJson(
+        `/projects/${payload.projectId}/intelligence/events/${payload.eventId}/breakdown`,
+        { method: "POST" },
+    );
+}
+
+export function exportIntelligenceActions(payload: {
+    projectId: string;
+    format?: "csv" | "json";
+    status?: IntelligenceActionStatus;
+}): Promise<ApiSuccess<IntelligenceActionListData>> {
+    const params = new URLSearchParams();
+    params.set("format", payload.format ?? "json");
+    if (payload.status) params.set("status", payload.status);
+    return requestJson<IntelligenceActionListData>(
+        `/projects/${payload.projectId}/intelligence/actions/export?${params.toString()}`,
+    );
+}
+
+export function exportProjectInsights(payload: {
+    projectId: string;
+    format?: "csv" | "json";
+}): Promise<
+    ApiSuccess<{ items: Array<Record<string, unknown>>; total: number }>
+> {
+    const params = new URLSearchParams();
+    params.set("format", payload.format ?? "json");
+    return requestJson<{
+        items: Array<Record<string, unknown>>;
+        total: number;
+    }>(`/insights/project/${payload.projectId}/export?${params.toString()}`);
+}
+
+export function createShareLink(payload: {
+    projectId: string;
+    targetType: "report" | "actions";
+    targetId?: string;
+    password?: string;
+    expiresInHours?: number;
+}): Promise<ApiSuccess<ShareLinkData>> {
+    return requestJson<ShareLinkData>(
+        `/projects/${payload.projectId}/share-links`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                target_type: payload.targetType,
+                target_id: payload.targetId,
+                password: payload.password,
+                expires_in_hours: payload.expiresInHours,
+            }),
+        },
+    );
+}
+
+export function listShareLinks(
+    projectId: string,
+): Promise<ApiSuccess<ShareLinkListData>> {
+    return requestJson<ShareLinkListData>(`/projects/${projectId}/share-links`);
+}
+
+export function revokeShareLink(payload: {
+    projectId: string;
+    linkId: string;
+}): Promise<ApiSuccess<{ success: boolean }>> {
+    return requestJson<{ success: boolean }>(
+        `/projects/${payload.projectId}/share-links/${payload.linkId}`,
+        { method: "DELETE" },
     );
 }
 
@@ -841,8 +1005,15 @@ export function getIntelligenceRoiDashboard(payload: {
 
 // ---- Phase 4: UX Polish (Projects & Chat) ----
 
-export function listProjects(): Promise<ApiSuccess<ProjectListData>> {
-    return requestJson<ProjectListData>("/projects");
+export function listProjects(payload?: {
+    organizationId?: string;
+}): Promise<ApiSuccess<ProjectListData>> {
+    const params = new URLSearchParams();
+    if (payload?.organizationId) {
+        params.set("organization_id", payload.organizationId);
+    }
+    const suffix = params.size ? `?${params.toString()}` : "";
+    return requestJson<ProjectListData>(`/projects${suffix}`);
 }
 
 export function updateProject(
