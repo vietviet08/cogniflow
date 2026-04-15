@@ -160,6 +160,32 @@ export function listOrganizationMembers(organizationId: string): Promise<
     }>(`/organizations/${organizationId}/members`);
 }
 
+export function listProjectMembers(projectId: string): Promise<
+    ApiSuccess<{
+        items: Array<{
+            membership_id: string;
+            user_id: string;
+            email: string;
+            display_name: string;
+            role: string;
+            joined_at: string | null;
+        }>;
+        total: number;
+    }>
+> {
+    return requestJson<{
+        items: Array<{
+            membership_id: string;
+            user_id: string;
+            email: string;
+            display_name: string;
+            role: string;
+            joined_at: string | null;
+        }>;
+        total: number;
+    }>(`/projects/${projectId}/members`);
+}
+
 export function addOrganizationMember(
     organizationId: string,
     email: string,

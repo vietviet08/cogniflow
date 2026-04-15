@@ -10,7 +10,7 @@ from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
 from app.core.security import require_current_user, require_project_role
 from app.services.audit_service import log_audit_event
-from app.storage.models import Chunk, Document, Source, User
+from app.storage.models import Chunk, Document, ProjectMembership, Source, User
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.project_repository import ProjectRepository
 
@@ -88,6 +88,53 @@ def list_projects(
     org_uuid = uuid.UUID(organization_id) if organization_id else None
     projects = repo.list_with_stats(current_user.id, org_uuid)
     return success_response(request, {"items": projects, "total": len(projects)})
+
+
+@router.get("/{project_id}/members")
+def list_project_members(
+    project_id: uuid.UUID,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
+    project = ProjectRepository(db).get(project_id)
+    if not project:
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            PROJECT_NOT_FOUND_MESSAGE,
+            status_code=404,
+        )
+
+    members = (
+        db.query(ProjectMembership, User)
+        .join(User, User.id == ProjectMembership.user_id)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            User.is_active.is_(True),
+        )
+        .order_by(ProjectMembership.created_at.asc())
+        .all()
+    )
+
+    return success_response(
+        request,
+        {
+            "items": [
+                {
+                    "membership_id": str(membership.id),
+                    "user_id": str(user.id),
+                    "email": user.email,
+                    "display_name": user.display_name,
+                    "role": membership.role,
+                    "joined_at": membership.created_at.isoformat() if membership.created_at else None,
+                }
+                for membership, user in members
+            ],
+            "total": len(members),
+        },
+    )
 
 
 class UpdateProjectRequest(BaseModel):

@@ -12,7 +12,7 @@ import {
     exportIntelligenceActions,
     listIntelligenceActions,
     listIntelligenceEvents,
-    listOrganizationMembers,
+    listProjectMembers,
     listShareLinks,
     revokeShareLink,
     updateIntelligenceAction,
@@ -66,7 +66,6 @@ export function IntelligenceTaskManager() {
 
     const activeProject = getActiveProject();
     const projectId = activeProject?.id ?? "";
-    const projectOrganizationId = activeProject?.organization_id ?? "";
     const projectRole = activeProject?.role;
     const canMutate = canEditProject(projectRole);
 
@@ -89,9 +88,9 @@ export function IntelligenceTaskManager() {
     });
 
     const { data: membersData } = useQuery({
-        queryKey: ["org-members", projectOrganizationId],
-        queryFn: () => listOrganizationMembers(projectOrganizationId),
-        enabled: Boolean(projectOrganizationId),
+        queryKey: ["project-members", projectId],
+        queryFn: () => listProjectMembers(projectId),
+        enabled: Boolean(projectId),
     });
 
     const { data: shareLinksData } = useQuery({
