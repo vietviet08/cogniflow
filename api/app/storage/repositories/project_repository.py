@@ -12,9 +12,9 @@ class ProjectRepository(BaseRepository[Project]):
         super().__init__(db)
 
     def create(
-        self, name: str, description: str | None, owner_user_id: uuid.UUID
+        self, name: str, description: str | None, owner_user_id: uuid.UUID, organization_id: uuid.UUID | None = None
     ) -> Project:
-        project = Project(name=name, description=description)
+        project = Project(name=name, description=description, organization_id=organization_id)
         self.db.add(project)
         self.db.commit()
         self.db.refresh(project)
@@ -28,13 +28,19 @@ class ProjectRepository(BaseRepository[Project]):
     def get(self, project_id: uuid.UUID) -> Project | None:
         return self.db.get(Project, project_id)
 
-    def list_with_stats(self, user_id: uuid.UUID) -> list[dict]:
+    def list_with_stats(self, user_id: uuid.UUID, organization_id: uuid.UUID | None = None) -> list[dict]:
         # Basic implementation: list projects with source count and report count
-        projects = (
+        query = (
             self.db.query(Project, ProjectMembership.role)
             .join(ProjectMembership, ProjectMembership.project_id == Project.id)
             .filter(ProjectMembership.user_id == user_id)
-            .order_by(Project.created_at.desc())
+        )
+        
+        if organization_id:
+            query = query.filter(Project.organization_id == organization_id)
+            
+        projects = (
+            query.order_by(Project.created_at.desc())
             .all()
         )
         result = []
@@ -54,6 +60,7 @@ class ProjectRepository(BaseRepository[Project]):
             result.append(
                 {
                     "id": str(p.id),
+                    "organization_id": str(p.organization_id) if p.organization_id else None,
                     "name": p.name,
                     "description": p.description,
                     "created_at": p.created_at.isoformat() if p.created_at else None,

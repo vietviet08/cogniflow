@@ -19,9 +19,13 @@ from app.storage.models import (
     GtmOutput,
     IntegrationConnection,
     Job,
+    OrganizationMembership,
+    Project,
+    ProjectMembership,
     RadarAction,
     RadarEvent,
     RadarSource,
+    User,
 )
 from app.storage.repositories.job_repository import JobRepository
 
@@ -283,19 +287,31 @@ def create_action(
     description: str,
     event_id: uuid.UUID | None,
     owner: str | None,
+    parent_action_id: uuid.UUID | None = None,
+    assigned_user_id: uuid.UUID | None = None,
     due_date_suggested: str | None,
     priority: str,
 ) -> dict[str, Any]:
     if event_id is not None:
         _get_event_or_raise(db, project_id, event_id)
+    if parent_action_id is not None:
+        _get_action_or_raise(db, project_id, parent_action_id)
+
+    assignee_display_name = (owner or "").strip() or None
+    if assigned_user_id is not None:
+        assignee = _get_project_member_user_or_raise(db, project_id=project_id, user_id=assigned_user_id)
+        assignee_display_name = assignee.display_name
+
     normalized_priority = _normalize_severity(priority)
 
     row = RadarAction(
         project_id=project_id,
         event_id=event_id,
+        parent_action_id=parent_action_id,
+        assigned_user_id=assigned_user_id,
         title=title.strip() or "Untitled action",
         description=description.strip(),
-        owner=(owner or "").strip() or None,
+        owner=assignee_display_name,
         due_date_suggested=(due_date_suggested or "").strip() or None,
         priority=normalized_priority,
         status="open",
@@ -323,12 +339,138 @@ def update_action(
     patch: dict[str, Any],
 ) -> dict[str, Any]:
     row = _get_action_or_raise(db, project_id, action_id)
+
+    assigned_user_id_raw = patch.get("assigned_user_id")
+    if assigned_user_id_raw:
+        try:
+            _get_project_member_user_or_raise(
+                db,
+                project_id=project_id,
+                user_id=uuid.UUID(str(assigned_user_id_raw)),
+            )
+        except ValueError as exc:
+            raise IntelligenceError(
+                "Assigned user id is invalid.",
+                code="RADAR_ACTION_ASSIGNEE_INVALID",
+                status_code=422,
+            ) from exc
+
+    parent_action_id_raw = patch.get("parent_action_id")
+    if parent_action_id_raw:
+        try:
+            parent_id = uuid.UUID(str(parent_action_id_raw))
+        except ValueError as exc:
+            raise IntelligenceError(
+                "Parent action id is invalid.",
+                code="RADAR_ACTION_PARENT_INVALID",
+                status_code=422,
+            ) from exc
+        if parent_id == action_id:
+            raise IntelligenceError(
+                "An action cannot be parent of itself.",
+                code="RADAR_ACTION_PARENT_INVALID",
+                status_code=422,
+            )
+        _get_action_or_raise(db, project_id, parent_id)
+
     _apply_action_patch(row, patch)
 
     db.add(row)
     db.commit()
     db.refresh(row)
     return _serialize_action(row)
+
+
+def break_down_event_into_actions(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    event_id: uuid.UUID,
+    requested_by_user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    event = _get_event_or_raise(db, project_id, event_id)
+
+    existing_root = (
+        db.query(RadarAction)
+        .filter(
+            RadarAction.project_id == project_id,
+            RadarAction.event_id == event_id,
+            RadarAction.parent_action_id.is_(None),
+        )
+        .order_by(RadarAction.created_at.asc())
+        .first()
+    )
+
+    owner_candidates = _list_assignable_members(db, project_id=project_id)
+    owner_pool = owner_candidates or []
+
+    if existing_root is None:
+        existing_root = RadarAction(
+            project_id=project_id,
+            event_id=event_id,
+            title=f"Respond to event: {event.title}",
+            description=event.summary,
+            owner=None,
+            due_date_suggested=None,
+            priority=event.severity if event.severity in _ALLOWED_SEVERITIES else "medium",
+            status="open",
+            channel_targets={"generated_by": "ai_breakdown"},
+        )
+        db.add(existing_root)
+        db.flush()
+
+    templates = [
+        (
+            "Validate impact and risk",
+            "Review the detected change, verify business impact, and document risk level.",
+        ),
+        (
+            "Draft internal response",
+            "Prepare internal notes with concrete recommendations and fallback options.",
+        ),
+        (
+            "Coordinate GTM follow-up",
+            "Align with product, sales, and marketing owners on next actions and timeline.",
+        ),
+    ]
+
+    created_rows: list[RadarAction] = []
+    for index, (title, description) in enumerate(templates):
+        assignee_user_id = None
+        assignee_name = None
+        if owner_pool:
+            assignee = owner_pool[index % len(owner_pool)]
+            assignee_user_id = assignee.id
+            assignee_name = assignee.display_name
+
+        child = RadarAction(
+            project_id=project_id,
+            event_id=event_id,
+            parent_action_id=existing_root.id,
+            assigned_user_id=assignee_user_id,
+            owner=assignee_name,
+            title=title,
+            description=description,
+            due_date_suggested=None,
+            priority=existing_root.priority,
+            status="open",
+            channel_targets={"generated_by": "ai_breakdown"},
+        )
+        db.add(child)
+        created_rows.append(child)
+
+    db.commit()
+    db.refresh(existing_root)
+    for row in created_rows:
+        db.refresh(row)
+
+    return {
+        "event_id": str(event.id),
+        "root_action": _serialize_action(existing_root),
+        "subtasks": [_serialize_action(row) for row in created_rows],
+        "generated_count": len(created_rows),
+        "generated_by_user_id": str(requested_by_user_id) if requested_by_user_id else None,
+    }
 
 
 def dispatch_action(
@@ -997,6 +1139,8 @@ def _apply_action_patch(row: RadarAction, patch: dict[str, Any]) -> None:
         "title": _set_action_title,
         "description": _set_action_description,
         "owner": _set_action_owner,
+        "parent_action_id": _set_action_parent,
+        "assigned_user_id": _set_action_assignee,
         "due_date_suggested": _set_action_due_date,
         "priority": _set_action_priority,
         "status": _set_action_status,
@@ -1018,6 +1162,14 @@ def _set_action_description(row: RadarAction, value: Any) -> None:
 
 def _set_action_owner(row: RadarAction, value: Any) -> None:
     row.owner = str(value).strip() if value else None
+
+
+def _set_action_parent(row: RadarAction, value: Any) -> None:
+    row.parent_action_id = uuid.UUID(str(value)) if value else None
+
+
+def _set_action_assignee(row: RadarAction, value: Any) -> None:
+    row.assigned_user_id = uuid.UUID(str(value)) if value else None
 
 
 def _set_action_due_date(row: RadarAction, value: Any) -> None:
@@ -1140,6 +1292,96 @@ def _get_approval_or_raise(db: Session, project_id: uuid.UUID, approval_id: uuid
     return row
 
 
+def _get_project_member_user_or_raise(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> User:
+    row = (
+        db.query(User)
+        .join(ProjectMembership, ProjectMembership.user_id == User.id)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            User.id == user_id,
+            User.is_active.is_(True),
+        )
+        .first()
+    )
+    if row is None:
+        row = _ensure_project_membership_from_organization(
+            db,
+            project_id=project_id,
+            user_id=user_id,
+        )
+
+    if row is None:
+        raise IntelligenceError(
+            "Assigned user is not an active member of this project.",
+            code="RADAR_ACTION_ASSIGNEE_INVALID",
+            status_code=422,
+        )
+    return row
+
+
+def _ensure_project_membership_from_organization(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> User | None:
+    project = db.get(Project, project_id)
+    if project is None or project.organization_id is None:
+        return None
+
+    user = (
+        db.query(User)
+        .join(OrganizationMembership, OrganizationMembership.user_id == User.id)
+        .filter(
+            OrganizationMembership.organization_id == project.organization_id,
+            User.id == user_id,
+            User.is_active.is_(True),
+        )
+        .first()
+    )
+    if user is None:
+        return None
+
+    membership = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.user_id == user_id,
+        )
+        .first()
+    )
+    if membership is None:
+        db.add(
+            ProjectMembership(
+                project_id=project_id,
+                user_id=user_id,
+                role="viewer",
+            )
+        )
+        db.flush()
+
+    return user
+
+
+def _list_assignable_members(db: Session, *, project_id: uuid.UUID) -> list[User]:
+    return (
+        db.query(User)
+        .join(ProjectMembership, ProjectMembership.user_id == User.id)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.role.in_(["owner", "editor"]),
+            User.is_active.is_(True),
+        )
+        .order_by(ProjectMembership.role.desc(), User.created_at.asc())
+        .all()
+    )
+
+
 def _build_output_content(output_type: str, event: RadarEvent | None, context: str) -> tuple[str, str]:
     anchor = context.strip() or (event.summary if event else "No additional context.")
     event_title = event.title if event else "Observed market change"
@@ -1252,6 +1494,8 @@ def _serialize_action(row: RadarAction) -> dict[str, Any]:
         "action_id": str(row.id),
         "project_id": str(row.project_id),
         "event_id": str(row.event_id) if row.event_id else None,
+        "parent_action_id": str(row.parent_action_id) if row.parent_action_id else None,
+        "assigned_user_id": str(row.assigned_user_id) if row.assigned_user_id else None,
         "title": row.title,
         "description": row.description,
         "owner": row.owner,

@@ -1,4 +1,5 @@
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -8,35 +9,66 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
 from app.core.security import require_current_user, require_project_role
-from app.storage.models import Chunk, Document, Source, User
+from app.services.audit_service import log_audit_event
+from app.storage.models import Chunk, Document, ProjectMembership, Source, User
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.project_repository import ProjectRepository
 
 router = APIRouter(prefix="/projects")
 
 
+DBSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(require_current_user)]
+PROJECT_NOT_FOUND_MESSAGE = "Project does not exist"
+
+
 class CreateProjectRequest(BaseModel):
     name: str
     description: str | None = None
+    organization_id: str | None = None
 
 
 @router.post("")
 def create_project(
     payload: CreateProjectRequest,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
+    if payload.organization_id:
+        from app.core.security import require_organization_role
+        require_organization_role(
+            db, 
+            organization_id=uuid.UUID(payload.organization_id), 
+            user=current_user, 
+            minimum_role="admin"
+        )
+        
     repo = ProjectRepository(db)
+    org_id_uuid = uuid.UUID(payload.organization_id) if payload.organization_id else None
+    
     project = repo.create(
         name=payload.name,
         description=payload.description,
         owner_user_id=current_user.id,
+        organization_id=org_id_uuid,
     )
+    log_audit_event(
+        db,
+        action="project.create",
+        target_type="project",
+        target_id=str(project.id),
+        user_id=current_user.id,
+        project_id=project.id,
+        organization_id=org_id_uuid,
+        payload={"name": payload.name},
+    )
+    db.commit()
     return success_response(
         request,
         {
             "id": str(project.id),
+            "organization_id": str(project.organization_id) if project.organization_id else None,
             "name": project.name,
             "description": project.description,
             "created_at": project.created_at.isoformat() if project.created_at else None,
@@ -48,12 +80,61 @@ def create_project(
 @router.get("")
 def list_projects(
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
+    organization_id: str | None = None,
 ):
     repo = ProjectRepository(db)
-    projects = repo.list_with_stats(current_user.id)
+    org_uuid = uuid.UUID(organization_id) if organization_id else None
+    projects = repo.list_with_stats(current_user.id, org_uuid)
     return success_response(request, {"items": projects, "total": len(projects)})
+
+
+@router.get("/{project_id}/members")
+def list_project_members(
+    project_id: uuid.UUID,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
+    project = ProjectRepository(db).get(project_id)
+    if not project:
+        return error_response(
+            request,
+            "PROJECT_NOT_FOUND",
+            PROJECT_NOT_FOUND_MESSAGE,
+            status_code=404,
+        )
+
+    members = (
+        db.query(ProjectMembership, User)
+        .join(User, User.id == ProjectMembership.user_id)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            User.is_active.is_(True),
+        )
+        .order_by(ProjectMembership.created_at.asc())
+        .all()
+    )
+
+    return success_response(
+        request,
+        {
+            "items": [
+                {
+                    "membership_id": str(membership.id),
+                    "user_id": str(user.id),
+                    "email": user.email,
+                    "display_name": user.display_name,
+                    "role": membership.role,
+                    "joined_at": membership.created_at.isoformat() if membership.created_at else None,
+                }
+                for membership, user in members
+            ],
+            "total": len(members),
+        },
+    )
 
 
 class UpdateProjectRequest(BaseModel):
@@ -66,8 +147,8 @@ def update_project(
     project_id: uuid.UUID,
     payload: UpdateProjectRequest,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
     repo = ProjectRepository(db)
@@ -76,13 +157,25 @@ def update_project(
         return error_response(
             request,
             "PROJECT_NOT_FOUND",
-            "Project does not exist",
+            PROJECT_NOT_FOUND_MESSAGE,
             status_code=404,
         )
+    log_audit_event(
+        db,
+        action="project.update",
+        target_type="project",
+        target_id=str(project.id),
+        user_id=current_user.id,
+        project_id=project.id,
+        organization_id=project.organization_id,
+        payload={"name": payload.name, "description": payload.description},
+    )
+    db.commit()
     return success_response(
         request,
         {
             "id": str(project.id),
+            "organization_id": str(project.organization_id) if project.organization_id else None,
             "name": project.name,
             "description": project.description,
         },
@@ -93,8 +186,8 @@ def update_project(
 def delete_project(
     project_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="owner")
     repo = ProjectRepository(db)
@@ -106,6 +199,15 @@ def delete_project(
             "Project does not exist or deletion failed",
             status_code=404,
         )
+    log_audit_event(
+        db,
+        action="project.delete",
+        target_type="project",
+        target_id=str(project_id),
+        user_id=current_user.id,
+        project_id=None,
+    )
+    db.commit()
     return success_response(request, {"success": True})
 
 
@@ -113,8 +215,8 @@ def delete_project(
 def list_project_documents(
     project_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
@@ -122,7 +224,7 @@ def list_project_documents(
         return error_response(
             request,
             "PROJECT_NOT_FOUND",
-            "Project does not exist",
+            PROJECT_NOT_FOUND_MESSAGE,
             status_code=404,
         )
 
@@ -161,11 +263,11 @@ def list_project_documents(
 def list_project_chunks(
     project_id: uuid.UUID,
     request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
     source_id: uuid.UUID | None = None,
     document_id: uuid.UUID | None = None,
     limit: int = 50,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
@@ -173,7 +275,7 @@ def list_project_chunks(
         return error_response(
             request,
             "PROJECT_NOT_FOUND",
-            "Project does not exist",
+            PROJECT_NOT_FOUND_MESSAGE,
             status_code=404,
         )
 
@@ -220,8 +322,8 @@ def list_project_chunks(
 def list_processing_runs(
     project_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
@@ -229,7 +331,7 @@ def list_processing_runs(
         return error_response(
             request,
             "PROJECT_NOT_FOUND",
-            "Project does not exist",
+            PROJECT_NOT_FOUND_MESSAGE,
             status_code=404,
         )
 
@@ -258,8 +360,8 @@ def list_processing_runs(
 def list_project_insights(
     project_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     project = ProjectRepository(db).get(project_id)
@@ -267,7 +369,7 @@ def list_project_insights(
         return error_response(
             request,
             "PROJECT_NOT_FOUND",
-            "Project does not exist",
+            PROJECT_NOT_FOUND_MESSAGE,
             status_code=404,
         )
 
@@ -298,8 +400,8 @@ def list_project_insights(
 def list_project_reports(
     project_id: uuid.UUID,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_current_user),
+    db: DBSession,
+    current_user: CurrentUser,
 ):
     from app.storage.models import Report
 
@@ -309,7 +411,7 @@ def list_project_reports(
         return error_response(
             request,
             "PROJECT_NOT_FOUND",
-            "Project does not exist",
+            PROJECT_NOT_FOUND_MESSAGE,
             status_code=404,
         )
 

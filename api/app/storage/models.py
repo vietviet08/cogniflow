@@ -10,16 +10,40 @@ USERS_ID_FK = "users.id"
 PROJECTS_ID_FK = "projects.id"
 PROCESSING_RUNS_ID_FK = "processing_runs.id"
 RADAR_EVENTS_ID_FK = "radar_events.id"
+ORGANIZATIONS_ID_FK = "organizations.id"
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255))
+    slug: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OrganizationMembership(Base):
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_org_memberships_org_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(ORGANIZATIONS_ID_FK), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(USERS_ID_FK), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="member") # owner, admin, member
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(ORGANIZATIONS_ID_FK), nullable=True)
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -350,15 +374,24 @@ class RadarEvent(Base):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+RADAR_ACTIONS_ID_FK = "radar_actions.id"
+
+
 class RadarAction(Base):
     __tablename__ = "radar_actions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
     event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(RADAR_EVENTS_ID_FK), nullable=True)
+    # Sub-task support: parent_action_id links a task to its parent
+    parent_action_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(RADAR_ACTIONS_ID_FK), nullable=True
+    )
+    # Assignment: assigned_user_id is a proper FK; owner is kept for legacy/display
+    assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS_ID_FK), nullable=True)
+    owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text())
-    owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
     due_date_suggested: Mapped[str | None] = mapped_column(String(100), nullable=True)
     priority: Mapped[str] = mapped_column(String(20), default="medium")
     status: Mapped[str] = mapped_column(String(20), default="open")
@@ -419,3 +452,36 @@ class AlertDelivery(Base):
     response_excerpt: Mapped[str | None] = mapped_column(Text(), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=1)
     dispatched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PublicLink(Base):
+    __tablename__ = "public_links"
+    __table_args__ = (
+        UniqueConstraint("token", name="uq_public_links_token"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(50))
+    target_id: Mapped[str] = mapped_column(String(255))
+    token: Mapped[str] = mapped_column(String(128))
+    password_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS_ID_FK), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=True)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(ORGANIZATIONS_ID_FK), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS_ID_FK), nullable=True)
+    action: Mapped[str] = mapped_column(String(100))
+    target_type: Mapped[str] = mapped_column(String(50))
+    target_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -24,6 +24,18 @@ export interface HealthData {
 
 export type ProjectRole = "viewer" | "editor" | "owner";
 
+export interface OrganizationData {
+    id: string;
+    name: string;
+    slug?: string;
+    role?: string;
+}
+
+export interface OrganizationListData {
+    items: OrganizationData[];
+    total: number;
+}
+
 export interface AuthUserData {
     id: string;
     email: string;
@@ -51,6 +63,7 @@ export interface AuthTokenData {
 
 export interface ProjectData {
     id: string;
+    organization_id: string | null;
     name: string;
     description: string | null;
     created_at: string | null;
@@ -434,20 +447,46 @@ export interface IntelligenceActionData {
     action_id: string;
     project_id: string;
     event_id: string | null;
+    parent_action_id: string | null;
+    assigned_user_id: string | null;
     title: string;
     description: string;
     owner: string | null;
     due_date_suggested: string | null;
     priority: IntelligenceSeverity;
-    status: "open" | "in_progress" | "done" | "escalated";
+    status: IntelligenceActionStatus;
     channel_targets: Record<string, unknown>;
     created_at: string | null;
     updated_at: string | null;
     completed_at: string | null;
 }
 
+export type IntelligenceActionStatus =
+    | "open"
+    | "in_progress"
+    | "done"
+    | "escalated";
+
 export interface IntelligenceActionListData {
     items: IntelligenceActionData[];
+    total: number;
+}
+
+export interface ShareLinkData {
+    link_id: string;
+    project_id?: string;
+    target_type: string;
+    target_id: string;
+    token: string;
+    url_path: string;
+    has_password: boolean;
+    expires_at: string | null;
+    created_at: string | null;
+    is_revoked: boolean;
+}
+
+export interface ShareLinkListData {
+    items: ShareLinkData[];
     total: number;
 }
 

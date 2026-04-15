@@ -14,11 +14,19 @@ import {
 import type { ProjectRole } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject, setActiveProject } from "@/lib/project-store";
+import { useOrganization } from "@/components/organization-provider";
 
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 
 const statusTone: Record<
@@ -40,10 +48,11 @@ export function JobOperations() {
     const [activeProjectRole, setActiveProjectRole] =
         useState<ProjectRole | null>(null);
     const [busyAction, setBusyAction] = useState<string | null>(null);
+    const { activeOrganization } = useOrganization();
 
     const { data: projectsData, isLoading: projectsLoading } = useQuery({
-        queryKey: ["projects"],
-        queryFn: () => listProjects(),
+        queryKey: ["projects", activeOrganization?.id],
+        queryFn: () => listProjects({ organizationId: activeOrganization?.id }),
     });
 
     const projects = projectsData?.data.items ?? [];
@@ -68,6 +77,7 @@ export function JobOperations() {
         setActiveProjectRole(preferred.role);
         setActiveProject({
             id: preferred.id,
+            organization_id: preferred.organization_id,
             name: preferred.name,
             description: preferred.description,
             role: preferred.role,
@@ -150,6 +160,7 @@ export function JobOperations() {
         setActiveProjectRole(project.role);
         setActiveProject({
             id: project.id,
+            organization_id: project.organization_id,
             name: project.name,
             description: project.description,
             role: project.role,
@@ -314,24 +325,28 @@ export function JobOperations() {
                     <CardTitle className="text-base">Scope</CardTitle>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <select
+                    <Select
                         value={activeProjectId}
-                        onChange={(event) =>
-                            handleProjectChange(event.target.value)
-                        }
-                        className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        onValueChange={handleProjectChange}
                         disabled={projectsLoading || projects.length === 0}
                     >
-                        {projects.length === 0 ? (
-                            <option value="">No project available</option>
-                        ) : (
-                            projects.map((project) => (
-                                <option key={project.id} value={project.id}>
+                        <SelectTrigger className="h-10 min-w-[240px] bg-background">
+                            <SelectValue
+                                placeholder={
+                                    projects.length === 0
+                                        ? "No project available"
+                                        : "Select project"
+                                }
+                            />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {projects.map((project) => (
+                                <SelectItem key={project.id} value={project.id}>
                                     {project.name} ({project.role})
-                                </option>
-                            ))
-                        )}
-                    </select>
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <TimerReset className="h-4 w-4" />

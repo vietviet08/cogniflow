@@ -1,7 +1,9 @@
 import uuid
+import csv
+import io
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -9,9 +11,11 @@ from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
 from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
+from app.services.audit_service import log_audit_event
 from app.services.intelligence_service import (
     IntelligenceError,
     acknowledge_event,
+    break_down_event_into_actions,
     create_action,
     create_output,
     create_source,
@@ -71,6 +75,8 @@ class CreateActionRequest(BaseModel):
     title: str
     description: str
     event_id: uuid.UUID | None = None
+    parent_action_id: uuid.UUID | None = None
+    assigned_user_id: uuid.UUID | None = None
     owner: str | None = None
     due_date_suggested: str | None = None
     priority: str = "medium"
@@ -79,6 +85,8 @@ class CreateActionRequest(BaseModel):
 class UpdateActionRequest(BaseModel):
     title: str | None = None
     description: str | None = None
+    parent_action_id: uuid.UUID | None = None
+    assigned_user_id: uuid.UUID | None = None
     owner: str | None = None
     due_date_suggested: str | None = None
     priority: str | None = None
@@ -353,6 +361,8 @@ def create_intelligence_action(
             title=payload.title,
             description=payload.description,
             event_id=payload.event_id,
+            parent_action_id=payload.parent_action_id,
+            assigned_user_id=payload.assigned_user_id,
             owner=payload.owner,
             due_date_suggested=payload.due_date_suggested,
             priority=payload.priority,
@@ -366,6 +376,21 @@ def create_intelligence_action(
             details=exc.details,
         )
 
+    log_audit_event(
+        db,
+        action="intelligence.action.create",
+        target_type="radar_action",
+        target_id=result.get("action_id"),
+        user_id=current_user.id,
+        project_id=project_id,
+        payload={
+            "event_id": str(payload.event_id) if payload.event_id else None,
+            "parent_action_id": str(payload.parent_action_id) if payload.parent_action_id else None,
+            "assigned_user_id": str(payload.assigned_user_id) if payload.assigned_user_id else None,
+        },
+    )
+    db.commit()
+
     return success_response(request, result, status_code=201)
 
 
@@ -376,6 +401,7 @@ def list_intelligence_actions(
     db: DBSession,
     current_user: CurrentUser,
     status: str | None = None,
+    parent_action_id: uuid.UUID | None = None,
 ):
     require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
     missing_project_response = _ensure_project_exists(db, project_id, request)
@@ -383,7 +409,73 @@ def list_intelligence_actions(
         return missing_project_response
 
     items = list_actions(db, project_id=project_id, status=status)
+    if parent_action_id is not None:
+        items = [
+            item
+            for item in items
+            if item.get("parent_action_id") == str(parent_action_id)
+        ]
     return success_response(request, {"items": items, "total": len(items)})
+
+
+@router.get("/actions/export")
+def export_intelligence_actions(
+    project_id: uuid.UUID,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+    format: str = "csv",
+    status: str | None = None,
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="viewer")
+    missing_project_response = _ensure_project_exists(db, project_id, request)
+    if missing_project_response is not None:
+        return missing_project_response
+
+    items = list_actions(db, project_id=project_id, status=status)
+    normalized_format = format.strip().lower()
+    if normalized_format == "json":
+        return success_response(request, {"items": items, "total": len(items)})
+    if normalized_format != "csv":
+        return error_response(
+            request,
+            code="EXPORT_FORMAT_INVALID",
+            message="Export format is invalid.",
+            status_code=400,
+            details={"allowed": ["csv", "json"]},
+        )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=[
+            "action_id",
+            "project_id",
+            "event_id",
+            "parent_action_id",
+            "assigned_user_id",
+            "title",
+            "description",
+            "owner",
+            "due_date_suggested",
+            "priority",
+            "status",
+            "created_at",
+            "updated_at",
+            "completed_at",
+        ],
+    )
+    writer.writeheader()
+    for item in items:
+        writer.writerow({key: item.get(key) for key in writer.fieldnames})
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "content-disposition": f'attachment; filename="intelligence-actions-{project_id}.csv"'
+        },
+    )
 
 
 @router.patch("/actions/{action_id}")
@@ -416,7 +508,61 @@ def update_intelligence_action(
             details=exc.details,
         )
 
+    log_audit_event(
+        db,
+        action="intelligence.action.update",
+        target_type="radar_action",
+        target_id=str(action_id),
+        user_id=current_user.id,
+        project_id=project_id,
+        payload=payload.model_dump(mode="json", exclude_none=True),
+    )
+    db.commit()
+
     return success_response(request, result)
+
+
+@router.post("/events/{event_id}/breakdown")
+def break_down_intelligence_event(
+    project_id: uuid.UUID,
+    event_id: uuid.UUID,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    require_project_role(db, project_id=project_id, user=current_user, minimum_role="editor")
+    missing_project_response = _ensure_project_exists(db, project_id, request)
+    if missing_project_response is not None:
+        return missing_project_response
+
+    try:
+        result = break_down_event_into_actions(
+            db,
+            project_id=project_id,
+            event_id=event_id,
+            requested_by_user_id=current_user.id,
+        )
+    except IntelligenceError as exc:
+        return error_response(
+            request,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
+        )
+
+    log_audit_event(
+        db,
+        action="intelligence.event.breakdown",
+        target_type="radar_event",
+        target_id=str(event_id),
+        user_id=current_user.id,
+        project_id=project_id,
+        payload={"generated_count": result.get("generated_count", 0)},
+    )
+    db.commit()
+
+    return success_response(request, result, status_code=201)
 
 
 @router.post("/actions/{action_id}/dispatch")
@@ -449,6 +595,21 @@ def dispatch_intelligence_action(
             status_code=exc.status_code,
             details=exc.details,
         )
+
+    log_audit_event(
+        db,
+        action="intelligence.action.dispatch",
+        target_type="radar_action",
+        target_id=str(action_id),
+        user_id=current_user.id,
+        project_id=project_id,
+        payload={
+            "provider": payload.provider,
+            "destination": payload.destination,
+            "status": result.get("dispatch", {}).get("status"),
+        },
+    )
+    db.commit()
 
     return success_response(request, result)
 
