@@ -227,6 +227,51 @@ def test_intelligence_execution_integration_connect_dispatch_and_remove(client, 
     assert remove_response.json()["data"]["status"] == "missing"
 
 
+def test_assign_org_member_to_action_auto_links_project_membership(client):
+    org_response = client.post(
+        "/api/v1/organizations",
+        json={"name": f"Org {uuid.uuid4()}"},
+    )
+    assert org_response.status_code == 201
+    organization_id = org_response.json()["data"]["id"]
+
+    project_response = client.post(
+        "/api/v1/projects",
+        json={
+            "name": f"Radar {uuid.uuid4()}",
+            "description": "assignment test",
+            "organization_id": organization_id,
+        },
+    )
+    assert project_response.status_code == 201
+    project_id = project_response.json()["data"]["id"]
+
+    action_response = client.post(
+        f"/api/v1/projects/{project_id}/intelligence/actions",
+        json={
+            "title": "Assignable action",
+            "description": "Needs an assignee from organization",
+            "priority": "medium",
+        },
+    )
+    assert action_response.status_code == 201
+    action_id = action_response.json()["data"]["action_id"]
+
+    member_response = client.post(
+        f"/api/v1/organizations/{organization_id}/members",
+        json={"email": "assignee@example.com", "role": "member"},
+    )
+    assert member_response.status_code == 201
+    assignee_user_id = member_response.json()["data"]["user_id"]
+
+    assign_response = client.patch(
+        f"/api/v1/projects/{project_id}/intelligence/actions/{action_id}",
+        json={"assigned_user_id": assignee_user_id},
+    )
+    assert assign_response.status_code == 200
+    assert assign_response.json()["data"]["assigned_user_id"] == assignee_user_id
+
+
 def _create_project(client):
     response = client.post(
         "/api/v1/projects",

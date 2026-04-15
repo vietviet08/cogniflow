@@ -60,6 +60,7 @@ class ProjectRepository(BaseRepository[Project]):
             result.append(
                 {
                     "id": str(p.id),
+                    "organization_id": str(p.organization_id) if p.organization_id else None,
                     "name": p.name,
                     "description": p.description,
                     "created_at": p.created_at.isoformat() if p.created_at else None,

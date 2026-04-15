@@ -515,7 +515,7 @@ def update_intelligence_action(
         target_id=str(action_id),
         user_id=current_user.id,
         project_id=project_id,
-        payload=payload.model_dump(exclude_none=True),
+        payload=payload.model_dump(mode="json", exclude_none=True),
     )
     db.commit()
 

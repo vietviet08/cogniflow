@@ -48,6 +48,7 @@ import type {
     ShareLinkData,
     ShareLinkListData,
     SourceIngestionData,
+    OrganizationData,
     OrganizationListData,
 } from "./types";
 import { clearStoredAuthSession, getStoredAuthToken } from "../auth-session";
@@ -126,9 +127,16 @@ export function listOrganizations(): Promise<ApiSuccess<OrganizationListData>> {
     return requestJson<OrganizationListData>("/organizations");
 }
 
-export function listOrganizationMembers(
-    organizationId: string,
-): Promise<
+export function createOrganization(payload: {
+    name: string;
+}): Promise<ApiSuccess<OrganizationData>> {
+    return requestJson<OrganizationData>("/organizations", {
+        method: "POST",
+        body: JSON.stringify({ name: payload.name }),
+    });
+}
+
+export function listOrganizationMembers(organizationId: string): Promise<
     ApiSuccess<{
         items: Array<{
             membership_id: string;

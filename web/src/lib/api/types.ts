@@ -63,6 +63,7 @@ export interface AuthTokenData {
 
 export interface ProjectData {
     id: string;
+    organization_id: string | null;
     name: string;
     description: string | null;
     created_at: string | null;

@@ -21,7 +21,6 @@ import type { IntelligenceActionData } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
-import { useOrganization } from "@/components/organization-provider";
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,12 +33,21 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 
 interface TaskNode extends IntelligenceActionData {
     children: TaskNode[];
 }
+
+const EMPTY_SELECT_VALUE = "__none__";
 
 function downloadJsonFile(data: unknown, filename: string) {
     const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -55,10 +63,10 @@ function downloadJsonFile(data: unknown, filename: string) {
 
 export function IntelligenceTaskManager() {
     const queryClient = useQueryClient();
-    const { activeOrganization } = useOrganization();
 
     const activeProject = getActiveProject();
     const projectId = activeProject?.id ?? "";
+    const projectOrganizationId = activeProject?.organization_id ?? "";
     const projectRole = activeProject?.role;
     const canMutate = canEditProject(projectRole);
 
@@ -81,9 +89,9 @@ export function IntelligenceTaskManager() {
     });
 
     const { data: membersData } = useQuery({
-        queryKey: ["org-members", activeOrganization?.id],
-        queryFn: () => listOrganizationMembers(activeOrganization!.id),
-        enabled: Boolean(activeOrganization?.id),
+        queryKey: ["org-members", projectOrganizationId],
+        queryFn: () => listOrganizationMembers(projectOrganizationId),
+        enabled: Boolean(projectOrganizationId),
     });
 
     const { data: shareLinksData } = useQuery({
@@ -345,42 +353,58 @@ export function IntelligenceTaskManager() {
                     </p>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        <select
-                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                        <Select
                             value={node.status}
-                            onChange={(e) =>
+                            onValueChange={(value) =>
                                 handleStatusChange(
                                     node.action_id,
-                                    e.target
-                                        .value as IntelligenceActionData["status"],
+                                    value as IntelligenceActionData["status"],
                                 )
                             }
                             disabled={!canMutate}
                         >
-                            <option value="open">open</option>
-                            <option value="in_progress">in_progress</option>
-                            <option value="done">done</option>
-                            <option value="escalated">escalated</option>
-                        </select>
+                            <SelectTrigger className="h-8 w-[128px] bg-background px-2 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="open">open</SelectItem>
+                                <SelectItem value="in_progress">
+                                    in_progress
+                                </SelectItem>
+                                <SelectItem value="done">done</SelectItem>
+                                <SelectItem value="escalated">
+                                    escalated
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
 
-                        <select
-                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                            value={node.assigned_user_id ?? ""}
-                            onChange={(e) =>
-                                handleAssign(node.action_id, e.target.value)
+                        <Select
+                            value={node.assigned_user_id ?? EMPTY_SELECT_VALUE}
+                            onValueChange={(value) =>
+                                handleAssign(
+                                    node.action_id,
+                                    value === EMPTY_SELECT_VALUE ? "" : value,
+                                )
                             }
                             disabled={!canMutate}
                         >
-                            <option value="">Unassigned</option>
-                            {members.map((member) => (
-                                <option
-                                    key={member.user_id}
-                                    value={member.user_id}
-                                >
-                                    {member.display_name} ({member.role})
-                                </option>
-                            ))}
-                        </select>
+                            <SelectTrigger className="h-8 w-[190px] bg-background px-2 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value={EMPTY_SELECT_VALUE}>
+                                    Unassigned
+                                </SelectItem>
+                                {members.map((member) => (
+                                    <SelectItem
+                                        key={member.user_id}
+                                        value={member.user_id}
+                                    >
+                                        {member.display_name} ({member.role})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
 
                         <Button
                             size="sm"
@@ -449,24 +473,36 @@ export function IntelligenceTaskManager() {
                                 </div>
                                 <div className="space-y-1">
                                     <Label>Related Event (optional)</Label>
-                                    <select
-                                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                                        value={eventId}
-                                        onChange={(e) =>
-                                            setEventId(e.target.value)
+                                    <Select
+                                        value={eventId || EMPTY_SELECT_VALUE}
+                                        onValueChange={(value) =>
+                                            setEventId(
+                                                value === EMPTY_SELECT_VALUE
+                                                    ? ""
+                                                    : value,
+                                            )
                                         }
                                         disabled={!canMutate || creating}
                                     >
-                                        <option value="">No event</option>
-                                        {events.map((eventRow) => (
-                                            <option
-                                                key={eventRow.event_id}
-                                                value={eventRow.event_id}
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem
+                                                value={EMPTY_SELECT_VALUE}
                                             >
-                                                {eventRow.title}
-                                            </option>
-                                        ))}
-                                    </select>
+                                                No event
+                                            </SelectItem>
+                                            {events.map((eventRow) => (
+                                                <SelectItem
+                                                    key={eventRow.event_id}
+                                                    value={eventRow.event_id}
+                                                >
+                                                    {eventRow.title}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                 <Button
                                     type="submit"

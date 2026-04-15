@@ -2,7 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Bot, Brain, KeyRound, RefreshCw, Save, Sparkles, Trash2 } from "lucide-react";
+import {
+  Bot,
+  Brain,
+  KeyRound,
+  RefreshCw,
+  Save,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import {
   createPersonalToken,
@@ -19,9 +27,22 @@ import { useAuth } from "@/components/auth-provider";
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 
 const providerIcons = {
@@ -38,20 +59,35 @@ export function ProviderSettingsManager() {
   const { user } = useAuth();
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeProjectName, setActiveProjectName] = useState("");
-  const [activeProjectRole, setActiveProjectRole] = useState<ProjectRole | null>(null);
+  const [activeProjectRole, setActiveProjectRole] =
+    useState<ProjectRole | null>(null);
   const [tokenName, setTokenName] = useState("default");
   const [issuingToken, setIssuingToken] = useState(false);
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
-  const [issuedTokenLastFour, setIssuedTokenLastFour] = useState<string | null>(null);
+  const [issuedTokenLastFour, setIssuedTokenLastFour] = useState<string | null>(
+    null,
+  );
   const [settings, setSettings] = useState<ProviderSettingData[]>([]);
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
-  const [draftBaseUrls, setDraftBaseUrls] = useState<Record<string, string>>({});
-  const [draftChatModels, setDraftChatModels] = useState<Record<string, string>>({});
-  const [draftEmbeddingModels, setDraftEmbeddingModels] = useState<Record<string, string>>({});
-  const [modelCatalogs, setModelCatalogs] = useState<Record<string, ModelCatalog>>({});
-  const [modelErrors, setModelErrors] = useState<Record<string, string | null>>({});
+  const [draftBaseUrls, setDraftBaseUrls] = useState<Record<string, string>>(
+    {},
+  );
+  const [draftChatModels, setDraftChatModels] = useState<
+    Record<string, string>
+  >({});
+  const [draftEmbeddingModels, setDraftEmbeddingModels] = useState<
+    Record<string, string>
+  >({});
+  const [modelCatalogs, setModelCatalogs] = useState<
+    Record<string, ModelCatalog>
+  >({});
+  const [modelErrors, setModelErrors] = useState<Record<string, string | null>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
-  const [loadingModelsProvider, setLoadingModelsProvider] = useState<string | null>(null);
+  const [loadingModelsProvider, setLoadingModelsProvider] = useState<
+    string | null
+  >(null);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
 
@@ -95,12 +131,18 @@ export function ProviderSettingsManager() {
         );
         setModelErrors(
           Object.fromEntries(
-            response.data.items.map((item) => [item.provider, item.model_discovery_error]),
+            response.data.items.map((item) => [
+              item.provider,
+              item.model_discovery_error,
+            ]),
           ),
         );
         setDraftBaseUrls(
           Object.fromEntries(
-            response.data.items.map((item) => [item.provider, item.base_url ?? ""]),
+            response.data.items.map((item) => [
+              item.provider,
+              item.base_url ?? "",
+            ]),
           ),
         );
         setDraftChatModels(
@@ -122,7 +164,11 @@ export function ProviderSettingsManager() {
       })
       .catch((error) => {
         if (!ignore) {
-          toast.error(error instanceof Error ? error.message : "Failed to load provider settings.");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to load provider settings.",
+          );
         }
       })
       .finally(() => {
@@ -137,7 +183,10 @@ export function ProviderSettingsManager() {
   }, [activeProjectId]);
 
   const sortedSettings = useMemo(
-    () => [...settings].sort((left, right) => left.provider.localeCompare(right.provider)),
+    () =>
+      [...settings].sort((left, right) =>
+        left.provider.localeCompare(right.provider),
+      ),
     [settings],
   );
 
@@ -190,12 +239,17 @@ export function ProviderSettingsManager() {
           response.data.available_embedding_models,
         ),
       }));
-      toast.success(`${response.data.display_name} models loaded from ${response.data.source}.`, {
-        id: toastId,
-      });
+      toast.success(
+        `${response.data.display_name} models loaded from ${response.data.source}.`,
+        {
+          id: toastId,
+        },
+      );
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to fetch provider models.";
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch provider models.";
       setModelErrors((current) => ({ ...current, [provider]: message }));
       toast.error(message, { id: toastId });
     } finally {
@@ -203,7 +257,10 @@ export function ProviderSettingsManager() {
     }
   }
 
-  async function handleSave(event: FormEvent<HTMLFormElement>, provider: string) {
+  async function handleSave(
+    event: FormEvent<HTMLFormElement>,
+    provider: string,
+  ) {
     event.preventDefault();
     if (!canMutateProject) {
       toast.error("This action requires editor role or higher.");
@@ -250,7 +307,9 @@ export function ProviderSettingsManager() {
         embeddingModel: embeddingModel || undefined,
       });
       setSettings((current) =>
-        current.map((item) => (item.provider === provider ? response.data : item)),
+        current.map((item) =>
+          item.provider === provider ? response.data : item,
+        ),
       );
       setModelCatalogs((current) => ({
         ...current,
@@ -276,11 +335,17 @@ export function ProviderSettingsManager() {
         ...current,
         [provider]: response.data.embedding_model ?? current[provider] ?? "",
       }));
-      toast.success(`${response.data.display_name} key saved for this project.`, { id: toastId });
+      toast.success(
+        `${response.data.display_name} key saved for this project.`,
+        { id: toastId },
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save provider key.", {
-        id: toastId,
-      });
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save provider key.",
+        {
+          id: toastId,
+        },
+      );
     } finally {
       setSavingProvider(null);
     }
@@ -304,7 +369,9 @@ export function ProviderSettingsManager() {
         provider,
       });
       setSettings((current) =>
-        current.map((item) => (item.provider === provider ? response.data : item)),
+        current.map((item) =>
+          item.provider === provider ? response.data : item,
+        ),
       );
       setModelCatalogs((current) => ({
         ...current,
@@ -318,11 +385,18 @@ export function ProviderSettingsManager() {
       setDraftBaseUrls((current) => ({ ...current, [provider]: "" }));
       setDraftChatModels((current) => ({ ...current, [provider]: "" }));
       setDraftEmbeddingModels((current) => ({ ...current, [provider]: "" }));
-      toast.success(`${response.data.display_name} override removed.`, { id: toastId });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove provider key.", {
+      toast.success(`${response.data.display_name} override removed.`, {
         id: toastId,
       });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to remove provider key.",
+        {
+          id: toastId,
+        },
+      );
     } finally {
       setRemovingProvider(null);
     }
@@ -346,9 +420,12 @@ export function ProviderSettingsManager() {
         id: toastId,
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create token.", {
-        id: toastId,
-      });
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create token.",
+        {
+          id: toastId,
+        },
+      );
     } finally {
       setIssuingToken(false);
     }
@@ -368,15 +445,16 @@ export function ProviderSettingsManager() {
       description={
         activeProjectName
           ? `Manage API keys for ${activeProjectName}`
-          : "Select a project, then configure provider API keys "
-            + "without hardcoding them in env files."
+          : "Select a project, then configure provider API keys " +
+            "without hardcoding them in env files."
       }
     >
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Personal Access Token</CardTitle>
           <CardDescription>
-            Create a bearer token for this account and use it in the login screen.
+            Create a bearer token for this account and use it in the login
+            screen.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -387,7 +465,10 @@ export function ProviderSettingsManager() {
               {user?.email ? ` (${user.email})` : ""}
             </p>
           </div>
-          <form className="flex flex-col gap-3 md:flex-row" onSubmit={handleCreateToken}>
+          <form
+            className="flex flex-col gap-3 md:flex-row"
+            onSubmit={handleCreateToken}
+          >
             <div className="flex-1">
               <Label htmlFor="token-name">Token name</Label>
               <Input
@@ -414,7 +495,12 @@ export function ProviderSettingsManager() {
                 {issuedToken}
               </p>
               <div className="mt-3">
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleCopyIssuedToken()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleCopyIssuedToken()}
+                >
                   Copy token
                 </Button>
               </div>
@@ -425,7 +511,8 @@ export function ProviderSettingsManager() {
 
       {!canMutateProject && activeProjectId ? (
         <div className="rounded-md border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-          You have viewer access for this project. Provider configuration is read-only.
+          You have viewer access for this project. Provider configuration is
+          read-only.
         </div>
       ) : null}
 
@@ -434,7 +521,8 @@ export function ProviderSettingsManager() {
           <CardHeader>
             <CardTitle className="text-base">No active project</CardTitle>
             <CardDescription>
-              Create or select a project first, then come back here to attach provider API keys.
+              Create or select a project first, then come back here to attach
+              provider API keys.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -448,15 +536,15 @@ export function ProviderSettingsManager() {
               <CardTitle className="text-base">Project Scope</CardTitle>
             </div>
             <CardDescription>
-              Keys saved here are scoped to the active project and take priority over environment
-              defaults.
+              Keys saved here are scoped to the active project and take priority
+              over environment defaults.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div
               className={
-                "flex items-center gap-3 rounded-xl border border-border "
-                + "bg-muted/40 px-4 py-3"
+                "flex items-center gap-3 rounded-xl border border-border " +
+                "bg-muted/40 px-4 py-3"
               }
             >
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
@@ -464,7 +552,9 @@ export function ProviderSettingsManager() {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium">{activeProjectName}</p>
-                <p className="text-xs font-mono text-muted-foreground">{activeProjectId}</p>
+                <p className="text-xs font-mono text-muted-foreground">
+                  {activeProjectId}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -480,8 +570,11 @@ export function ProviderSettingsManager() {
 
       {sortedSettings.map((providerSetting) => {
         const ProviderIcon =
-          providerIcons[providerSetting.provider as keyof typeof providerIcons] ?? Sparkles;
-        const isLoadingModels = loadingModelsProvider === providerSetting.provider;
+          providerIcons[
+            providerSetting.provider as keyof typeof providerIcons
+          ] ?? Sparkles;
+        const isLoadingModels =
+          loadingModelsProvider === providerSetting.provider;
         const isSaving = savingProvider === providerSetting.provider;
         const isRemoving = removingProvider === providerSetting.provider;
         const modelCatalog = modelCatalogs[providerSetting.provider] ?? {
@@ -497,22 +590,23 @@ export function ProviderSettingsManager() {
           modelCatalog.embeddingModels,
         );
         const modelError =
-          modelErrors[providerSetting.provider] ?? providerSetting.model_discovery_error;
+          modelErrors[providerSetting.provider] ??
+          providerSetting.model_discovery_error;
 
         return (
           <Card key={providerSetting.provider}>
             <CardHeader>
               <div className="flex flex-wrap items-center gap-3">
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10"
-                >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                   <ProviderIcon className="h-5 w-5 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <CardTitle className="text-base">{providerSetting.display_name}</CardTitle>
+                  <CardTitle className="text-base">
+                    {providerSetting.display_name}
+                  </CardTitle>
                   <CardDescription>
-                    Retrieval now uses a local multilingual embedding backend. This provider is
-                    used only for answer generation.
+                    Retrieval now uses a local multilingual embedding backend.
+                    This provider is used only for answer generation.
                   </CardDescription>
                 </div>
                 <Badge
@@ -521,7 +615,9 @@ export function ProviderSettingsManager() {
                 >
                   {providerSetting.configured ? "Configured" : "Missing"}
                 </Badge>
-                <Badge variant="outline">{providerSetting.configured_source}</Badge>
+                <Badge variant="outline">
+                  {providerSetting.configured_source}
+                </Badge>
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
@@ -536,7 +632,8 @@ export function ProviderSettingsManager() {
               <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
                 <p className="font-medium">Current status</p>
                 <p className="text-muted-foreground">
-                  {providerSetting.configured_source === "project" && providerSetting.masked_api_key
+                  {providerSetting.configured_source === "project" &&
+                  providerSetting.masked_api_key
                     ? `Project override saved as ${providerSetting.masked_api_key}.`
                     : "No key configured yet for this provider."}
                 </p>
@@ -547,7 +644,9 @@ export function ProviderSettingsManager() {
                   <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
                     Model discovery issue
                   </p>
-                  <p className="text-sm text-amber-800/80 dark:text-amber-200/80">{modelError}</p>
+                  <p className="text-sm text-amber-800/80 dark:text-amber-200/80">
+                    {modelError}
+                  </p>
                 </div>
               ) : null}
 
@@ -583,7 +682,9 @@ export function ProviderSettingsManager() {
               </div>
 
               <form
-                onSubmit={(event) => void handleSave(event, providerSetting.provider)}
+                onSubmit={(event) =>
+                  void handleSave(event, providerSetting.provider)
+                }
                 className="flex flex-col gap-3"
               >
                 <div className="flex flex-col gap-1.5">
@@ -602,7 +703,12 @@ export function ProviderSettingsManager() {
                       }))
                     }
                     placeholder={`Paste ${providerSetting.display_name} API key`}
-                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
+                    disabled={
+                      isSaving ||
+                      isRemoving ||
+                      isLoadingModels ||
+                      !canMutateProject
+                    }
                   />
                 </div>
 
@@ -623,10 +729,16 @@ export function ProviderSettingsManager() {
                         }))
                       }
                       placeholder="https://proxy.example.com/v1"
-                      disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
+                      disabled={
+                        isSaving ||
+                        isRemoving ||
+                        isLoadingModels ||
+                        !canMutateProject
+                      }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Optional. Leave blank to use the default OpenAI API base URL.
+                      Optional. Leave blank to use the default OpenAI API base
+                      URL.
                     </p>
                   </div>
                 ) : null}
@@ -636,12 +748,25 @@ export function ProviderSettingsManager() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
-                    onClick={() => void handleLoadModels(providerSetting.provider)}
+                    disabled={
+                      isSaving ||
+                      isRemoving ||
+                      isLoadingModels ||
+                      !canMutateProject
+                    }
+                    onClick={() =>
+                      void handleLoadModels(providerSetting.provider)
+                    }
                     className="gap-2"
-                    title={canMutateProject ? undefined : "Requires editor role"}
+                    title={
+                      canMutateProject ? undefined : "Requires editor role"
+                    }
                   >
-                    {isLoadingModels ? <Spinner size="sm" /> : <RefreshCw className="h-4 w-4" />}
+                    {isLoadingModels ? (
+                      <Spinner size="sm" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
                     {isLoadingModels ? "Loading..." : "Load models"}
                   </Button>
                 </div>
@@ -650,95 +775,124 @@ export function ProviderSettingsManager() {
                   <Label htmlFor={`${providerSetting.provider}-chat-model`}>
                     {providerSetting.display_name} chat model
                   </Label>
-                  <select
-                    id={`${providerSetting.provider}-chat-model`}
+                  <Select
                     value={draftChatModels[providerSetting.provider] ?? ""}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       setDraftChatModels((current) => ({
                         ...current,
-                        [providerSetting.provider]: event.target.value,
+                        [providerSetting.provider]: value,
                       }))
                     }
-                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
-                    title={canMutateProject ? undefined : "Requires editor role"}
-                    className={
-                      "flex h-9 w-full rounded-md border border-input "
-                      + "bg-transparent px-3 py-1 text-sm shadow-sm "
-                      + "transition-colors focus-visible:outline-none focus-visible:ring-2 "
-                      + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={
+                      isSaving ||
+                      isRemoving ||
+                      isLoadingModels ||
+                      !canMutateProject
                     }
                   >
-                    {chatModelOptions.length === 0 ? (
-                      <option value="">Load models first</option>
-                    ) : null}
-                    {chatModelOptions.map((modelName) => (
-                      <option key={modelName} value={modelName}>
-                        {modelName}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      id={`${providerSetting.provider}-chat-model`}
+                      title={
+                        canMutateProject ? undefined : "Requires editor role"
+                      }
+                    >
+                      <SelectValue placeholder="Load models first" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {chatModelOptions.map((modelName) => (
+                        <SelectItem key={modelName} value={modelName}>
+                          {modelName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {providerSetting.supports.includes("embeddings") ? (
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor={`${providerSetting.provider}-embedding-model`}>
+                    <Label
+                      htmlFor={`${providerSetting.provider}-embedding-model`}
+                    >
                       {providerSetting.display_name} embedding model
                     </Label>
-                    <select
-                      id={`${providerSetting.provider}-embedding-model`}
-                      value={draftEmbeddingModels[providerSetting.provider] ?? ""}
-                      onChange={(event) =>
+                    <Select
+                      value={
+                        draftEmbeddingModels[providerSetting.provider] ?? ""
+                      }
+                      onValueChange={(value) =>
                         setDraftEmbeddingModels((current) => ({
                           ...current,
-                          [providerSetting.provider]: event.target.value,
+                          [providerSetting.provider]: value,
                         }))
                       }
-                      disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
-                      title={canMutateProject ? undefined : "Requires editor role"}
-                      className={
-                        "flex h-9 w-full rounded-md border border-input "
-                        + "bg-transparent px-3 py-1 text-sm shadow-sm "
-                        + "transition-colors focus-visible:outline-none focus-visible:ring-2 "
-                        + "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={
+                        isSaving ||
+                        isRemoving ||
+                        isLoadingModels ||
+                        !canMutateProject
                       }
                     >
-                      {embeddingModelOptions.length === 0 ? (
-                        <option value="">Load models first</option>
-                      ) : null}
-                      {embeddingModelOptions.map((modelName) => (
-                        <option key={modelName} value={modelName}>
-                          {modelName}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        id={`${providerSetting.provider}-embedding-model`}
+                        title={
+                          canMutateProject ? undefined : "Requires editor role"
+                        }
+                      >
+                        <SelectValue placeholder="Load models first" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {embeddingModelOptions.map((modelName) => (
+                          <SelectItem key={modelName} value={modelName}>
+                            {modelName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 ) : null}
 
                 <div className="flex flex-wrap gap-3">
                   <Button
                     type="submit"
-                    disabled={isSaving || isRemoving || isLoadingModels || !canMutateProject}
+                    disabled={
+                      isSaving ||
+                      isRemoving ||
+                      isLoadingModels ||
+                      !canMutateProject
+                    }
                     className="gap-2"
-                    title={canMutateProject ? undefined : "Requires editor role"}
+                    title={
+                      canMutateProject ? undefined : "Requires editor role"
+                    }
                   >
-                    {isSaving ? <Spinner size="sm" /> : <Save className="h-4 w-4" />}
+                    {isSaving ? (
+                      <Spinner size="sm" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
                     {isSaving ? "Saving..." : "Save project key"}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     disabled={
-                      isSaving
-                      || isRemoving
-                      || isLoadingModels
-                      || !canMutateProject
-                      || providerSetting.configured_source !== "project"
+                      isSaving ||
+                      isRemoving ||
+                      isLoadingModels ||
+                      !canMutateProject ||
+                      providerSetting.configured_source !== "project"
                     }
                     onClick={() => void handleDelete(providerSetting.provider)}
                     className="gap-2"
-                    title={canMutateProject ? undefined : "Requires editor role"}
+                    title={
+                      canMutateProject ? undefined : "Requires editor role"
+                    }
                   >
-                    {isRemoving ? <Spinner size="sm" /> : <Trash2 className="h-4 w-4" />}
+                    {isRemoving ? (
+                      <Spinner size="sm" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
                     {isRemoving ? "Removing..." : "Remove override"}
                   </Button>
                 </div>

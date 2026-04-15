@@ -19,6 +19,8 @@ from app.storage.models import (
     GtmOutput,
     IntegrationConnection,
     Job,
+    OrganizationMembership,
+    Project,
     ProjectMembership,
     RadarAction,
     RadarEvent,
@@ -1307,12 +1309,63 @@ def _get_project_member_user_or_raise(
         .first()
     )
     if row is None:
+        row = _ensure_project_membership_from_organization(
+            db,
+            project_id=project_id,
+            user_id=user_id,
+        )
+
+    if row is None:
         raise IntelligenceError(
             "Assigned user is not an active member of this project.",
             code="RADAR_ACTION_ASSIGNEE_INVALID",
             status_code=422,
         )
     return row
+
+
+def _ensure_project_membership_from_organization(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> User | None:
+    project = db.get(Project, project_id)
+    if project is None or project.organization_id is None:
+        return None
+
+    user = (
+        db.query(User)
+        .join(OrganizationMembership, OrganizationMembership.user_id == User.id)
+        .filter(
+            OrganizationMembership.organization_id == project.organization_id,
+            User.id == user_id,
+            User.is_active.is_(True),
+        )
+        .first()
+    )
+    if user is None:
+        return None
+
+    membership = (
+        db.query(ProjectMembership)
+        .filter(
+            ProjectMembership.project_id == project_id,
+            ProjectMembership.user_id == user_id,
+        )
+        .first()
+    )
+    if membership is None:
+        db.add(
+            ProjectMembership(
+                project_id=project_id,
+                user_id=user_id,
+                role="viewer",
+            )
+        )
+        db.flush()
+
+    return user
 
 
 def _list_assignable_members(db: Session, *, project_id: uuid.UUID) -> list[User]:

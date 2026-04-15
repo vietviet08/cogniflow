@@ -1,5 +1,6 @@
 import uuid
 from typing import Annotated
+import secrets
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
-from app.core.security import require_current_user, require_organization_role
+from app.core.security import hash_password, require_current_user, require_organization_role
 from app.services.audit_service import log_audit_event
 from app.storage.models import User, OrganizationMembership, Organization
 from app.storage.repositories.organization_repository import OrganizationRepository
@@ -116,6 +117,11 @@ class AddMemberRequest(BaseModel):
     email: str
     role: str = "member"
 
+
+def _display_name_from_email(email: str) -> str:
+    local_part = email.split("@", maxsplit=1)[0].strip() or "user"
+    return local_part.replace(".", " ").replace("_", " ").title()
+
 @router.post("/{organization_id}/members")
 def add_organization_member(
     organization_id: uuid.UUID,
@@ -125,17 +131,29 @@ def add_organization_member(
     current_user: CurrentUser,
 ):
     require_organization_role(db, organization_id=organization_id, user=current_user, minimum_role="admin")
-    
-    user_repo = UserRepository(db)
-    user_to_add = user_repo.get_by_email(payload.email)
-    if not user_to_add:
+
+    if payload.role not in ["owner", "admin", "member"]:
         return error_response(
             request,
-            code="ORG_MEMBER_USER_NOT_FOUND",
-            message="User with this email was not found.",
-            status_code=404,
+            code="ORG_ROLE_INVALID",
+            message="Invalid role.",
+            status_code=400,
         )
-        
+
+    user_repo = UserRepository(db)
+    user_to_add = user_repo.get_by_email(payload.email)
+    created_new_user = False
+    if not user_to_add:
+        # Provision a basic user account and attach it to the current organization.
+        temporary_password = secrets.token_urlsafe(24)
+        user_to_add = user_repo.create(
+            email=payload.email,
+            display_name=_display_name_from_email(payload.email),
+            password_hash=hash_password(temporary_password),
+            role="user",
+        )
+        created_new_user = True
+
     membership_repo = OrganizationMembershipRepository(db)
     # Check if already in org
     existing = db.query(OrganizationMembership).filter(
@@ -150,15 +168,7 @@ def add_organization_member(
             message="User is already a member.",
             status_code=400,
         )
-        
-    if payload.role not in ["owner", "admin", "member"]:
-        return error_response(
-            request,
-            code="ORG_ROLE_INVALID",
-            message="Invalid role.",
-            status_code=400,
-        )
-        
+
     membership = membership_repo.create(
         organization_id=organization_id,
         user_id=user_to_add.id,
@@ -171,7 +181,11 @@ def add_organization_member(
         target_id=str(membership.id),
         user_id=current_user.id,
         organization_id=organization_id,
-        payload={"member_user_id": str(user_to_add.id), "role": payload.role},
+        payload={
+            "member_user_id": str(user_to_add.id),
+            "role": payload.role,
+            "created_new_user": created_new_user,
+        },
     )
     db.commit()
     
@@ -180,7 +194,8 @@ def add_organization_member(
         {
             "membership_id": str(membership.id),
             "user_id": str(user_to_add.id),
-            "role": membership.role
+            "role": membership.role,
+            "created_new_user": created_new_user,
         },
         status_code=201
     )

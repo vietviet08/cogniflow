@@ -68,6 +68,7 @@ def create_project(
         request,
         {
             "id": str(project.id),
+            "organization_id": str(project.organization_id) if project.organization_id else None,
             "name": project.name,
             "description": project.description,
             "created_at": project.created_at.isoformat() if project.created_at else None,
@@ -127,6 +128,7 @@ def update_project(
         request,
         {
             "id": str(project.id),
+            "organization_id": str(project.organization_id) if project.organization_id else None,
             "name": project.name,
             "description": project.description,
         },
