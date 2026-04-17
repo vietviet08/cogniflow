@@ -20,6 +20,7 @@ import {
     LogOut,
     PanelLeftClose,
     PanelLeftOpen,
+    Telescope,
 } from "lucide-react";
 
 import { useAuth } from "@/components/auth-provider";
@@ -34,9 +35,14 @@ const navItems = [
     { href: "/actions", label: "Actions", icon: ListTree },
     { href: "/mesh", label: "Mesh", icon: Share2 },
     { href: "/query", label: "Query", icon: Search },
-    { href: "/settings", label: "Settings", icon: KeyRound },
     { href: "/insights", label: "Insights", icon: Lightbulb },
     { href: "/reports", label: "Reports", icon: FileText },
+    { href: "/settings", label: "Settings", icon: KeyRound },
+];
+
+// Premium nav items rendered separately with special styling
+const premiumNavItems = [
+    { href: "/cockpit", label: "Cockpit", icon: Telescope },
 ];
 
 export function Sidebar() {
@@ -154,6 +160,51 @@ export function Sidebar() {
                         </Link>
                     );
                 })}
+
+                {/* Premium: Research Cockpit */}
+                <div className={cn("mt-2", collapsed ? "px-0" : "px-0")}>
+                    {!collapsed && (
+                        <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                            Premium
+                        </p>
+                    )}
+                    {premiumNavItems.map(({ href, label, icon: Icon }) => {
+                        const active = pathname.startsWith(href);
+                        return (
+                            <Link
+                                key={href}
+                                href={href}
+                                title={collapsed ? label : undefined}
+                                className={cn(
+                                    "group flex items-center rounded-lg text-sm font-medium transition-all duration-150 relative overflow-hidden",
+                                    collapsed
+                                        ? "justify-center px-2 py-2.5"
+                                        : "gap-3 px-3 py-2",
+                                    active
+                                        ? "bg-[#6c63ff]/15 text-[#6c63ff]"
+                                        : "text-muted-foreground hover:bg-[#6c63ff]/10 hover:text-[#6c63ff]",
+                                )}
+                            >
+                                {/* Glow background */}
+                                <span className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-r from-[#6c63ff]/0 via-[#6c63ff]/5 to-[#00d8ff]/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <Icon
+                                    className={cn(
+                                        "h-4 w-4 shrink-0 transition-colors",
+                                        active ? "text-[#6c63ff]" : "text-muted-foreground group-hover:text-[#6c63ff]",
+                                    )}
+                                />
+                                {!collapsed ? (
+                                    <>
+                                        {label}
+                                        <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-[#6c63ff]/20 text-[#6c63ff] font-semibold">
+                                            NEW
+                                        </span>
+                                    </>
+                                ) : null}
+                            </Link>
+                        );
+                    })}
+                </div>
             </nav>
 
             {/* Footer */}

@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, ExternalLink, GripVertical, X } from "lucide
 import { Document, Page, pdfjs } from "react-pdf";
 
 import { getSourceArtifactUrl } from "@/lib/api/client";
+import { getStoredAuthToken } from "@/lib/auth-session";
 import type { CitationData } from "@/lib/api/types";
 
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,57 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
   import.meta.url,
 ).toString();
+
+/**
+ * Fetches the PDF artifact with the stored Bearer token and returns a
+ * stable blob: URL so react-pdf never hits the 401 Unauthorized wall.
+ */
+function useAuthenticatedPdfUrl(sourceId: string | undefined): {
+  blobUrl: string | null;
+  error: string | null;
+} {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sourceId) return;
+    let revoked = false;
+    let objectUrl: string | null = null;
+
+    async function load() {
+      const token = getStoredAuthToken();
+      const url = getSourceArtifactUrl(sourceId!);
+      try {
+        const res = await fetch(url, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) {
+          setError(`Failed to load PDF (${res.status})`);
+          return;
+        }
+        const blob = await res.blob();
+        if (revoked) return; // component unmounted while fetching
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+        setError(null);
+      } catch (e) {
+        if (!revoked) setError("Network error loading PDF");
+      }
+    }
+
+    // Reset on new source
+    setBlobUrl(null);
+    setError(null);
+    load();
+
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [sourceId]);
+
+  return { blobUrl, error };
+}
 
 export function CitationPdfPanel({
   citation,
@@ -82,9 +134,9 @@ export function CitationPdfPanel({
     return () => window.cancelAnimationFrame(rafId);
   }, [highlightKey, highlightTargets]);
 
-  const artifactUrl = citation.source_id
-    ? getSourceArtifactUrl(citation.source_id)
-    : "";
+  const { blobUrl: artifactUrl, error: pdfError } = useAuthenticatedPdfUrl(
+    citation.source_type === "file" ? citation.source_id : undefined,
+  );
 
   function handleResizeStart(event: ReactPointerEvent<HTMLDivElement>) {
     if (typeof window === "undefined" || window.innerWidth < 768) {
@@ -193,12 +245,17 @@ export function CitationPdfPanel({
       </div>
 
       <div ref={containerRef} className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4">
+        {pdfError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {pdfError}
+          </div>
+        ) : null}
         <Document
-          file={artifactUrl}
-          loading={<div className="text-sm text-muted-foreground">Loading PDF...</div>}
+          file={artifactUrl ?? ""}
+          loading={<div className="text-sm text-muted-foreground">Loading PDF…</div>}
           error={
             <div className="text-sm text-destructive">
-              Failed to load this PDF artifact. Reprocess the source if needed.
+              Failed to render PDF. Reprocess the source if needed.
             </div>
           }
           onLoadSuccess={({ numPages: loadedPages }) => {
