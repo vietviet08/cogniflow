@@ -122,3 +122,97 @@ def test_search_knowledge_base_requires_reindex_for_old_embedding_chunks(
         assert exc.status_code == 409
         assert exc.details["provider"] == LOCAL_EMBEDDING_PROVIDER
         assert exc.details["model"] == LOCAL_EMBEDDING_MODEL
+
+
+def test_hybrid_retrieval_fuses_semantic_and_lexical_candidates(db_session, monkeypatch):
+    from app.storage.models import Chunk, Document, Project, Source
+
+    project = Project(name="Hybrid retrieval", description="rrf")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="pricing-notes.txt",
+        storage_path="/tmp/pricing-notes.txt",
+        checksum="hybrid",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Pricing Notes",
+        raw_path="/tmp/pricing-notes.txt",
+        clean_text="Competitor pricing changed. Enterprise discount language moved.",
+        token_count=8,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    lexical_chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="Competitor pricing changed for enterprise discount tiers.",
+        chroma_id="lexical-chunk",
+        embedding_model=LOCAL_EMBEDDING_MODEL,
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
+    )
+    semantic_chunk = Chunk(
+        document_id=document.id,
+        chunk_index=1,
+        content="Packaging language was updated for annual plans.",
+        chroma_id="semantic-chunk",
+        embedding_model=LOCAL_EMBEDDING_MODEL,
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
+    )
+    db_session.add_all([lexical_chunk, semantic_chunk])
+    db_session.commit()
+    db_session.refresh(lexical_chunk)
+    db_session.refresh(semantic_chunk)
+
+    class FakeCollection:
+        def query(self, query_embeddings, n_results, where):
+            return {
+                "documents": [[semantic_chunk.content]],
+                "metadatas": [[
+                    {
+                        "source_id": str(source.id),
+                        "document_id": str(document.id),
+                        "chunk_id": str(semantic_chunk.id),
+                        "title": "Pricing Notes",
+                    }
+                ]],
+                "ids": [[str(semantic_chunk.id)]],
+            }
+
+    monkeypatch.setattr(
+        query_service,
+        "embed_texts_with_local_model",
+        lambda texts, model_name=LOCAL_EMBEDDING_MODEL: [[0.1, 0.2, 0.3]],
+    )
+    monkeypatch.setattr(
+        query_service,
+        "get_retrieval_collection",
+        lambda embedding_model: FakeCollection(),
+    )
+
+    result = query_service.retrieve_hybrid_evidence(
+        db_session,
+        project_id=project.id,
+        query="competitor pricing discount",
+        top_k=2,
+    )
+
+    returned_ids = {record.metadata["chunk_id"] for record in result.records}
+    assert str(semantic_chunk.id) in returned_ids
+    assert str(lexical_chunk.id) in returned_ids
+    assert result.diagnostics["mode"] == "hybrid"
+    assert result.diagnostics["reranker"] == "reciprocal_rank_fusion"
+    assert result.diagnostics["semantic_candidates"] == 1
+    assert result.diagnostics["lexical_candidates"] >= 1
