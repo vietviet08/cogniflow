@@ -178,6 +178,19 @@ export interface CitationData {
     quote?: string;
 }
 
+export interface EvidenceSnapshotData {
+    index: number;
+    citation_id?: string | null;
+    source_id?: string | null;
+    document_id?: string | null;
+    chunk_id?: string | null;
+    title?: string | null;
+    url?: string | null;
+    page_number?: number | null;
+    quote_hash?: string | null;
+    quote_preview: string;
+}
+
 export type ReportType =
     | "research_brief"
     | "summary"
@@ -363,6 +376,7 @@ export interface InsightResult {
     status: string;
     created_at: string;
     retrieval?: Record<string, unknown>;
+    evidence_snapshot?: EvidenceSnapshotData[];
 }
 
 export interface InsightListItem {
@@ -395,6 +409,7 @@ export interface ReportResult {
     insight_id?: string;
     source_ids?: string[];
     citations?: CitationData[];
+    evidence_snapshot?: EvidenceSnapshotData[];
     created_at?: string;
 }
 
