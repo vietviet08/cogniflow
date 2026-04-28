@@ -12,8 +12,8 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from app.services.citation_service import hydrate_citations
 from app.services.chroma_service import get_retrieval_collection
+from app.services.citation_service import hydrate_citations
 from app.services.embedding_service import (
     LOCAL_EMBEDDING_MODEL,
     embed_texts_with_local_model,

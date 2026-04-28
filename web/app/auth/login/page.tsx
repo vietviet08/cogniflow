@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 
-export default function LoginPage() {
+function LoginPageContent() {
     const { token, user, isLoading, loginWithPassword } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -123,5 +123,19 @@ export default function LoginPage() {
                 </CardContent>
             </Card>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen items-center justify-center px-4 py-10">
+                    <Spinner />
+                </div>
+            }
+        >
+            <LoginPageContent />
+        </Suspense>
     );
 }

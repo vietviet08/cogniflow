@@ -405,7 +405,7 @@ def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
     from app.storage.models import ReportInsight
 
     links = db.query(ReportInsight).filter(ReportInsight.report_id == report_id).all()
-    insight_ids = [str(l.insight_id) for l in links]
+    insight_ids = [str(link.insight_id) for link in links]
 
     # Gather source ids from insight citations
     from app.storage.models import InsightCitation

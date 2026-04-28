@@ -8,13 +8,17 @@ version = "0.1.0"
 description = "Backend API service for Cogniflow"
 requires-python = ">=3.12"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["alembic*", "data*", "tests*", "scripts*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
-ignore = ["B008"]
+ignore = ["B008", "E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

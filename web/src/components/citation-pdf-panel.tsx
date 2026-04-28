@@ -55,7 +55,7 @@ function useAuthenticatedPdfUrl(sourceId: string | undefined): {
         objectUrl = URL.createObjectURL(blob);
         setBlobUrl(objectUrl);
         setError(null);
-      } catch (e) {
+      } catch {
         if (!revoked) setError("Network error loading PDF");
       }
     }

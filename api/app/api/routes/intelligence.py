@@ -1,6 +1,6 @@
-import uuid
 import csv
 import io
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
@@ -32,9 +32,9 @@ from app.services.intelligence_service import (
     request_approval,
     review_approval,
     scan_project_sources,
-    upsert_execution_integration,
     update_action,
     update_source,
+    upsert_execution_integration,
 )
 from app.storage.models import User
 from app.storage.repositories.job_repository import JobRepository

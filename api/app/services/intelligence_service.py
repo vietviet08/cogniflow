@@ -14,8 +14,8 @@ from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
 from app.storage.models import (
-    Approval,
     AlertDelivery,
+    Approval,
     GtmOutput,
     IntegrationConnection,
     Job,

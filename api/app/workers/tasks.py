@@ -7,8 +7,8 @@ from typing import Any, Callable
 
 from app.core.logging import bind_request_id, clear_request_id
 from app.observability.telemetry import emit_event, record_job_run
-from app.services.intelligence_service import IntelligenceError, scan_project_sources
 from app.services.insight_service import InsightError, generate_insight
+from app.services.intelligence_service import IntelligenceError, scan_project_sources
 from app.services.processing_service import ProcessingError, process_sources
 from app.services.report_service import ReportError, generate_report
 from app.storage.db import SessionLocal
