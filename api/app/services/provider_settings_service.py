@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.services.provider_model_service import (
     ProviderModelDiscoveryError,
     discover_provider_models,
@@ -42,11 +43,11 @@ def list_provider_statuses(db: Session, project_id: uuid.UUID) -> list[dict[str,
         credential = credentials.get(provider)
         discovered_models: dict[str, list[str]] | None = None
         model_discovery_error: str | None = None
-        if credential is not None and credential.api_key.strip():
+        if credential is not None and decrypt_secret(credential.api_key).strip():
             try:
                 discovered_models = discover_provider_models(
                     provider=provider,
-                    api_key=credential.api_key,
+                    api_key=decrypt_secret(credential.api_key),
                     base_url=credential.base_url,
                 )
             except ProviderModelDiscoveryError as exc:
@@ -93,7 +94,7 @@ def upsert_provider_key(
     credential = ProviderCredentialRepository(db).upsert(
         project_id=project_id,
         provider=normalized_provider,
-        api_key=cleaned_key,
+        api_key=encrypt_secret(cleaned_key),
         base_url=validated_base_url,
         chat_model=validated_chat_model,
         embedding_model=validated_embedding_model,
@@ -139,7 +140,8 @@ def resolve_chat_provider_config(
         project_id=project_id,
         provider=normalized_provider,
     )
-    if credential is None or not credential.api_key.strip():
+    decrypted_api_key = decrypt_secret(credential.api_key) if credential is not None else ""
+    if credential is None or not decrypted_api_key.strip():
         raise ProviderSettingsError(
             f"{SUPPORTED_PROVIDERS[normalized_provider]['display_name']} API key is required. "
             "Configure it in project settings.",
@@ -150,7 +152,7 @@ def resolve_chat_provider_config(
             "Configure it in project settings.",
         )
     payload = {
-        "api_key": credential.api_key.strip(),
+        "api_key": decrypted_api_key.strip(),
         "chat_model": credential.chat_model,
     }
     if credential.base_url:
@@ -182,7 +184,8 @@ def discover_provider_models_for_request(
     )
 
     payload_key = (api_key or "").strip()
-    resolved_api_key = payload_key or (credential.api_key.strip() if credential else "")
+    stored_api_key = decrypt_secret(credential.api_key) if credential else ""
+    resolved_api_key = payload_key or stored_api_key.strip()
     if not resolved_api_key:
         raise ProviderSettingsError(
             f"{SUPPORTED_PROVIDERS[normalized_provider]['display_name']} API key is required "
@@ -277,13 +280,14 @@ def _serialize_provider_status(
         else []
     )
 
-    if credential is not None and credential.api_key.strip():
+    decrypted_api_key = decrypt_secret(credential.api_key) if credential is not None else ""
+    if credential is not None and decrypted_api_key.strip():
         has_chat_model = bool(credential.chat_model)
         requires_embedding_model = "embeddings" in provider_config["supports"]
         has_embedding_model = bool(credential.embedding_model) if requires_embedding_model else True
         configured = has_chat_model and has_embedding_model
         configured_source = "project"
-        masked_api_key = mask_api_key(credential.api_key)
+        masked_api_key = mask_api_key(decrypted_api_key)
         updated_at = credential.updated_at.isoformat() if credential.updated_at else None
         chat_model = credential.chat_model
         if requires_embedding_model:
@@ -309,10 +313,7 @@ def _serialize_provider_status(
 
 
 def mask_api_key(api_key: str) -> str:
-    cleaned = api_key.strip()
-    if len(cleaned) <= 8:
-        return "*" * len(cleaned)
-    return f"{cleaned[:4]}...{cleaned[-4:]}"
+    return mask_secret(api_key) or ""
 
 
 def _discover_models_for_provider(

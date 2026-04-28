@@ -21,6 +21,10 @@ class Settings(BaseSettings):
         default="dev-integration-oauth-state-secret",
         alias="INTEGRATION_OAUTH_STATE_SECRET",
     )
+    secret_encryption_key: str = Field(
+        default="dev-secret-encryption-key-change-me",
+        alias="SECRET_ENCRYPTION_KEY",
+    )
     google_oauth_client_id: str | None = Field(default=None, alias="GOOGLE_OAUTH_CLIENT_ID")
     google_oauth_client_secret: str | None = Field(
         default=None,

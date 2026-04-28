@@ -1,6 +1,8 @@
 import uuid
 
+from app.core.crypto import SECRET_PREFIX, decrypt_secret
 from app.services import provider_settings_service
+from app.storage.models import IntegrationConnection, ProviderCredential
 
 
 def test_list_provider_settings_returns_supported_providers(client):
@@ -21,7 +23,7 @@ def test_list_provider_settings_returns_supported_providers(client):
     assert providers["openai"]["available_embedding_models"] == []
 
 
-def test_save_provider_key_and_models_masks_secret_in_response(client, monkeypatch):
+def test_save_provider_key_and_models_masks_secret_in_response(client, db_session, monkeypatch):
     project = _create_project(client)
     monkeypatch.setattr(
         provider_settings_service,
@@ -52,6 +54,44 @@ def test_save_provider_key_and_models_masks_secret_in_response(client, monkeypat
     assert body["data"]["embedding_model"] is None
     assert body["data"]["available_chat_models"] == ["gpt-4o", "gpt-4.1-mini"]
     assert body["data"]["available_embedding_models"] == []
+
+    credential = (
+        db_session.query(ProviderCredential)
+        .filter(
+            ProviderCredential.project_id == uuid.UUID(project["id"]),
+            ProviderCredential.provider == "openai",
+        )
+        .one()
+    )
+    assert credential.api_key.startswith(SECRET_PREFIX)
+    assert decrypt_secret(credential.api_key) == "sk-test-openai-1234"
+
+
+def test_integration_connection_encrypts_access_token_at_rest(client, db_session):
+    project = _create_project(client)
+
+    response = client.put(
+        f"/api/v1/projects/{project['id']}/integrations/google_drive",
+        json={
+            "access_token": "drive-token-1234",
+            "account_label": "Drive",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["masked_access_token"] == "driv...1234"
+
+    connection = (
+        db_session.query(IntegrationConnection)
+        .filter(
+            IntegrationConnection.project_id == uuid.UUID(project["id"]),
+            IntegrationConnection.provider == "google_drive",
+        )
+        .one()
+    )
+    assert connection.access_token.startswith(SECRET_PREFIX)
+    assert decrypt_secret(connection.access_token) == "drive-token-1234"
 
 
 def test_delete_provider_key_removes_project_override(client, monkeypatch):

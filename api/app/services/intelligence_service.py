@@ -13,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.storage.models import (
     AlertDelivery,
     Approval,
@@ -587,7 +588,7 @@ def upsert_execution_integration(
         row = IntegrationConnection(
             project_id=project_id,
             provider=provider_key,
-            access_token=access_token or "",
+            access_token=encrypt_secret(access_token or ""),
             account_label=(account_label or "").strip() or None,
             base_url=(base_url or "").strip() or None,
             connection_metadata=connection_metadata or {},
@@ -1000,7 +1001,7 @@ def _apply_execution_integration_patch(
     connection_metadata: dict[str, Any] | None,
 ) -> None:
     if access_token is not None:
-        row.access_token = access_token
+        row.access_token = encrypt_secret(access_token)
     if account_label is not None:
         row.account_label = account_label.strip() or None
     if base_url is not None:
@@ -1044,7 +1045,7 @@ def _dispatch_to_provider(
 
     headers = {"content-type": "application/json"}
     if connection.access_token:
-        headers["authorization"] = f"Bearer {connection.access_token}"
+        headers["authorization"] = f"Bearer {decrypt_secret(connection.access_token)}"
 
     try:
         response = requests.post(
@@ -1070,15 +1071,9 @@ def _serialize_integration_status(
         "status": row.status if row is not None else "missing",
         "account_label": row.account_label if row is not None else None,
         "base_url": row.base_url if row is not None else None,
-        "masked_access_token": _mask_token(row.access_token) if row is not None else None,
+        "masked_access_token": mask_secret(row.access_token) if row is not None else None,
         "updated_at": row.updated_at.isoformat() if row is not None and row.updated_at else None,
     }
-
-
-def _mask_token(token: str | None) -> str | None:
-    if not token:
-        return None
-    return f"***{token[-4:]}" if len(token) >= 4 else "***"
 
 
 def _apply_source_patch(row: RadarSource, patch: dict[str, Any]) -> None:
