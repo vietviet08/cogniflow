@@ -65,6 +65,7 @@ def generate_conflict_mesh(
     project_id: uuid.UUID,
     query: str,
     provider: str,
+    parent_run_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     # 1. Insight Generation (RAG)
     try:
@@ -73,7 +74,7 @@ def generate_conflict_mesh(
             project_id=project_id,
             query=query,
             provider=provider,
-            max_sources=20
+            max_sources=20,
         )
     except InsightError as exc:
         raise ReportError(
@@ -148,9 +149,11 @@ def generate_conflict_mesh(
             "report_type": "conflict_mesh",
             "format": "json",
             "query": query,
+            "provider": answer_provider,
             "insight_id": insight_result["insight_id"],
             "structured_output": True,
         },
+        parent_run_id=parent_run_id,
     )
 
     report = Report(

@@ -42,6 +42,7 @@ def process_sources(
     sources: list[Source],
     chunk_size: int,
     chunk_overlap: int,
+    parent_run_id: uuid.UUID | None = None,
 ) -> dict[str, int | str]:
     run_repo = ProcessingRunRepository(db)
     embedding_model = LOCAL_EMBEDDING_MODEL
@@ -72,6 +73,7 @@ def process_sources(
         config_hash=config_hash,
         retrieval_config=None,
         run_metadata=run_metadata,
+        parent_run_id=parent_run_id,
     )
 
     documents_created = 0

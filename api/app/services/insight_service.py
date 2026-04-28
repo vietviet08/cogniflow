@@ -80,6 +80,7 @@ def generate_insight(
     query: str,
     provider: str,
     max_sources: int = 20,
+    parent_run_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """Generate a structured insight from evidence retrieved from the knowledge base."""
     try:
@@ -150,6 +151,8 @@ def generate_insight(
             provider=answer_provider,
             model_id=generation_config["chat_model"],
             prompt_template=_SYNTHESIS_PROMPT_TEMPLATE,
+            max_sources=max_sources,
+            parent_run_id=parent_run_id,
         )
 
     citations = hydrate_citations(db, [
@@ -195,6 +198,8 @@ def generate_insight(
         provider=answer_provider,
         model_id=generation_config["chat_model"],
         prompt_template=_SYNTHESIS_PROMPT_TEMPLATE,
+        max_sources=max_sources,
+        parent_run_id=parent_run_id,
     )
 
 
@@ -283,6 +288,8 @@ def _persist_insight(
     provider: str,
     model_id: str,
     prompt_template: str,
+    max_sources: int,
+    parent_run_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     prompt_hash = hashlib.sha256(prompt_template.encode()).hexdigest()[:16]
     config_hash = hashlib.sha256(f"{provider}:{model_id}".encode()).hexdigest()[:16]
@@ -295,7 +302,13 @@ def _persist_insight(
         prompt_hash=prompt_hash,
         config_hash=config_hash,
         retrieval_config={"embedding_model": LOCAL_EMBEDDING_MODEL},
-        run_metadata={"query": query, "sources_used": len(citations)},
+        run_metadata={
+            "query": query,
+            "provider": provider,
+            "max_sources": max_sources,
+            "sources_used": len(citations),
+        },
+        parent_run_id=parent_run_id,
     )
 
     repo = InsightRepository(db)
