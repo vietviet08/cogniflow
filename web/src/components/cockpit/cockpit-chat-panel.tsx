@@ -235,15 +235,15 @@ export function CockpitChatPanel({
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   return (
-    <div className="flex h-full flex-col bg-[#0D1117]">
+    <div className="flex h-full flex-col bg-white dark:bg-[#0D1117]">
       {/* Top toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5 shrink-0">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-200 dark:border-white/5 shrink-0">
         {/* Session switcher */}
         <div className="relative">
           <button
             type="button"
             onClick={() => setShowSessions((v) => !v)}
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-white/70 hover:bg-white/5 border border-white/10 transition-colors max-w-[160px]"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/5 border border-slate-200 dark:border-white/10 transition-colors max-w-[160px]"
           >
             <MessageSquare className="h-3.5 w-3.5 text-[#6c63ff] shrink-0" />
             <span className="truncate">{activeSession?.title || "New conversation"}</span>
@@ -251,12 +251,12 @@ export function CockpitChatPanel({
           </button>
 
           {showSessions && (
-            <div className="absolute top-full left-0 mt-1 z-50 w-64 rounded-xl border border-white/10 bg-[#161b27] shadow-2xl overflow-hidden">
-              <div className="p-2 border-b border-white/5">
+            <div className="absolute top-full left-0 mt-1 z-50 w-64 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#161b27] shadow-xl dark:shadow-2xl overflow-hidden">
+              <div className="p-2 border-b border-slate-200 dark:border-white/5">
                 <button
                   type="button"
                   onClick={handleNewChat}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/70 hover:bg-white/5 transition-colors"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-slate-600 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
                 >
                   <Plus className="h-3.5 w-3.5 text-[#6c63ff]" />
                   New conversation
@@ -268,7 +268,7 @@ export function CockpitChatPanel({
                     <Spinner size="sm" />
                   </div>
                 ) : sessions.length === 0 ? (
-                  <p className="text-center py-3 text-xs text-white/30">No history yet</p>
+                  <p className="text-center py-3 text-xs text-slate-400 dark:text-white/30">No history yet</p>
                 ) : (
                   sessions.map((s) => (
                     <button
@@ -280,8 +280,8 @@ export function CockpitChatPanel({
                       }}
                       className={`flex w-full items-center rounded-lg px-3 py-2 text-xs text-left transition-colors ${
                         activeSessionId === s.id
-                          ? "bg-[#6c63ff]/20 text-[#6c63ff]"
-                          : "text-white/50 hover:bg-white/5"
+                          ? "bg-[#6c63ff]/10 dark:bg-[#6c63ff]/20 text-[#6c63ff]"
+                          : "text-slate-500 dark:text-white/50 hover:bg-slate-100 dark:hover:bg-white/5"
                       }`}
                     >
                       <span className="truncate">{s.title || "New Chat"}</span>
@@ -307,14 +307,14 @@ export function CockpitChatPanel({
       </div>
 
       {/* Quick command chips */}
-      <div className="flex gap-1.5 px-4 py-2 border-b border-white/5 overflow-x-auto shrink-0 scrollbar-none">
+      <div className="flex gap-1.5 px-4 py-2 border-b border-slate-200 dark:border-white/5 overflow-x-auto shrink-0 scrollbar-none">
         {QUICK_COMMANDS.map((cmd) => (
           <button
             key={cmd.label}
             type="button"
             onClick={() => handleQuickCommand(cmd.template)}
             disabled={!canMutate}
-            className="flex-shrink-0 rounded-full px-3 py-1 text-[11px] font-medium bg-white/5 hover:bg-[#6c63ff]/20 border border-white/10 hover:border-[#6c63ff]/40 text-white/60 hover:text-[#6c63ff] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex-shrink-0 rounded-full px-3 py-1 text-[11px] font-medium bg-slate-100 dark:bg-white/5 hover:bg-[#6c63ff]/10 border border-slate-200 dark:border-white/10 hover:border-[#6c63ff]/40 text-slate-600 dark:text-white/60 hover:text-[#6c63ff] dark:hover:text-[#6c63ff] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {cmd.label}
           </button>
@@ -332,12 +332,12 @@ export function CockpitChatPanel({
               </div>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white/80">Research Cockpit Ready</h3>
-              <p className="text-xs text-white/40 mt-1 max-w-[240px]">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-white/80">Research Cockpit Ready</h3>
+              <p className="text-xs text-slate-500 dark:text-white/40 mt-1 max-w-[240px]">
                 Ask anything about your documents. Citations will appear in the Evidence Panel →
               </p>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-white/30 mt-2">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-white/30 mt-2">
               <Zap className="h-3 w-3 text-[#6c63ff]" />
               RAG-powered · Source-grounded answers
             </div>
@@ -359,7 +359,7 @@ export function CockpitChatPanel({
                 className={`shrink-0 h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold ${
                   msg.role === "user"
                     ? "bg-[#6c63ff] text-white"
-                    : "bg-white/5 border border-white/10 text-white/60"
+                    : "bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60"
                 }`}
               >
                 {msg.role === "user" ? (
@@ -379,7 +379,7 @@ export function CockpitChatPanel({
                   className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
                     msg.role === "user"
                       ? "bg-[#6c63ff] text-white rounded-tr-sm"
-                      : "bg-white/5 border border-white/10 rounded-tl-sm text-white/85 prose prose-invert prose-sm max-w-none"
+                      : "bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-tl-sm text-slate-800 dark:text-white/85 prose prose-slate dark:prose-invert prose-sm max-w-none"
                   }`}
                 >
                   {msg.role === "user" ? (
@@ -412,7 +412,7 @@ export function CockpitChatPanel({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white/50 hover:text-white hover:bg-white/10"
+                        className="h-6 w-6 text-slate-400 dark:text-white/50 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
                         onClick={() => handleCopy(msg.content, msg.id)}
                       >
                         {copiedId === msg.id ? (
@@ -424,7 +424,7 @@ export function CockpitChatPanel({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white/50 hover:text-white hover:bg-white/10"
+                        className="h-6 w-6 text-slate-400 dark:text-white/50 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
                         onClick={() => handleAction(msg.id, "thumbUp", msg.rating)}
                       >
                         <ThumbsUp
@@ -434,7 +434,7 @@ export function CockpitChatPanel({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white/50 hover:text-white hover:bg-white/10"
+                        className="h-6 w-6 text-slate-400 dark:text-white/50 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
                         onClick={() => handleAction(msg.id, "thumbDown", msg.rating)}
                       >
                         <ThumbsDown
@@ -444,7 +444,7 @@ export function CockpitChatPanel({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6 text-white/50 hover:text-white hover:bg-white/10"
+                        className="h-6 w-6 text-slate-400 dark:text-white/50 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
                         onClick={() => handleAction(msg.id, "bookmark", msg.is_bookmarked)}
                       >
                         <Bookmark
@@ -461,11 +461,11 @@ export function CockpitChatPanel({
 
         {sending && (
           <div className="flex gap-3 flex-row">
-            <div className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center bg-white/5 border border-white/10">
-              <Bot className="h-4 w-4 text-white/60" />
+            <div className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+              <Bot className="h-4 w-4 text-slate-400 dark:text-white/60" />
             </div>
             <div className="flex flex-col items-start">
-              <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-white/5 border border-white/10 flex items-center gap-2">
+              <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center gap-2">
                 {/* Pulsing dots animation */}
                 <div className="flex gap-1">
                   {[0, 0.2, 0.4].map((delay) => (
@@ -476,7 +476,7 @@ export function CockpitChatPanel({
                     />
                   ))}
                 </div>
-                <span className="text-xs text-white/40">Searching knowledge base…</span>
+                <span className="text-xs text-slate-400 dark:text-white/40">Searching knowledge base…</span>
               </div>
             </div>
           </div>
@@ -485,7 +485,7 @@ export function CockpitChatPanel({
       </div>
 
       {/* Input */}
-      <div className="shrink-0 p-3 border-t border-white/5 bg-[#0D1117]">
+      <div className="shrink-0 p-3 border-t border-slate-200 dark:border-white/5 bg-white dark:bg-[#0D1117]">
         <form onSubmit={handleSubmit} className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <input
@@ -495,7 +495,7 @@ export function CockpitChatPanel({
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={canMutate ? "Ask about your documents…" : "Viewer access — read only"}
               disabled={sending || !canMutate}
-              className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-white/90 placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#6c63ff]/50 focus:border-[#6c63ff]/40 transition-all disabled:opacity-40"
+              className="w-full rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-4 py-3 text-sm text-slate-800 dark:text-white/90 placeholder:text-slate-400 dark:placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-[#6c63ff]/50 focus:border-[#6c63ff]/40 transition-all disabled:opacity-40"
             />
           </div>
           <button
@@ -510,7 +510,7 @@ export function CockpitChatPanel({
             )}
           </button>
         </form>
-        <p className="text-center mt-1.5 text-[10px] text-white/20">
+        <p className="text-center mt-1.5 text-[10px] text-slate-400 dark:text-white/20">
           NoteMesh RAG · Evidence-grounded responses
         </p>
       </div>

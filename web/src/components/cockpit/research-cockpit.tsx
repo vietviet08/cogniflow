@@ -48,7 +48,7 @@ function PanelDivider({
       aria-orientation="vertical"
     >
       <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">
-        <div className="h-8 w-[3px] rounded-full bg-white/10 group-hover:bg-[#6c63ff]/60 transition-colors" />
+        <div className="h-8 w-[3px] rounded-full bg-slate-200 dark:bg-white/10 group-hover:bg-[#6c63ff]/60 transition-colors" />
       </div>
     </div>
   );
@@ -125,13 +125,13 @@ export function ResearchCockpit() {
 
   if (!projectId) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#0A0E1A]">
+      <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-[#0A0E1A]">
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#6c63ff]/10 border border-[#6c63ff]/20">
             <Telescope className="h-8 w-8 text-[#6c63ff]" />
           </div>
-          <h2 className="text-lg font-semibold text-white/80">No Active Project</h2>
-          <p className="mt-2 text-sm text-white/40">
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-white/80">No Active Project</h2>
+          <p className="mt-2 text-sm text-slate-500 dark:text-white/40">
             Select a project in the Projects section to launch the Research Cockpit.
           </p>
           <a
@@ -148,7 +148,7 @@ export function ResearchCockpit() {
   return (
     <div
       ref={containerRef}
-      className="flex h-screen overflow-hidden bg-[#0A0E1A] relative"
+      className="flex h-screen overflow-hidden bg-slate-50 dark:bg-[#0A0E1A] relative"
       style={{ fontFamily: "'Inter', 'Sora', system-ui, sans-serif" }}
     >
       {/* ── CSS Keyframes ───────────────────────────────────────── */}
@@ -171,38 +171,38 @@ export function ResearchCockpit() {
       `}</style>
 
       {/* ── Top banner ────────────────────────────────────────── */}
-      <div className="absolute top-0 left-0 right-0 z-30 h-10 flex items-center justify-between px-4 border-b border-white/5 bg-[#0A0E1A]/90 backdrop-blur-sm">
+      <div className="absolute top-0 left-0 right-0 z-30 h-10 flex items-center justify-between px-4 border-b border-slate-200 dark:border-white/5 bg-slate-50/90 dark:bg-[#0A0E1A]/90 backdrop-blur-sm">
         <div className="flex items-center gap-2.5">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#6c63ff]/20 border border-[#6c63ff]/30">
             <Telescope className="h-3.5 w-3.5 text-[#6c63ff]" />
           </div>
-          <span className="text-xs font-bold text-white/80 tracking-wide">RESEARCH COCKPIT</span>
+          <span className="text-xs font-bold text-slate-800 dark:text-white/80 tracking-wide">RESEARCH COCKPIT</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#6c63ff]/15 border border-[#6c63ff]/25 text-[#6c63ff]/80">
             BETA
           </span>
-          <span className="hidden sm:block text-white/20 mx-1">·</span>
-          <span className="hidden sm:block text-xs text-white/40 truncate max-w-[200px]">
+          <span className="hidden sm:block text-slate-300 dark:text-white/20 mx-1">·</span>
+          <span className="hidden sm:block text-xs text-slate-500 dark:text-white/40 truncate max-w-[200px]">
             {projectName}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <LayoutPanelLeft className="h-3.5 w-3.5 text-white/30" />
-          <span className="text-[10px] text-white/30 hidden sm:block">3-panel mode</span>
+          <LayoutPanelLeft className="h-3.5 w-3.5 text-slate-400 dark:text-white/30" />
+          <span className="text-[10px] text-slate-400 dark:text-white/30 hidden sm:block">3-panel mode</span>
         </div>
       </div>
 
       {/* ── Onboarding tip ────────────────────────────────────── */}
       {showTip && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-xl px-4 py-2.5 bg-[#161b27] border border-white/10 shadow-2xl max-w-sm">
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 rounded-xl px-4 py-2.5 bg-white dark:bg-[#161b27] border border-slate-200 dark:border-white/10 shadow-2xl max-w-sm">
           <Info className="h-4 w-4 text-[#00d8ff] shrink-0" />
-          <p className="text-xs text-white/60">
+          <p className="text-xs text-slate-600 dark:text-white/60">
             Click citation tags{" "}
             <span className="text-[#00d8ff]">[1]</span> in the chat to view evidence in this panel
           </p>
           <button
             type="button"
             onClick={() => setShowTip(false)}
-            className="ml-2 text-white/30 hover:text-white/60"
+            className="ml-2 text-slate-400 dark:text-white/30 hover:text-slate-600 dark:hover:text-white/60"
           >
             ✕
           </button>
