@@ -152,15 +152,15 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
 
   if (!citation) {
     return (
-      <div className="flex h-full flex-col bg-[#0A0E1A] border-l border-white/5">
+      <div className="flex h-full flex-col bg-slate-50 dark:bg-[#0A0E1A] border-l border-slate-200 dark:border-white/5">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 shrink-0">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-white/5 shrink-0">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#00d8ff]/10 border border-[#00d8ff]/20">
             <Layers className="h-3.5 w-3.5 text-[#00d8ff]" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-white/90 leading-none">Evidence Panel</p>
-            <p className="text-[10px] text-white/30 mt-0.5">Citations appear here</p>
+            <p className="text-xs font-semibold text-slate-800 dark:text-white/90 leading-none">Evidence Panel</p>
+            <p className="text-[10px] text-slate-400 dark:text-white/30 mt-0.5">Citations appear here</p>
           </div>
         </div>
 
@@ -173,8 +173,8 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
             </div>
           </div>
           <div>
-            <p className="text-xs font-semibold text-white/50">No evidence selected</p>
-            <p className="text-[11px] text-white/25 mt-1 leading-relaxed">
+            <p className="text-xs font-semibold text-slate-500 dark:text-white/50">No evidence selected</p>
+            <p className="text-[11px] text-slate-400 dark:text-white/25 mt-1 leading-relaxed">
               Click a citation tag in the chat to view the source document with highlights
             </p>
           </div>
@@ -184,7 +184,7 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
             {[90, 70, 85, 60, 75].map((w, i) => (
               <div
                 key={i}
-                className="h-2 rounded-full bg-white/20"
+                className="h-2 rounded-full bg-slate-300 dark:bg-white/20"
                 style={{
                   width: `${w}%`,
                   animation: `cockpit-pulse 2s ${i * 0.3}s infinite ease-in-out`,
@@ -199,14 +199,14 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
 
 
   return (
-    <div className="flex h-full flex-col bg-[#0A0E1A] border-l border-white/5">
+    <div className="flex h-full flex-col bg-slate-50 dark:bg-[#0A0E1A] border-l border-slate-200 dark:border-white/5">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 shrink-0">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#00d8ff]/10 border border-[#00d8ff]/20 shrink-0">
           <FileText className="h-3.5 w-3.5 text-[#00d8ff]" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-white/90 leading-none truncate">
+          <p className="text-xs font-semibold text-slate-800 dark:text-white/90 leading-none truncate">
             {citation.title || "Evidence Source"}
           </p>
           <div className="flex items-center gap-1.5 mt-0.5">
@@ -219,7 +219,7 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
               </Badge>
             )}
             {citation.chunk_id && (
-              <span className="font-mono text-[9px] text-white/25">
+              <span className="font-mono text-[9px] text-slate-400 dark:text-white/25">
                 {citation.chunk_id.slice(0, 6)}…
               </span>
             )}
@@ -231,7 +231,7 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
               href={citation.url}
               target="_blank"
               rel="noreferrer"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 dark:text-white/40 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -239,7 +239,7 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 dark:text-white/40 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -248,11 +248,11 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
 
       {/* Quote highlight strip */}
       {citation.quote && (
-        <div className="px-4 py-2.5 border-b border-white/5 shrink-0 bg-[#6c63ff]/5">
+        <div className="px-4 py-2.5 border-b border-slate-200 dark:border-white/5 shrink-0 bg-slate-100 dark:bg-[#6c63ff]/5">
           <p className="text-[10px] text-[#6c63ff]/70 font-medium mb-1 uppercase tracking-wide">
             Highlighted Evidence
           </p>
-          <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
+          <p className="text-xs text-slate-700 dark:text-white/60 leading-relaxed line-clamp-3">
             "{citation.quote}"
           </p>
         </div>
@@ -260,19 +260,19 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
 
       {/* PDF navigation */}
       {isPdf && numPages > 1 && (
-        <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 shrink-0">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-white/5 shrink-0">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
             disabled={pageNumber <= 1}
-            className="h-7 gap-1 text-xs text-white/50 hover:text-white hover:bg-white/10"
+            className="h-7 gap-1 text-xs text-slate-500 dark:text-white/50 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             Prev
           </Button>
-          <span className="text-xs text-white/40">
+          <span className="text-xs text-slate-400 dark:text-white/40">
             {pageNumber} / {numPages}
           </span>
           <Button
@@ -281,7 +281,7 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
             size="sm"
             onClick={() => setPageNumber((p) => Math.min(numPages, p + 1))}
             disabled={pageNumber >= numPages}
-            className="h-7 gap-1 text-xs text-white/50 hover:text-white hover:bg-white/10"
+            className="h-7 gap-1 text-xs text-slate-500 dark:text-white/50 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10"
           >
             Next
             <ChevronRight className="h-3.5 w-3.5" />
@@ -301,7 +301,7 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
             <Document
               file={artifactUrl ?? ""}
               loading={
-                <div className="flex items-center justify-center h-32 text-xs text-white/30">
+                <div className="flex items-center justify-center h-32 text-xs text-slate-500 dark:text-white/30">
                   Loading document…
                 </div>
               }
@@ -330,8 +330,8 @@ export function CockpitEvidencePanel({ citation, onClose }: CockpitEvidencePanel
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-            <ExternalLink className="h-8 w-8 text-white/20" />
-            <p className="text-xs text-white/40">External source</p>
+            <ExternalLink className="h-8 w-8 text-slate-300 dark:text-white/20" />
+            <p className="text-xs text-slate-500 dark:text-white/40">External source</p>
             {citation.url && (
               <a
                 href={citation.url}
