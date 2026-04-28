@@ -51,6 +51,7 @@ import type {
     SourceIngestionData,
     OrganizationData,
     OrganizationListData,
+    OpsSloData,
 } from "./types";
 import { clearStoredAuthSession, getStoredAuthToken } from "../auth-session";
 
@@ -122,6 +123,10 @@ export async function requestJson<T>(
 
 export function getHealth(): Promise<ApiSuccess<HealthData>> {
     return requestJson<HealthData>("/health");
+}
+
+export function getOpsSlo(): Promise<ApiSuccess<OpsSloData>> {
+    return requestJson<OpsSloData>("/ops/slo");
 }
 
 export function listOrganizations(): Promise<ApiSuccess<OrganizationListData>> {

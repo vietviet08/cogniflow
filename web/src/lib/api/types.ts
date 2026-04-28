@@ -22,6 +22,43 @@ export interface HealthData {
     service: string;
 }
 
+export interface OpsAlertData {
+    code: string;
+    severity: "warning" | "critical";
+    message: string;
+    value?: number;
+    threshold?: number;
+    target?: string;
+}
+
+export interface OpsSloData {
+    status: "healthy" | "warning" | "critical";
+    generated_at: string;
+    thresholds: {
+        queue_backlog_warning: number;
+        queue_lag_warning_seconds: number;
+        job_failure_rate_warning: number;
+        latency_p95_warning_ms: number;
+    };
+    jobs: {
+        status_counts: Record<string, number>;
+        queue_counts: Array<{
+            queue_name: string;
+            queued: number;
+            running: number;
+            backlog: number;
+        }>;
+        oldest_queued_age_seconds: number | null;
+        failure_rate: number;
+        provider_failures: number;
+    };
+    latency: {
+        http_latency_ms: Record<string, unknown>;
+        job_latency_ms: Record<string, unknown>;
+    };
+    alerts: OpsAlertData[];
+}
+
 export type ProjectRole = "viewer" | "editor" | "owner";
 
 export interface OrganizationData {
