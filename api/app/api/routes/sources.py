@@ -9,9 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
+from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
+from app.services.audit_service import log_audit_event
+from app.services.chroma_service import get_retrieval_collection
+from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.ingestion_service import IngestionError, ingest_remote_source, save_uploaded_file
-from app.storage.models import Job, Source, User
+from app.storage.models import Chunk, Document, Job, Source, User
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
 from app.storage.repositories.source_repository import SourceRepository
@@ -297,11 +301,19 @@ def bulk_delete_sources(
                 user=current_user,
                 minimum_role="editor",
             )
-        # In a real app we'd need to cascade delete chunks, documents, jobs etc.
-        # SQLite with no pragmas might leave orphans, but for prototype we just delete the Source 
-        db.query(Source).filter(Source.id.in_(source_uuids)).delete(synchronize_session=False)
+        deletion_results = [
+            _delete_source_with_audit(db, source=source, current_user=current_user)
+            for source in sources
+        ]
         db.commit()
-        return success_response(request, {"success": True, "deleted_count": len(source_uuids)})
+        return success_response(
+            request,
+            {
+                "success": True,
+                "deleted_count": len(sources),
+                "items": deletion_results,
+            },
+        )
     except Exception as e:
         db.rollback()
         return error_response(request, "DELETE_FAILED", str(e), status_code=500)
@@ -337,3 +349,95 @@ def _apply_source_versioning_and_dedup(
         source_metadata.pop("duplicate_of_source_id", None)
     source.source_metadata = source_metadata
     return duplicate_of_source
+
+
+def _delete_source_with_audit(
+    db: Session,
+    *,
+    source: Source,
+    current_user: User,
+) -> dict[str, object]:
+    documents = db.query(Document).filter(Document.source_id == source.id).all()
+    document_ids = [document.id for document in documents]
+    chunks = (
+        db.query(Chunk)
+        .filter(Chunk.document_id.in_(document_ids))
+        .all()
+        if document_ids
+        else []
+    )
+    chroma_ids = [chunk.chroma_id for chunk in chunks if chunk.chroma_id]
+    vector_delete = _delete_vector_records(chroma_ids)
+    artifact_delete = _delete_owned_artifact(source.storage_path)
+
+    log_audit_event(
+        db,
+        action="source.delete",
+        target_type="source",
+        target_id=str(source.id),
+        user_id=current_user.id,
+        project_id=source.project_id,
+        payload={
+            "source_type": source.type,
+            "original_uri": source.original_uri,
+            "storage_path": source.storage_path,
+            "checksum": source.checksum,
+            "status": source.status,
+            "source_metadata": source.source_metadata or {},
+            "documents_deleted": len(documents),
+            "chunks_deleted": len(chunks),
+            "vector_delete": vector_delete,
+            "artifact_delete": artifact_delete,
+            "retention_policy": {
+                "mode": "delete_source_graph",
+                "audit_trail": "audit_logs",
+            },
+        },
+    )
+
+    for chunk in chunks:
+        db.delete(chunk)
+    for document in documents:
+        db.delete(document)
+    db.delete(source)
+    return {
+        "source_id": str(source.id),
+        "documents_deleted": len(documents),
+        "chunks_deleted": len(chunks),
+        "artifact_delete": artifact_delete,
+        "vector_delete": vector_delete,
+    }
+
+
+def _delete_vector_records(chroma_ids: list[str]) -> dict[str, object]:
+    if not chroma_ids:
+        return {"attempted": False, "deleted_count": 0}
+    try:
+        get_retrieval_collection(LOCAL_EMBEDDING_MODEL).delete(ids=chroma_ids)
+        return {"attempted": True, "deleted_count": len(chroma_ids)}
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "deleted_count": 0,
+            "error": str(exc)[:240],
+        }
+
+
+def _delete_owned_artifact(storage_path: str | None) -> dict[str, object]:
+    if not storage_path:
+        return {"attempted": False, "deleted": False}
+    artifact_path = Path(storage_path)
+    if not artifact_path.exists():
+        return {"attempted": True, "deleted": False, "reason": "missing"}
+
+    upload_root = Path(get_settings().upload_dir).resolve()
+    resolved_artifact = artifact_path.resolve()
+    if not resolved_artifact.is_relative_to(upload_root):
+        return {
+            "attempted": True,
+            "deleted": False,
+            "reason": "outside_upload_dir",
+        }
+
+    artifact_path.unlink()
+    return {"attempted": True, "deleted": True}

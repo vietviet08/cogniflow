@@ -17,6 +17,7 @@ from app.services.provider_settings_service import (
 from app.services.report_service import (
     ReportError,
     _build_evidence_blocks,
+    _build_evidence_snapshot,
     _call_llm_json,
     _derive_title,
 )
@@ -136,6 +137,9 @@ def generate_conflict_mesh(
 
     prompt_hash = hashlib.sha256(_MESH_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
     config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    evidence_snapshot = insight_result.get("evidence_snapshot") or _build_evidence_snapshot(
+        insight_result.get("citations", [])
+    )
 
     run = ProcessingRunRepository(db).create(
         project_id=project_id,
@@ -152,6 +156,7 @@ def generate_conflict_mesh(
             "provider": answer_provider,
             "insight_id": insight_result["insight_id"],
             "structured_output": True,
+            "evidence_snapshot": evidence_snapshot,
         },
         parent_run_id=parent_run_id,
     )
@@ -195,4 +200,5 @@ def generate_conflict_mesh(
         "insight_id": insight_result["insight_id"],
         "source_ids": source_ids,
         "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
     }

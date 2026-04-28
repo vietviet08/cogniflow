@@ -264,6 +264,9 @@ def generate_report(
     title = _derive_title(query, report_type)
     prompt_hash = hashlib.sha256(prompt_template.encode()).hexdigest()[:16]
     config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    evidence_snapshot = insight_result.get("evidence_snapshot") or _build_evidence_snapshot(
+        insight_result.get("citations", [])
+    )
 
     run = ProcessingRunRepository(db).create(
         project_id=project_id,
@@ -280,6 +283,7 @@ def generate_report(
             "provider": answer_provider,
             "insight_id": insight_result["insight_id"],
             "structured_output": report_type in _ACTIONABLE_REPORT_TYPES,
+            "evidence_snapshot": evidence_snapshot,
         },
         parent_run_id=parent_run_id,
     )
@@ -326,6 +330,7 @@ def generate_report(
         "insight_id": insight_result["insight_id"],
         "source_ids": source_ids,
         "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
     }
 
 
@@ -535,6 +540,36 @@ def _derive_title(query: str, report_type: str) -> str:
         "conflict_mesh": "Conflict Mesh",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
+
+
+def _build_evidence_snapshot(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    snapshot: list[dict[str, Any]] = []
+    for index, citation in enumerate(citations, start=1):
+        quote = str(citation.get("quote") or "")
+        snapshot.append(
+            {
+                "index": index,
+                "citation_id": citation.get("citation_id"),
+                "source_id": citation.get("source_id"),
+                "document_id": citation.get("document_id"),
+                "chunk_id": citation.get("chunk_id"),
+                "title": citation.get("title"),
+                "url": citation.get("url"),
+                "page_number": citation.get("page_number"),
+                "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest()[:16]
+                if quote
+                else None,
+                "quote_preview": _preview(quote),
+            }
+        )
+    return snapshot
+
+
+def _preview(value: str, *, limit: int = 360) -> str:
+    clean = " ".join(value.split())
+    if len(clean) <= limit:
+        return clean
+    return f"{clean[: limit - 3]}..."
 
 
 def _get_actionable_prompt_template(report_type: str) -> str:

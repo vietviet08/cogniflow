@@ -1,7 +1,9 @@
 import io
 import uuid
+from types import SimpleNamespace
 
 from app.api.routes import sources as sources_route_module
+from app.storage.models import AuditLog, Chunk, Document, Source
 
 
 def test_upload_file_source_persists_metadata(client, monkeypatch, tmp_path):
@@ -93,6 +95,90 @@ def test_upload_file_source_tracks_version_and_duplicate(client, monkeypatch, tm
     assert first_body["source_version"] == 1
     assert second_body["source_version"] == 2
     assert second_body["duplicate_of_source_id"] == first_body["source_id"]
+
+
+def test_bulk_delete_sources_removes_graph_and_writes_audit(client, db_session, monkeypatch, tmp_path):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+    artifact = tmp_path / "source.pdf"
+    artifact.write_bytes(b"%PDF-1.4 fake")
+
+    source = Source(
+        project_id=project_id,
+        type="file",
+        original_uri="source.pdf",
+        storage_path=str(artifact),
+        checksum="delete-me",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Source",
+        raw_path=str(artifact),
+        clean_text="delete this evidence",
+        token_count=3,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="delete this evidence",
+        chroma_id="chunk-delete-me",
+        embedding_model="local-test-model",
+        chunk_metadata={},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+    db_session.refresh(chunk)
+    source_id = source.id
+    document_id = document.id
+    chunk_id = chunk.id
+
+    deleted_vector_ids: list[str] = []
+
+    class FakeCollection:
+        def delete(self, ids):
+            deleted_vector_ids.extend(ids)
+
+    monkeypatch.setattr(
+        sources_route_module,
+        "get_settings",
+        lambda: SimpleNamespace(upload_dir=str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        sources_route_module,
+        "get_retrieval_collection",
+        lambda embedding_model: FakeCollection(),
+    )
+
+    response = client.request(
+        "DELETE",
+        "/api/v1/sources/bulk",
+        json={"source_ids": [str(source.id)]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["deleted_count"] == 1
+    assert deleted_vector_ids == ["chunk-delete-me"]
+    assert not artifact.exists()
+    db_session.expire_all()
+    assert db_session.get(Source, source_id) is None
+    assert db_session.get(Document, document_id) is None
+    assert db_session.get(Chunk, chunk_id) is None
+
+    audit = db_session.query(AuditLog).filter(AuditLog.action == "source.delete").one()
+    assert audit.target_id == str(source_id)
+    assert audit.payload["documents_deleted"] == 1
+    assert audit.payload["chunks_deleted"] == 1
+    assert audit.payload["artifact_delete"]["deleted"] is True
 
 
 def _create_project(client):
