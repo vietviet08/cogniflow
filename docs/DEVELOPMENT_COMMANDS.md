@@ -47,3 +47,5 @@
 - `pwsh infra/scripts/dev.ps1`
 - `pwsh infra/scripts/lint.ps1`
 - `pwsh infra/scripts/test.ps1`
+- Seed portfolio demo data:
+    - `cd api && python -m scripts.seed_demo`
