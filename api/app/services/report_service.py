@@ -165,11 +165,13 @@ def generate_report(
     report_type: str,
     format: str,
     provider: str,
+    parent_run_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """Generate a structured research report backed by RAG insights."""
     if report_type == "conflict_mesh":
         from app.engines.report.mesh_pipeline import generate_conflict_mesh
-        return generate_conflict_mesh(db, project_id, query, provider)
+
+        return generate_conflict_mesh(db, project_id, query, provider, parent_run_id=parent_run_id)
 
     # Step 1: Run insight synthesis
     try:
@@ -275,9 +277,11 @@ def generate_report(
             "report_type": report_type,
             "format": format,
             "query": query,
+            "provider": answer_provider,
             "insight_id": insight_result["insight_id"],
             "structured_output": report_type in _ACTIONABLE_REPORT_TYPES,
         },
+        parent_run_id=parent_run_id,
     )
 
     report = Report(
@@ -405,7 +409,7 @@ def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
     from app.storage.models import ReportInsight
 
     links = db.query(ReportInsight).filter(ReportInsight.report_id == report_id).all()
-    insight_ids = [str(l.insight_id) for l in links]
+    insight_ids = [str(link.insight_id) for link in links]
 
     # Gather source ids from insight citations
     from app.storage.models import InsightCitation

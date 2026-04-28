@@ -11,8 +11,8 @@ from app.contracts.common import error_response, success_response
 from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
 from app.services.integration_service import (
-    browse_google_drive_items,
     IntegrationError,
+    browse_google_drive_items,
     build_google_drive_oauth_start_url,
     complete_google_drive_oauth_callback,
     delete_integration_connection,

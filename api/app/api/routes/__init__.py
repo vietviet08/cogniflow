@@ -2,21 +2,21 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     auth,
-    health,
     chat,
-    intelligence,
+    health,
     insights,
     integrations,
+    intelligence,
     jobs,
-    provider_settings,
+    organizations,
     processing,
     projects,
+    provider_settings,
     query,
     reports,
     runs,
     share_links,
     sources,
-    organizations,
 )
 
 api_router = APIRouter(prefix="/api/v1")

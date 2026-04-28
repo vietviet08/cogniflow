@@ -7,8 +7,8 @@ from typing import Any, Callable
 
 from app.core.logging import bind_request_id, clear_request_id
 from app.observability.telemetry import emit_event, record_job_run
-from app.services.intelligence_service import IntelligenceError, scan_project_sources
 from app.services.insight_service import InsightError, generate_insight
+from app.services.intelligence_service import IntelligenceError, scan_project_sources
 from app.services.processing_service import ProcessingError, process_sources
 from app.services.report_service import ReportError, generate_report
 from app.storage.db import SessionLocal
@@ -204,6 +204,7 @@ def _run_processing_job(job: Job) -> dict[str, Any]:
             sources=sources,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
+            parent_run_id=_payload_parent_run_id(payload),
         )
         _update_sources_status(db, sources, status="completed")
         return result
@@ -229,6 +230,7 @@ def _run_insight_job(job: Job) -> dict[str, Any]:
             query=str(payload["query"]),
             provider=str(payload.get("provider", "openai")),
             max_sources=int(payload.get("max_sources", 20)),
+            parent_run_id=_payload_parent_run_id(payload),
         )
     finally:
         db.close()
@@ -245,6 +247,7 @@ def _run_report_job(job: Job) -> dict[str, Any]:
             report_type=str(payload.get("type", "research_brief")),
             format=str(payload.get("format", "markdown")),
             provider=str(payload.get("provider", "openai")),
+            parent_run_id=_payload_parent_run_id(payload),
         )
     finally:
         db.close()
@@ -270,3 +273,8 @@ def _update_sources_status(db, sources: list[Source], *, status: str) -> None:
         source.status = status
         db.add(source)
     db.commit()
+
+
+def _payload_parent_run_id(payload: dict[str, Any]) -> uuid.UUID | None:
+    raw = payload.get("replay_of_run_id")
+    return uuid.UUID(str(raw)) if raw else None

@@ -1,6 +1,6 @@
 # Production Foundation Backlog
 
-Date: 2026-04-12
+Date: 2026-04-28
 Scope: NoteMesh production hardening backlog derived from the current repository state.
 
 ## Status Legend
@@ -26,7 +26,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 - [ ] Pilot team can run daily workflow end-to-end: monitor -> detect change -> assign action -> publish output
 - [ ] At least one real customer-facing use case shows measurable weekly value (time saved, faster response, better conversion support)
-- [ ] Core business alerts are delivered reliably with actionable context and owner assignment
+- [~] Core business alerts are delivered reliably with actionable context and owner assignment
 
 ### Execution Order (Next 8 Weeks)
 
@@ -41,6 +41,9 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Async worker job type `intelligence_monitoring` wired into job runtime
 - [x] Backend APIs for action center, dispatch workflow status, and ROI summary metrics
 - [x] Backend APIs for one-click GTM outputs and approval request/review flow
+- [x] Frontend intelligence radar dashboard for sources, scans, events, digest, ROI, outputs, and approvals
+- [x] Portfolio demo seed script and golden path documentation
+- [x] Run replay and compare endpoints for reproducibility/drift baseline
 - [x] Contract tests for intelligence end-to-end baseline
 
 ## Must
@@ -53,17 +56,19 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Structured observability with correlation IDs, metrics, and traces across request and job flows
 - [x] Contract sync guardrail for ORM models, SQL docs, migrations, and API envelopes
 - [ ] Hybrid retrieval and reranking baseline
-- [ ] Replay and compare runs for query, insight, and report flows
+- [x] Replay and compare runs for processing, insight, report, and mesh flows
 
 ### Frontend
 
 - [x] Auth flow and permission-aware UI states
 - [x] Job operations screen with progress, retry, cancel, and failure detail
+- [x] Intelligence radar dashboard for daily pilot workflow
 - [ ] Lineage explorer from report and insight to source, document, and chunk
 
 ### Infra
 
 - [x] Dedicated worker process in deployment topology
+- [x] Backend Dockerfile and Next static export baseline for Jenkins deploy
 - [ ] Monitoring and alerting for backlog, latency, and upstream provider failures
 - [ ] Secret management hardening for provider and integration credentials
 

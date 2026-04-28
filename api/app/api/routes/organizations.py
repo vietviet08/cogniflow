@@ -1,6 +1,6 @@
+import secrets
 import uuid
 from typing import Annotated
-import secrets
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -10,9 +10,11 @@ from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
 from app.core.security import hash_password, require_current_user, require_organization_role
 from app.services.audit_service import log_audit_event
-from app.storage.models import User, OrganizationMembership, Organization
+from app.storage.models import Organization, OrganizationMembership, User
+from app.storage.repositories.organization_membership_repository import (
+    OrganizationMembershipRepository,
+)
 from app.storage.repositories.organization_repository import OrganizationRepository
-from app.storage.repositories.organization_membership_repository import OrganizationMembershipRepository
 from app.storage.repositories.user_repository import UserRepository
 
 router = APIRouter(prefix="/organizations")

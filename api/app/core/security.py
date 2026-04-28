@@ -1,7 +1,7 @@
-import uuid
 import hashlib
 import hmac
 import secrets
+import uuid
 
 from fastapi import Depends, Header, status
 from sqlalchemy.orm import Session
@@ -10,9 +10,11 @@ from app.api.deps import get_db
 from app.contracts.common import APIError
 from app.storage.models import User
 from app.storage.repositories.auth_token_repository import AuthTokenRepository
+from app.storage.repositories.organization_membership_repository import (
+    OrganizationMembershipRepository,
+)
 from app.storage.repositories.project_membership_repository import ProjectMembershipRepository
 from app.storage.repositories.user_repository import UserRepository
-from app.storage.repositories.organization_membership_repository import OrganizationMembershipRepository
 
 ROLE_ORDER = {"viewer": 10, "editor": 20, "owner": 30, "admin": 30}
 ORG_ROLE_ORDER = {"member": 10, "admin": 20, "owner": 30}

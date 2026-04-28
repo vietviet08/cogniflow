@@ -11,6 +11,7 @@ node_modules/
 api/.env
 web/.env.local
 web/.next/
+web/out/
 web/coverage/
 web/tsconfig.tsbuildinfo
 dist/

@@ -47,6 +47,7 @@ Allowed values:
 - `completed`
 - `failed`
 - `cancelled`
+- `dead_letter`
 
 ## Auth
 
@@ -85,9 +86,40 @@ Response data:
 
 `GET /auth/me`
 
+### Login
+
+`POST /auth/login`
+
+Request:
+
+```json
+{
+  "email": "owner@example.com",
+  "password": "correct-horse-battery-staple",
+  "token_name": "web"
+}
+```
+
 ### Create Personal Access Token
 
 `POST /auth/tokens`
+
+## Organizations
+
+### List Organizations
+
+`GET /organizations`
+
+### Create Organization
+
+`POST /organizations`
+
+### Organization Members
+
+- `GET /organizations/{organization_id}/members`
+- `POST /organizations/{organization_id}/members`
+- `PATCH /organizations/{organization_id}/members/{user_id}`
+- `DELETE /organizations/{organization_id}/members/{user_id}`
 
 ## Projects
 
@@ -130,6 +162,18 @@ Response data:
 Notes:
 
 - `role` is the current authenticated user's membership role in the project.
+
+### Update Project
+
+`PUT /projects/{project_id}`
+
+### Delete Project
+
+`DELETE /projects/{project_id}`
+
+### List Project Members
+
+`GET /projects/{project_id}/members`
 
 ## Provider Settings
 
@@ -321,6 +365,41 @@ Response data:
   "source_type": "arxiv"
 }
 ```
+
+### Source Inventory and Artifact Access
+
+- `GET /sources/project/{project_id}`
+- `GET /sources/{source_id}/artifact`
+- `DELETE /sources/bulk`
+
+## Source Integrations
+
+Project integrations import external knowledge into the same source/document/chunk pipeline.
+
+### List Integrations
+
+`GET /projects/{project_id}/integrations`
+
+### Connect Integration
+
+`PUT /projects/{project_id}/integrations/{provider}`
+
+Supported provider baseline:
+
+- `google_drive`
+
+### Import Integration Source
+
+`POST /projects/{project_id}/integrations/{provider}/import`
+
+### Browse Google Drive
+
+`GET /projects/{project_id}/integrations/google_drive/browse`
+
+### Google Drive OAuth
+
+- `GET /projects/{project_id}/integrations/google_drive/oauth/start`
+- `GET /integrations/google_drive/oauth/callback`
 
 ## Processing
 
@@ -519,8 +598,18 @@ Notes:
 
 - `provider` supports `openai` and `gemini`
 - the answer model comes from the project provider settings UI/API
-- retrieval still uses the project OpenAI embedding pipeline, so Gemini query mode also requires
-  the project OpenAI provider to have both an API key and embedding model configured
+- retrieval uses the local multilingual embedding backend:
+  `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
+
+## Chat
+
+Chat sessions persist conversational research history and reuse the query engine for grounded answers.
+
+- `POST /projects/{project_id}/chat/sessions`
+- `GET /projects/{project_id}/chat/sessions`
+- `GET /chat/sessions/{session_id}/messages`
+- `POST /chat/sessions/{session_id}/messages`
+- `PUT /chat/messages/{message_id}`
 
 ## Insights
 
@@ -586,6 +675,16 @@ Request:
 }
 ```
 
+Supported report types:
+
+- `research_brief`
+- `summary`
+- `comparison`
+- `action_items`
+- `risk_analysis`
+- `executive_brief`
+- `conflict_mesh`
+
 Response data:
 
 ```json
@@ -630,6 +729,10 @@ Response data:
 }
 ```
 
+### Update Action Item Status
+
+`PUT /reports/{report_id}/action-items/{item_id}`
+
 ## Reproducibility
 
 ### Replay a Previous Run
@@ -641,9 +744,75 @@ Response data:
 ```json
 {
   "job_id": "job_replay_001",
-  "status": "queued"
+  "status": "queued",
+  "run_id": "run_report_001",
+  "run_type": "report"
 }
 ```
+
+### Compare Runs
+
+`GET /runs/{left_run_id}/compare/{right_run_id}`
+
+Response data:
+
+```json
+{
+  "same_project": true,
+  "same_run_type": true,
+  "diff": {
+    "model_changed": true,
+    "prompt_changed": false,
+    "config_changed": true,
+    "retrieval_config_changed": true,
+    "metadata_changed": ["format"]
+  }
+}
+```
+
+## Intelligence Radar
+
+Continuous intelligence monitoring turns external changes into events, actions, GTM outputs, approvals,
+and ROI metrics.
+
+### Radar Sources and Scans
+
+- `GET /projects/{project_id}/intelligence/sources`
+- `POST /projects/{project_id}/intelligence/sources`
+- `PUT /projects/{project_id}/intelligence/sources/{source_id}`
+- `POST /projects/{project_id}/intelligence/scan`
+- `GET /projects/{project_id}/intelligence/digest/today`
+
+### Events and Actions
+
+- `GET /projects/{project_id}/intelligence/events`
+- `POST /projects/{project_id}/intelligence/events/{event_id}/ack`
+- `POST /projects/{project_id}/intelligence/actions`
+- `GET /projects/{project_id}/intelligence/actions`
+- `PATCH /projects/{project_id}/intelligence/actions/{action_id}`
+- `GET /projects/{project_id}/intelligence/actions/export`
+- `POST /projects/{project_id}/intelligence/events/{event_id}/breakdown`
+- `POST /projects/{project_id}/intelligence/actions/{action_id}/dispatch`
+
+### Outputs, Approvals, Integrations, ROI
+
+- `POST /projects/{project_id}/intelligence/outputs`
+- `GET /projects/{project_id}/intelligence/outputs`
+- `POST /projects/{project_id}/intelligence/approvals`
+- `POST /projects/{project_id}/intelligence/approvals/{approval_id}/review`
+- `GET /projects/{project_id}/intelligence/approvals`
+- `GET /projects/{project_id}/intelligence/integrations`
+- `PUT /projects/{project_id}/intelligence/integrations/{provider}`
+- `DELETE /projects/{project_id}/intelligence/integrations/{provider}`
+- `GET /projects/{project_id}/intelligence/roi`
+
+## Share Links
+
+- `POST /projects/{project_id}/share-links`
+- `GET /projects/{project_id}/share-links`
+- `DELETE /projects/{project_id}/share-links/{link_id}`
+- `GET /public/share/{token}`
+- `POST /public/share/{token}`
 
 ## Operations
 

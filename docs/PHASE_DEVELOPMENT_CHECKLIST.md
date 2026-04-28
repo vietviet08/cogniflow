@@ -4,7 +4,7 @@ Checklist này dùng để theo dõi tiến độ triển khai theo phase, bám 
 
 ## Current Snapshot
 
-Status cập nhật ngày `2026-04-12`:
+Status cập nhật ngày `2026-04-28`:
 
 - Theo roadmap của bạn: `Phase 1 complete`, `Phase 2 complete`, `Phase 3 baseline complete`
 - Theo phase naming trong docs repo: `Phase 1 complete`, `Phase 2 Insight Layer chưa bắt đầu`
@@ -12,7 +12,10 @@ Status cập nhật ngày `2026-04-12`:
 - Processing runtime hiện có `processing_runs`, reprocess không nhân bản dữ liệu, và có API inventory cho `documents/chunks/runs`
 - Retrieval embedding đã chuyển sang local `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 - Đã có baseline production foundation cho `auth/RBAC`, `async worker`, và `request/job observability`
-- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có hybrid retrieval, chưa có dead-letter/auto-retry hoàn chỉnh, chưa có frontend auth UX hoàn chỉnh
+- Đã có P0 portfolio readiness baseline: frontend build sạch, Dockerfile backend, static export,
+  demo seed/golden path, intelligence radar dashboard, và run replay/compare baseline
+- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có hybrid retrieval, external metrics/alerts,
+  secret encryption cho provider credentials, và evidence snapshot support đầy đủ
 
 ## Roadmap Mapping
 
@@ -36,11 +39,11 @@ Status cập nhật ngày `2026-04-12`:
 
 ## Goal Coverage
 
-- [ ] Goal 1: Transform information into actionable insight
+- [x] Goal 1: Transform information into actionable insight
 - [x] Goal 2: Maintain durable and queryable knowledge base
 - [x] Goal 3: Evidence-first outputs with citation traceability
-- [ ] Goal 4: Reproducible runs for audit and drift analysis
-- [ ] Goal 5: Reliable operations at async/high-volume workload
+- [~] Goal 4: Reproducible runs for audit and drift analysis
+- [~] Goal 5: Reliable operations at async/high-volume workload
 
 ## Phase 1: Knowledge Foundation
 
@@ -77,7 +80,7 @@ Status cập nhật ngày `2026-04-12`:
 - [x] Lưu run metadata (model/prompt/config hash)
 
 ### Readiness Gate
-- [ ] Replay được run insight với cấu hình cũ
+- [x] Replay được run insight với cấu hình cũ
 - [ ] Insight quality baseline có metric theo dõi
 - [ ] Regression tests cho insight contract pass
 
@@ -94,17 +97,17 @@ Status cập nhật ngày `2026-04-12`:
 - [x] Report artifact lưu trữ được trong object storage (database backed)
 
 ### Readiness Gate
-- [ ] Report có thể audit ngược về source
-- [ ] Formatting/export test pass
+- [x] Report có thể audit ngược về source
+- [x] Formatting/export test pass
 - [ ] End-to-end test `source -> report` pass
 
 ## Phase 4: Conflict Mesh (Visual Knowledge Graph)
 
 ### Scope
-- [ ] Backend: Pipeline `mesh_pipeline` để trích xuất Concepts (Nodes) và Relationships/Conflicts (Edges) qua LLM structured output.
-- [ ] Backend: Thiết lập Async Job gọi AI, nhận JSON lưu vào cột `structured_payload` của `reports` với `report_type="conflict_mesh"`.
-- [ ] Frontend: Tích hợp thư viện `@xyflow/react`.
-- [ ] Frontend: View `/projects/[id]/mesh` render đồ thị trực quan và sidebar chi tiết Conflict.
+- [x] Backend: Pipeline `mesh_pipeline` để trích xuất Concepts (Nodes) và Relationships/Conflicts (Edges) qua LLM structured output.
+- [x] Backend: Thiết lập Job gọi AI, nhận JSON lưu vào cột `structured_payload` của `reports` với `report_type="conflict_mesh"`.
+- [x] Frontend: Tích hợp thư viện graph 3D (`react-force-graph-3d`/Three.js).
+- [x] Frontend: View `/mesh` render đồ thị trực quan và sidebar chi tiết Conflict.
 
 ### Readiness Gate
 - [ ] Upload 2 tài liệu cố tình mâu thuẫn và render thành công Node mâu thuẫn trên đồ thị.
@@ -130,7 +133,7 @@ Status cập nhật ngày `2026-04-12`:
 
 - [ ] All phase readiness gates hoàn tất
 - [x] API docs, schema, code implementation đồng bộ cho auth/worker/observability baseline
-- [ ] CI pipeline ổn định (lint/typecheck/test/integration)
-- [ ] Reproducibility + lineage verified ở môi trường staging
+- [~] CI pipeline ổn định (lint/typecheck/test/integration)
+- [~] Reproducibility + lineage verified ở môi trường staging
 - [ ] UAT với nhóm user mục tiêu pass
 - [ ] Go-live checklist và rollback plan hoàn tất

@@ -1,7 +1,10 @@
 import uuid
+
 from sqlalchemy.orm import Session
+
 from app.storage.models import OrganizationMembership
 from app.storage.repositories.base import BaseRepository
+
 
 class OrganizationMembershipRepository(BaseRepository[OrganizationMembership]):
     def __init__(self, db: Session):
