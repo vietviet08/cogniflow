@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
 from app.services.citation_service import hydrate_citations
 from app.services.insight_service import InsightError, generate_insight
+from app.services.lineage_service import get_insight_lineage
 from app.storage.models import User
 from app.storage.repositories.insight_repository import InsightRepository
 from app.storage.repositories.job_repository import JobRepository
@@ -94,6 +95,31 @@ def generate_insight_route(
         )
 
     return success_response(request, result, status_code=200)
+
+
+@router.get("/{insight_id}/lineage")
+def get_insight_lineage_route(
+    insight_id: uuid.UUID,
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    repo = InsightRepository(db)
+    insight = repo.get(insight_id)
+    if not insight:
+        return error_response(
+            request,
+            code="INSIGHT_NOT_FOUND",
+            message="Insight does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(
+        db,
+        project_id=insight.project_id,
+        user=current_user,
+        minimum_role="viewer",
+    )
+    return success_response(request, get_insight_lineage(db, insight_id))
 
 
 @router.get("/{insight_id}")

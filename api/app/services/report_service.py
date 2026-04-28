@@ -406,31 +406,9 @@ def update_action_item_status(
 
 def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
     """Return lineage info for a given report."""
-    from app.storage.models import ReportInsight
+    from app.services.lineage_service import get_report_lineage as build_report_lineage
 
-    links = db.query(ReportInsight).filter(ReportInsight.report_id == report_id).all()
-    insight_ids = [str(link.insight_id) for link in links]
-
-    # Gather source ids from insight citations
-    from app.storage.models import InsightCitation
-
-    source_ids_set: set[str] = set()
-    for link in links:
-        cits = db.query(InsightCitation).filter(InsightCitation.insight_id == link.insight_id).all()
-        for c in cits:
-            if c.source_id:
-                source_ids_set.add(c.source_id)
-
-    # find run_id
-    report = db.get(Report, report_id)
-    run_id = str(report.run_id) if report and report.run_id else None
-
-    return {
-        "report_id": str(report_id),
-        "insight_ids": insight_ids,
-        "source_ids": list(source_ids_set),
-        "run_id": run_id,
-    }
+    return build_report_lineage(db, report_id)
 
 
 def serialize_report(report: Report, db: Session | None = None) -> dict[str, Any]:

@@ -10,6 +10,7 @@ import type {
     ChatSessionListData,
     HealthData,
     InsightListData,
+    InsightLineage,
     InsightResult,
     IntelligenceActionData,
     IntelligenceActionListData,
@@ -558,6 +559,12 @@ export function getInsight(
     insightId: string,
 ): Promise<ApiSuccess<InsightResult>> {
     return requestJson<InsightResult>(`/insights/${insightId}`);
+}
+
+export function getInsightLineage(
+    insightId: string,
+): Promise<ApiSuccess<InsightLineage>> {
+    return requestJson<InsightLineage>(`/insights/${insightId}/lineage`);
 }
 
 export function listInsights(

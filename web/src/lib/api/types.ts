@@ -232,6 +232,7 @@ export interface QueryResultData {
     run_id: string;
     provider: string;
     model: string;
+    retrieval?: Record<string, unknown>;
 }
 
 export interface ProviderSettingData {
@@ -324,6 +325,7 @@ export interface InsightResult {
     model: string;
     status: string;
     created_at: string;
+    retrieval?: Record<string, unknown>;
 }
 
 export interface InsightListItem {
@@ -359,12 +361,92 @@ export interface ReportResult {
     created_at?: string;
 }
 
-export interface ReportLineage {
+export interface LineageRunData {
+    run_id: string;
+    run_type: string;
+    model_id: string | null;
+    prompt_hash: string | null;
+    config_hash: string | null;
+    retrieval_config: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+    parent_run_id: string | null;
+    created_at: string | null;
+}
+
+export interface LineageChunkData {
+    chunk_id: string;
+    chunk_index: number;
+    embedding_model: string | null;
+    preview: string;
+    citation_count: number;
+}
+
+export interface LineageDocumentData {
+    document_id: string;
+    title: string;
+    token_count: number;
+    created_at: string | null;
+    chunks: LineageChunkData[];
+}
+
+export interface LineageSourceData {
+    source_id: string;
+    type: string;
+    title: string;
+    original_uri: string | null;
+    status: string;
+    provider: string | null;
+    external_url: string | null;
+    created_at: string | null;
+    documents: LineageDocumentData[];
+}
+
+export interface LineageInsightData {
+    insight_id: string;
+    query: string;
+    summary: string | null;
+    provider: string | null;
+    model: string | null;
+    status: string;
+    run_id: string | null;
+    created_at: string | null;
+}
+
+export interface LineageReportData {
     report_id: string;
+    query: string;
+    title: string;
+    type: ReportType;
+    status: string;
+    run_id: string | null;
+    created_at: string | null;
+}
+
+export interface LineageSummaryData {
+    insight_count: number;
+    source_count: number;
+    document_count: number;
+    chunk_count: number;
+    citation_count: number;
+    run_count: number;
+}
+
+export interface LineagePayload {
+    report_id: string | null;
+    insight_id: string | null;
     insight_ids: string[];
     source_ids: string[];
     run_id: string | null;
+    report: LineageReportData | null;
+    insights: LineageInsightData[];
+    runs: LineageRunData[];
+    sources: LineageSourceData[];
+    citations: CitationData[];
+    summary: LineageSummaryData;
 }
+
+export type ReportLineage = LineagePayload;
+export type InsightLineage = LineagePayload;
 
 export interface ReportListItem {
     report_id: string;

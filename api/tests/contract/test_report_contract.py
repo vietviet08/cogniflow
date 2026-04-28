@@ -1,7 +1,16 @@
 import uuid
 
 from app.api.routes import reports as report_route_module
-from app.storage.models import Report
+from app.storage.models import (
+    Chunk,
+    Document,
+    Insight,
+    InsightCitation,
+    ProcessingRun,
+    Report,
+    ReportInsight,
+    Source,
+)
 
 
 def test_generate_report_returns_structured_payload(client, monkeypatch):
@@ -157,6 +166,132 @@ def test_update_action_item_status_returns_updated_report(client, db_session, mo
     assert response.status_code == 200
     body = response.json()
     assert body["data"]["structured_payload"]["items"][0]["status"] == "done"
+
+
+def test_report_lineage_returns_auditable_source_document_chunk_graph(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+
+    source = Source(
+        project_id=project_id,
+        type="file",
+        original_uri="evidence.pdf",
+        storage_path="data/uploads/evidence.pdf",
+        checksum="lineage",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Evidence",
+        raw_path=source.storage_path,
+        clean_text="The source text supports a launch action.",
+        token_count=8,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="The source text supports a launch action.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model="local-test-model",
+        chunk_metadata={},
+    )
+    db_session.add(chunk)
+
+    run = ProcessingRun(
+        project_id=project_id,
+        run_type="report",
+        model_id="gpt-test",
+        retrieval_config={"mode": "hybrid"},
+        run_metadata={"query": "What action is supported?"},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(chunk)
+    db_session.refresh(run)
+
+    insight = Insight(
+        project_id=project_id,
+        query="What action is supported?",
+        summary="A launch action is supported.",
+        findings=[],
+        provider="openai",
+        model_id="gpt-test",
+        run_id=run.id,
+        status="completed",
+    )
+    db_session.add(insight)
+    db_session.commit()
+    db_session.refresh(insight)
+
+    citation = InsightCitation(
+        insight_id=insight.id,
+        source_id=str(source.id),
+        source_type="file",
+        document_id=str(document.id),
+        chunk_id=str(chunk.id),
+        title="Evidence",
+        url="",
+    )
+    report = Report(
+        project_id=project_id,
+        query="What action is supported?",
+        title="Action Items: Evidence",
+        report_type="action_items",
+        format="markdown",
+        content="# Action Items",
+        structured_payload={"overview": "Do the launch action.", "items": []},
+        status="completed",
+        run_id=run.id,
+    )
+    db_session.add_all([citation, report])
+    db_session.commit()
+    db_session.refresh(report)
+
+    db_session.add(ReportInsight(report_id=report.id, insight_id=insight.id))
+    db_session.commit()
+
+    response = client.get(f"/api/v1/reports/{report.id}/lineage")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["summary"]["source_count"] == 1
+    assert data["summary"]["chunk_count"] == 1
+    assert data["runs"][0]["retrieval_config"]["mode"] == "hybrid"
+    assert data["sources"][0]["documents"][0]["chunks"][0]["chunk_id"] == str(chunk.id)
+    assert data["citations"][0]["quote"] == "The source text supports a launch action."
+
+
+def test_insight_lineage_returns_citation_graph(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+
+    insight = Insight(
+        project_id=project_id,
+        query="What changed?",
+        summary="Pricing changed.",
+        findings=[],
+        provider="openai",
+        model_id="gpt-test",
+        status="completed",
+    )
+    db_session.add(insight)
+    db_session.commit()
+    db_session.refresh(insight)
+
+    response = client.get(f"/api/v1/insights/{insight.id}/lineage")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["insight_id"] == str(insight.id)
+    assert data["summary"]["insight_count"] == 1
 
 
 def _create_project(client):
