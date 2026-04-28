@@ -3,8 +3,16 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+CREATE TABLE organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
     description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -15,8 +23,19 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE organization_memberships (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'member',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_organization_memberships_org_user UNIQUE (organization_id, user_id)
 );
 
 CREATE TABLE auth_tokens (
@@ -46,6 +65,7 @@ CREATE TABLE sources (
     original_uri TEXT,
     storage_path TEXT,
     checksum TEXT,
+    source_metadata JSONB,
     status TEXT NOT NULL DEFAULT 'queued',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -194,6 +214,172 @@ CREATE TABLE audit_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE integration_connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    account_label TEXT,
+    access_token TEXT NOT NULL,
+    base_url TEXT,
+    connection_metadata JSONB,
+    status TEXT NOT NULL DEFAULT 'connected',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_integration_connections_project_provider UNIQUE (project_id, provider)
+);
+
+CREATE TABLE insight_citations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    insight_id UUID NOT NULL REFERENCES insights(id) ON DELETE CASCADE,
+    source_id TEXT,
+    source_type TEXT,
+    document_id TEXT,
+    chunk_id TEXT,
+    title TEXT,
+    url TEXT,
+    page_number INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE report_insights (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id UUID NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    insight_id UUID NOT NULL REFERENCES insights(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE chat_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    citations JSONB,
+    is_bookmarked BOOLEAN NOT NULL DEFAULT FALSE,
+    rating INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE radar_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    default_owner TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    poll_interval_minutes INT NOT NULL DEFAULT 1440,
+    last_checked_at TIMESTAMPTZ,
+    last_content_hash TEXT,
+    last_snapshot_excerpt TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE radar_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_id UUID REFERENCES radar_sources(id) ON DELETE SET NULL,
+    event_type TEXT NOT NULL DEFAULT 'change_detected',
+    severity TEXT NOT NULL DEFAULT 'medium',
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    event_metadata JSONB,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    acknowledged_at TIMESTAMPTZ
+);
+
+CREATE TABLE radar_actions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    event_id UUID REFERENCES radar_events(id) ON DELETE SET NULL,
+    parent_action_id UUID REFERENCES radar_actions(id) ON DELETE SET NULL,
+    assigned_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    owner TEXT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    due_date_suggested TEXT,
+    priority TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'open',
+    channel_targets JSONB,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE gtm_outputs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    event_id UUID REFERENCES radar_events(id) ON DELETE SET NULL,
+    output_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    requested_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    review_notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reviewed_at TIMESTAMPTZ
+);
+
+CREATE TABLE alert_deliveries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    event_id UUID REFERENCES radar_events(id) ON DELETE SET NULL,
+    action_id UUID REFERENCES radar_actions(id) ON DELETE SET NULL,
+    provider TEXT NOT NULL,
+    destination TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    status_code INT,
+    response_excerpt TEXT,
+    attempt_count INT NOT NULL DEFAULT 1,
+    dispatched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE public_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    token TEXT NOT NULL,
+    password_hash TEXT,
+    expires_at TIMESTAMPTZ,
+    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at TIMESTAMPTZ
+);
+
+CREATE TABLE audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+    organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    payload JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_organization_memberships_user_id ON organization_memberships(user_id);
 CREATE INDEX idx_sources_project_id ON sources(project_id);
 CREATE INDEX idx_auth_tokens_user_id ON auth_tokens(user_id);
 CREATE INDEX idx_project_memberships_project_id ON project_memberships(project_id);
@@ -211,3 +397,9 @@ CREATE INDEX idx_insights_project_id ON insights(project_id);
 CREATE INDEX idx_reports_project_id ON reports(project_id);
 CREATE INDEX idx_citations_project_id ON citations(project_id);
 CREATE INDEX idx_audit_events_project_id ON audit_events(project_id);
+CREATE INDEX idx_chat_sessions_project_id ON chat_sessions(project_id);
+CREATE INDEX idx_radar_sources_project_id ON radar_sources(project_id);
+CREATE INDEX idx_radar_events_project_id ON radar_events(project_id);
+CREATE INDEX idx_radar_actions_project_id ON radar_actions(project_id);
+CREATE INDEX idx_public_links_project_id ON public_links(project_id);
+CREATE INDEX idx_audit_logs_project_id ON audit_logs(project_id);
