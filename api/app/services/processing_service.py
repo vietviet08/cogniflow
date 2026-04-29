@@ -262,6 +262,11 @@ def _build_chunk_payloads(
 
     for index, chunk in enumerate(chunks):
         chunk_uuid = str(uuid.uuid4())
+        retrieval_metadata = _build_retrieval_metadata(
+            source=source,
+            source_url=source_url,
+            title=document.title or "",
+        )
         payloads.append(
             {
                 "chunk_id": chunk_uuid,
@@ -277,6 +282,7 @@ def _build_chunk_payloads(
                     "source_type": source.type,
                     "title": document.title or "",
                     "url": source_url,
+                    **retrieval_metadata,
                 },
             }
         )
@@ -307,6 +313,11 @@ def _build_pdf_chunk_payloads(
         )
         for chunk in page_chunks:
             chunk_uuid = str(uuid.uuid4())
+            retrieval_metadata = _build_retrieval_metadata(
+                source=source,
+                source_url="",
+                title=document.title or "",
+            )
             payloads.append(
                 {
                     "chunk_id": chunk_uuid,
@@ -323,9 +334,41 @@ def _build_pdf_chunk_payloads(
                         "title": document.title or "",
                         "url": "",
                         "page_number": page_number,
+                        **retrieval_metadata,
                     },
                 }
             )
             chunk_index += 1
 
     return payloads
+
+
+def _build_retrieval_metadata(
+    *,
+    source: Source,
+    source_url: str,
+    title: str,
+) -> dict[str, str | float]:
+    source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+    filters = source_metadata.get("retrieval_filters")
+    filters = filters if isinstance(filters, dict) else {}
+    quality = source_metadata.get("source_quality")
+    quality = quality if isinstance(quality, dict) else {}
+
+    tags = filters.get("tags")
+    tag_values = [str(tag).strip().lower() for tag in tags if str(tag).strip()] if isinstance(tags, list) else []
+    metadata: dict[str, str | float] = {
+        "source_title": str(source_metadata.get("title") or title or source.original_uri or ""),
+        "source_url": str(source_metadata.get("external_url") or source_url or ""),
+    }
+    for key in ("author", "published_at", "language"):
+        value = filters.get(key)
+        if value:
+            metadata[key] = str(value)
+    if tag_values:
+        metadata["tags"] = ",".join(tag_values)
+    for key in ("freshness_score", "trust_score", "ocr_confidence"):
+        value = quality.get(key)
+        if isinstance(value, int | float):
+            metadata[key] = float(value)
+    return metadata

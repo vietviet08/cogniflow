@@ -6,7 +6,7 @@ from app.api.routes import sources as sources_route_module
 from app.storage.models import AuditLog, Chunk, Document, Source
 
 
-def test_upload_file_source_persists_metadata(client, monkeypatch, tmp_path):
+def test_upload_file_source_persists_metadata(client, db_session, monkeypatch, tmp_path):
     project = _create_project(client)
 
     def fake_save_uploaded_file(source_id, upload):
@@ -33,6 +33,10 @@ def test_upload_file_source_persists_metadata(client, monkeypatch, tmp_path):
     assert "source_id" in body["data"]
     assert "job_id" in body["data"]
 
+    source = db_session.get(Source, uuid.UUID(body["data"]["source_id"]))
+    assert source.source_metadata["source_quality"]["parser"] == "pdf_text"
+    assert source.source_metadata["retrieval_filters"]["tags"] == ["upload", "pdf"]
+
 
 def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
     project = _create_project(client)
@@ -46,7 +50,28 @@ def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
             ),
             encoding="utf-8",
         )
-        return str(target), "checksum-url", "arxiv"
+        return (
+            str(target),
+            "checksum-url",
+            "arxiv",
+            {
+                "provider": "arxiv",
+                "external_url": "https://arxiv.org/abs/1234.5678",
+                "source_quality": {
+                    "parser": "arxiv_atom",
+                    "parser_warnings": [],
+                    "ocr_confidence": None,
+                    "freshness_score": 0.8,
+                    "trust_score": 0.9,
+                },
+                "retrieval_filters": {
+                    "author": "Ada Lovelace",
+                    "published_at": "2026-01-01T00:00:00Z",
+                    "language": "en",
+                    "tags": ["arxiv"],
+                },
+            },
+        )
 
     monkeypatch.setattr(sources_route_module, "ingest_remote_source", fake_ingest_remote_source)
 
@@ -64,6 +89,12 @@ def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
     assert body["data"]["duplicate_of_source_id"] is None
     assert "source_id" in body["data"]
     assert "job_id" in body["data"]
+
+    list_response = client.get(f"/api/v1/sources/project/{project['id']}")
+    assert list_response.status_code == 200
+    item = list_response.json()["data"]["items"][0]
+    assert item["quality"]["trust_score"] == 0.9
+    assert item["retrieval_filters"]["author"] == "Ada Lovelace"
 
 
 def test_upload_file_source_tracks_version_and_duplicate(client, monkeypatch, tmp_path):

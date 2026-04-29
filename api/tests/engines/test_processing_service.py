@@ -38,6 +38,19 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(
         storage_path=str(source_path),
         checksum="checksum-source",
         status="completed",
+        source_metadata={
+            "source_quality": {
+                "freshness_score": 1.0,
+                "trust_score": 0.7,
+                "ocr_confidence": None,
+            },
+            "retrieval_filters": {
+                "author": "Research Team",
+                "published_at": "2026-04-01",
+                "language": "en",
+                "tags": ["upload", "notes"],
+            },
+        },
     )
     db_session.add(source)
     db_session.commit()
@@ -105,6 +118,11 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(
     assert db_session.query(Document).count() == 1
     assert db_session.query(Chunk).count() > 0
     assert fake_collection.deleted_ids == first_chunk_ids
+    chunk_metadata = db_session.query(Chunk).first().chunk_metadata
+    assert chunk_metadata["author"] == "Research Team"
+    assert chunk_metadata["language"] == "en"
+    assert chunk_metadata["tags"] == "upload,notes"
+    assert chunk_metadata["trust_score"] == 0.7
 
     runs = db_session.query(ProcessingRun).order_by(ProcessingRun.created_at.asc()).all()
     assert len(runs) == 2

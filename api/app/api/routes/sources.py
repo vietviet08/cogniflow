@@ -14,7 +14,12 @@ from app.core.security import require_current_user, require_project_role
 from app.services.audit_service import log_audit_event
 from app.services.chroma_service import get_retrieval_collection
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
-from app.services.ingestion_service import IngestionError, ingest_remote_source, save_uploaded_file
+from app.services.ingestion_service import (
+    IngestionError,
+    build_source_metadata,
+    ingest_remote_source,
+    save_uploaded_file,
+)
 from app.storage.models import Chunk, Document, Job, Source, User
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
@@ -77,6 +82,10 @@ async def upload_file_source(
     source.storage_path = storage_path
     source.checksum = checksum
     source.status = "completed"
+    source.source_metadata = _merge_source_metadata(
+        source.source_metadata,
+        _build_uploaded_file_metadata(file.filename or "upload.bin"),
+    )
     duplicate_of_source = _apply_source_versioning_and_dedup(
         source_repo,
         source,
@@ -141,7 +150,7 @@ def ingest_url(
     )
 
     try:
-        storage_path, checksum, source_type = ingest_remote_source(source.id, payload.url)
+        storage_path, checksum, source_type, source_metadata = ingest_remote_source(source.id, payload.url)
     except IngestionError as exc:
         return error_response(
             request,
@@ -162,6 +171,7 @@ def ingest_url(
     source.storage_path = storage_path
     source.checksum = checksum
     source.status = "completed"
+    source.source_metadata = _merge_source_metadata(source.source_metadata, source_metadata)
     duplicate_of_source = _apply_source_versioning_and_dedup(
         source_repo,
         source,
@@ -268,12 +278,15 @@ def list_sources(
             .first()
         )
         status = latest_job.status if latest_job else s.status
+        source_metadata = s.source_metadata if isinstance(s.source_metadata, dict) else {}
         items.append({
             "id": str(s.id),
             "file_name": s.original_uri,
             "type": s.type,
-            "provider": (s.source_metadata or {}).get("provider"),
+            "provider": source_metadata.get("provider"),
             "status": status,
+            "quality": source_metadata.get("source_quality") or {},
+            "retrieval_filters": source_metadata.get("retrieval_filters") or {},
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
         
@@ -349,6 +362,44 @@ def _apply_source_versioning_and_dedup(
         source_metadata.pop("duplicate_of_source_id", None)
     source.source_metadata = source_metadata
     return duplicate_of_source
+
+
+def _build_uploaded_file_metadata(filename: str) -> dict[str, object]:
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    parser = "pdf_text" if suffix == "pdf" else "plain_text"
+    warnings = [] if suffix in {"pdf", "txt", "md", "csv", "json"} else ["unknown_file_type"]
+    trust_score = 0.7
+    return build_source_metadata(
+        {
+            "title": filename,
+            "source": "upload",
+            "url": None,
+            "language": "unknown",
+            "tags": [tag for tag in ["upload", suffix] if tag],
+        },
+        source_type="file",
+    ) | {
+        "source_quality": {
+            "parser": parser,
+            "parser_warnings": warnings,
+            "ocr_confidence": None,
+            "freshness_score": 1.0,
+            "trust_score": trust_score,
+        }
+    }
+
+
+def _merge_source_metadata(
+    current: dict[str, object] | None,
+    updates: dict[str, object],
+) -> dict[str, object]:
+    merged = dict(current) if isinstance(current, dict) else {}
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
 
 
 def _delete_source_with_audit(

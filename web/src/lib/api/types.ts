@@ -158,6 +158,19 @@ export interface SourceListItemData {
     type: string;
     provider?: string | null;
     status: string;
+    quality?: {
+        parser?: string;
+        parser_warnings?: string[];
+        ocr_confidence?: number | null;
+        freshness_score?: number;
+        trust_score?: number;
+    };
+    retrieval_filters?: {
+        author?: string | null;
+        published_at?: string | null;
+        language?: string | null;
+        tags?: string[];
+    };
     created_at: string | null;
 }
 

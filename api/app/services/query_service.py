@@ -509,6 +509,10 @@ def _build_where_clause(project_id: uuid.UUID, filters: dict[str, Any] | None) -
     source_types = filters.get("source_types")
     if isinstance(source_types, list) and source_types:
         where["source_type"] = {"$in": source_types}
+    for key in ("author", "language", "published_at"):
+        value = filters.get(key)
+        if isinstance(value, str) and value.strip():
+            where[key] = value.strip()
     return where
 
 
@@ -651,9 +655,7 @@ def _load_chunk_lexical_records(
         .order_by(Document.created_at.desc(), Chunk.chunk_index.asc())
         .all()
     )
-    source_types = _filter_source_types(filters)
-    if source_types:
-        rows = [row for row in rows if row[2].type in source_types]
+    rows = [row for row in rows if _source_matches_filters(row[2], filters)]
 
     terms = _tokenize_query(query)
     ranked: list[tuple[float, Chunk, Document, Source]] = []
@@ -725,10 +727,7 @@ def _filter_source_rows(
     rows: list[tuple[Document, Source]],
     filters: dict[str, Any] | None,
 ) -> list[tuple[Document, Source]]:
-    source_types = _filter_source_types(filters)
-    if not source_types:
-        return rows
-    return [row for row in rows if row[1].type in source_types]
+    return [row for row in rows if _source_matches_filters(row[1], filters)]
 
 
 def _filter_source_types(filters: dict[str, Any] | None) -> set[str]:
@@ -738,6 +737,33 @@ def _filter_source_types(filters: dict[str, Any] | None) -> set[str]:
     if not isinstance(source_types, list):
         return set()
     return {str(source_type) for source_type in source_types if str(source_type).strip()}
+
+
+def _source_matches_filters(source: Source, filters: dict[str, Any] | None) -> bool:
+    if not filters:
+        return True
+    source_types = _filter_source_types(filters)
+    if source_types and source.type not in source_types:
+        return False
+    source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+    retrieval_filters = source_metadata.get("retrieval_filters")
+    retrieval_filters = retrieval_filters if isinstance(retrieval_filters, dict) else {}
+
+    for key in ("author", "language", "published_at"):
+        expected = filters.get(key)
+        if isinstance(expected, str) and expected.strip():
+            actual = str(retrieval_filters.get(key) or "").strip()
+            if actual != expected.strip():
+                return False
+
+    expected_tags = filters.get("tags")
+    if isinstance(expected_tags, list) and expected_tags:
+        actual_tags = retrieval_filters.get("tags")
+        actual = {str(tag).strip().lower() for tag in actual_tags or [] if str(tag).strip()}
+        expected = {str(tag).strip().lower() for tag in expected_tags if str(tag).strip()}
+        if expected and actual.isdisjoint(expected):
+            return False
+    return True
 
 
 def _tokenize_query(query: str) -> list[str]:
