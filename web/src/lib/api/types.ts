@@ -158,6 +158,19 @@ export interface SourceListItemData {
     type: string;
     provider?: string | null;
     status: string;
+    quality?: {
+        parser?: string;
+        parser_warnings?: string[];
+        ocr_confidence?: number | null;
+        freshness_score?: number;
+        trust_score?: number;
+    };
+    retrieval_filters?: {
+        author?: string | null;
+        published_at?: string | null;
+        language?: string | null;
+        tags?: string[];
+    };
     created_at: string | null;
 }
 
@@ -508,11 +521,117 @@ export interface ReportListItem {
     format: string;
     structured_payload?: StructuredReportPayload | null;
     status: string;
+    run_id: string | null;
     created_at: string;
 }
 
 export interface ReportListData {
     items: ReportListItem[];
+    total: number;
+}
+
+export interface RunSummaryData {
+    run_id: string;
+    project_id: string;
+    run_type: string;
+    model_id: string | null;
+    prompt_hash: string | null;
+    config_hash: string | null;
+    parent_run_id: string | null;
+    created_at: string | null;
+    run_metadata: Record<string, unknown>;
+}
+
+export interface RunDiffData {
+    model_changed: boolean;
+    prompt_changed: boolean;
+    config_changed: boolean;
+    retrieval_config_changed: boolean;
+    metadata_changed: string[];
+}
+
+export interface RunCompareData {
+    left: RunSummaryData;
+    right: RunSummaryData;
+    same_project: boolean;
+    same_run_type: boolean;
+    diff: RunDiffData;
+}
+
+export interface SavedSearchData {
+    saved_search_id: string;
+    project_id: string;
+    name: string;
+    query: string;
+    filters: Record<string, unknown>;
+    report_type: ReportType;
+    provider: string;
+    schedule_interval_minutes: number | null;
+    is_active: boolean;
+    created_by_user_id: string | null;
+    last_run_at: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+}
+
+export interface SavedSearchListData {
+    items: SavedSearchData[];
+    total: number;
+}
+
+export interface SavedSearchRunData {
+    saved_search: SavedSearchData;
+    job_id: string;
+    status: string;
+}
+
+export interface ReportQualityCheckData {
+    code: string;
+    label: string;
+    status: "pass" | "warning" | "fail";
+    score: number;
+    detail: string;
+}
+
+export interface ReportQualityData {
+    report_id: string;
+    project_id: string;
+    status: "pass" | "warning" | "fail";
+    overall_score: number;
+    metrics: {
+        citation_count: number;
+        source_count: number;
+        chunk_count: number;
+        structured_item_count: number;
+        items_with_citations: number;
+        missing_quote_count: number;
+        evidence_snapshot_count: number;
+    };
+    scores: {
+        citation_coverage: number;
+        citation_fidelity: number;
+        source_diversity: number;
+        evidence_snapshot: number;
+    };
+    checks: ReportQualityCheckData[];
+    recommendations: string[];
+}
+
+export interface ResearchReviewData {
+    approval_id: string;
+    project_id: string;
+    target_type: "insight" | "report";
+    target_id: string;
+    status: "pending" | "approved" | "rejected";
+    requested_by_user_id: string | null;
+    reviewed_by_user_id: string | null;
+    review_notes: string | null;
+    created_at: string | null;
+    reviewed_at: string | null;
+}
+
+export interface ResearchReviewListData {
+    items: ResearchReviewData[];
     total: number;
 }
 
@@ -746,5 +865,10 @@ export interface ChatSendResponse {
         role: string;
         content: string;
         citations: CitationData[] | null;
+        retrieval?: Record<string, unknown> | null;
+    };
+    context?: {
+        history_turns_used: number;
+        history_aware_retrieval: boolean;
     };
 }

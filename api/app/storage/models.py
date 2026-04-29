@@ -256,6 +256,28 @@ class QueryRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SavedSearch(Base):
+    __tablename__ = "saved_searches"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(PROJECTS_ID_FK), nullable=False)
+    name: Mapped[str] = mapped_column(String(255))
+    query: Mapped[str] = mapped_column(Text())
+    filters: Mapped[dict[str, Any] | None] = mapped_column(JSON(), nullable=True)
+    report_type: Mapped[str] = mapped_column(String(50), default="research_brief")
+    provider: Mapped[str] = mapped_column(String(50), default="openai")
+    schedule_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(USERS_ID_FK), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Report(Base):
     __tablename__ = "reports"
 

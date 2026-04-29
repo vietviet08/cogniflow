@@ -43,8 +43,15 @@ import type {
     QueryResultData,
     ReportLineage,
     ReportListData,
+    ReportQualityData,
     ReportResult,
     IntegrationProvider,
+    ResearchReviewData,
+    ResearchReviewListData,
+    RunCompareData,
+    SavedSearchData,
+    SavedSearchListData,
+    SavedSearchRunData,
     ReportType,
     ShareLinkData,
     ShareLinkListData,
@@ -623,10 +630,116 @@ export function getReportLineage(
     return requestJson<ReportLineage>(`/reports/${reportId}/lineage`);
 }
 
+export function getReportQuality(
+    reportId: string,
+): Promise<ApiSuccess<ReportQualityData>> {
+    return requestJson<ReportQualityData>(`/reports/${reportId}/quality`);
+}
+
 export function listReports(
     projectId: string,
 ): Promise<ApiSuccess<ReportListData>> {
     return requestJson<ReportListData>(`/projects/${projectId}/reports`);
+}
+
+export function compareRuns(payload: {
+    leftRunId: string;
+    rightRunId: string;
+}): Promise<ApiSuccess<RunCompareData>> {
+    return requestJson<RunCompareData>(
+        `/runs/${payload.leftRunId}/compare/${payload.rightRunId}`,
+    );
+}
+
+export function requestResearchReview(payload: {
+    projectId: string;
+    targetType: "insight" | "report";
+    targetId: string;
+}): Promise<ApiSuccess<ResearchReviewData>> {
+    return requestJson<ResearchReviewData>(`/projects/${payload.projectId}/reviews`, {
+        method: "POST",
+        body: JSON.stringify({
+            target_type: payload.targetType,
+            target_id: payload.targetId,
+        }),
+    });
+}
+
+export function listResearchReviews(payload: {
+    projectId: string;
+    status?: "pending" | "approved" | "rejected";
+    targetType?: "insight" | "report";
+}): Promise<ApiSuccess<ResearchReviewListData>> {
+    const params = new URLSearchParams();
+    if (payload.status) params.set("status", payload.status);
+    if (payload.targetType) params.set("target_type", payload.targetType);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return requestJson<ResearchReviewListData>(
+        `/projects/${payload.projectId}/reviews${suffix}`,
+    );
+}
+
+export function decideResearchReview(payload: {
+    projectId: string;
+    reviewId: string;
+    status: "approved" | "rejected";
+    reviewNotes?: string;
+}): Promise<ApiSuccess<ResearchReviewData>> {
+    return requestJson<ResearchReviewData>(
+        `/projects/${payload.projectId}/reviews/${payload.reviewId}/decision`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                status: payload.status,
+                review_notes: payload.reviewNotes,
+            }),
+        },
+    );
+}
+
+export function createSavedSearch(payload: {
+    projectId: string;
+    name: string;
+    query: string;
+    filters?: Record<string, unknown>;
+    reportType?: ReportType;
+    provider?: string;
+    scheduleIntervalMinutes?: number | null;
+    isActive?: boolean;
+}): Promise<ApiSuccess<SavedSearchData>> {
+    return requestJson<SavedSearchData>(
+        `/projects/${payload.projectId}/saved-searches`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                name: payload.name,
+                query: payload.query,
+                filters: payload.filters,
+                report_type: payload.reportType ?? "research_brief",
+                provider: payload.provider ?? "openai",
+                schedule_interval_minutes: payload.scheduleIntervalMinutes,
+                is_active: payload.isActive ?? true,
+            }),
+        },
+    );
+}
+
+export function listSavedSearches(
+    projectId: string,
+): Promise<ApiSuccess<SavedSearchListData>> {
+    return requestJson<SavedSearchListData>(
+        `/projects/${projectId}/saved-searches`,
+    );
+}
+
+export function runSavedSearch(payload: {
+    projectId: string;
+    savedSearchId: string;
+}): Promise<ApiSuccess<SavedSearchRunData>> {
+    return requestJson<SavedSearchRunData>(
+        `/projects/${payload.projectId}/saved-searches/${payload.savedSearchId}/run`,
+        { method: "POST" },
+    );
 }
 
 export function listIntelligenceSources(

@@ -60,14 +60,14 @@ def save_source_snapshot(source_id: uuid.UUID, payload: dict[str, Any]) -> tuple
     return str(destination), checksum
 
 
-def ingest_remote_source(source_id: uuid.UUID, url: str) -> tuple[str, str, str]:
+def ingest_remote_source(source_id: uuid.UUID, url: str) -> tuple[str, str, str, dict[str, Any]]:
     arxiv_id = extract_arxiv_id(url)
     payload = fetch_arxiv_record(arxiv_id) if arxiv_id else fetch_web_article(url)
     payload["ingested_from"] = url
 
     destination, checksum = save_source_snapshot(source_id, payload)
     source_type = "arxiv" if arxiv_id else "url"
-    return destination, checksum, source_type
+    return destination, checksum, source_type, build_source_metadata(payload, source_type=source_type)
 
 
 def extract_arxiv_id(reference: str) -> str | None:
@@ -109,6 +109,14 @@ def fetch_arxiv_record(arxiv_id: str) -> dict[str, Any]:
         "content": " ".join(summary.split()),
         "source": "arxiv",
         "url": link or f"https://arxiv.org/abs/{arxiv_id}",
+        "authors": [
+            " ".join(author.text.split())
+            for author in entry.findall("atom:author/atom:name", ARXIV_ATOM_NAMESPACE)
+            if author.text
+        ],
+        "published_at": _xml_text(entry, "atom:published") or None,
+        "language": "en",
+        "tags": ["arxiv"],
     }
 
 
@@ -143,9 +151,51 @@ def fetch_web_article(url: str) -> dict[str, Any]:
         "content": content,
         "source": urlparse(url).netloc or "web",
         "url": url,
+        "author": _meta_content(soup, ["author", "article:author"]),
+        "published_at": _meta_content(
+            soup,
+            ["article:published_time", "date", "publish-date", "pubdate"],
+        ),
+        "language": soup.html.get("lang") if soup.html else None,
+        "tags": ["web", urlparse(url).netloc] if urlparse(url).netloc else ["web"],
     }
 
 
 def _xml_text(entry: ElementTree.Element, path: str) -> str:
     node = entry.find(path, ARXIV_ATOM_NAMESPACE)
     return node.text.strip() if node is not None and node.text else ""
+
+
+def _meta_content(soup: BeautifulSoup, names: list[str]) -> str | None:
+    for name in names:
+        node = soup.find("meta", attrs={"name": name}) or soup.find("meta", attrs={"property": name})
+        if node and node.get("content"):
+            return str(node["content"]).strip()
+    return None
+
+
+def build_source_metadata(payload: dict[str, Any], *, source_type: str) -> dict[str, Any]:
+    authors = payload.get("authors")
+    author = ", ".join(authors) if isinstance(authors, list) else payload.get("author")
+    tags = payload.get("tags") if isinstance(payload.get("tags"), list) else [source_type]
+    tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+    trust_score = 0.9 if source_type == "arxiv" else 0.65
+    freshness_score = 0.8 if payload.get("published_at") else 0.5
+    return {
+        "provider": payload.get("source") or source_type,
+        "external_url": payload.get("url") or payload.get("ingested_from"),
+        "title": payload.get("title"),
+        "source_quality": {
+            "parser": "arxiv_atom" if source_type == "arxiv" else "web_article",
+            "parser_warnings": [],
+            "ocr_confidence": None,
+            "freshness_score": freshness_score,
+            "trust_score": trust_score,
+        },
+        "retrieval_filters": {
+            "author": author,
+            "published_at": payload.get("published_at"),
+            "language": payload.get("language") or "unknown",
+            "tags": tags,
+        },
+    }

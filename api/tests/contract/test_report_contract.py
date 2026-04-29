@@ -269,6 +269,138 @@ def test_report_lineage_returns_auditable_source_document_chunk_graph(client, db
     assert data["citations"][0]["quote"] == "The source text supports a launch action."
 
 
+def test_report_quality_scores_citation_fidelity_and_snapshots(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+
+    source = Source(
+        project_id=project_id,
+        type="file",
+        original_uri="quality.pdf",
+        storage_path="data/uploads/quality.pdf",
+        checksum="quality",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Quality Evidence",
+        raw_path=source.storage_path,
+        clean_text="The quality evidence supports a launch owner.",
+        token_count=8,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="The quality evidence supports a launch owner.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model="local-test-model",
+        chunk_metadata={},
+    )
+    db_session.add(chunk)
+
+    run = ProcessingRun(
+        project_id=project_id,
+        run_type="report",
+        model_id="gpt-test",
+        retrieval_config={"mode": "hybrid"},
+        run_metadata={
+            "query": "Who owns launch?",
+            "evidence_snapshot": [
+                {
+                    "chunk_id": str(chunk.id),
+                    "quote_preview": "The quality evidence supports a launch owner.",
+                }
+            ],
+        },
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(chunk)
+    db_session.refresh(run)
+
+    insight = Insight(
+        project_id=project_id,
+        query="Who owns launch?",
+        summary="Launch ownership is supported.",
+        findings=[],
+        provider="openai",
+        model_id="gpt-test",
+        run_id=run.id,
+        status="completed",
+    )
+    db_session.add(insight)
+    db_session.commit()
+    db_session.refresh(insight)
+
+    citation_payload = {
+        "citation_id": str(chunk.id),
+        "source_id": str(source.id),
+        "source_type": "file",
+        "document_id": str(document.id),
+        "chunk_id": str(chunk.id),
+        "title": "Quality Evidence",
+    }
+    citation = InsightCitation(
+        insight_id=insight.id,
+        source_id=str(source.id),
+        source_type="file",
+        document_id=str(document.id),
+        chunk_id=str(chunk.id),
+        title="Quality Evidence",
+        url="",
+    )
+    report = Report(
+        project_id=project_id,
+        query="Who owns launch?",
+        title="Action Items: Quality Evidence",
+        report_type="action_items",
+        format="markdown",
+        content="# Action Items",
+        structured_payload={
+            "overview": "One action is grounded.",
+            "items": [
+                {
+                    "id": "item-1",
+                    "title": "Assign launch owner",
+                    "description": "Confirm the owner.",
+                    "priority": "high",
+                    "owner_suggested": "Ops",
+                    "due_date_suggested": None,
+                    "status": "open",
+                    "citations": [citation_payload],
+                }
+            ],
+        },
+        status="completed",
+        run_id=run.id,
+    )
+    db_session.add_all([citation, report])
+    db_session.commit()
+    db_session.refresh(report)
+
+    db_session.add(ReportInsight(report_id=report.id, insight_id=insight.id))
+    db_session.commit()
+
+    response = client.get(f"/api/v1/reports/{report.id}/quality")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] in {"pass", "warning"}
+    assert data["metrics"]["citation_count"] == 1
+    assert data["metrics"]["items_with_citations"] == 1
+    assert data["metrics"]["missing_quote_count"] == 0
+    assert data["scores"]["citation_fidelity"] == 1.0
+    assert data["checks"][0]["code"] == "citation_coverage"
+
+
 def test_insight_lineage_returns_citation_graph(client, db_session):
     project = _create_project(client)
     project_id = uuid.UUID(project["id"])

@@ -267,6 +267,22 @@ CREATE TABLE chat_messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE saved_searches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    query TEXT NOT NULL,
+    filters JSONB,
+    report_type TEXT NOT NULL DEFAULT 'research_brief',
+    provider TEXT NOT NULL DEFAULT 'openai',
+    schedule_interval_minutes INT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    last_run_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE radar_sources (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -395,6 +411,8 @@ CREATE INDEX idx_processing_runs_project_id ON processing_runs(project_id);
 CREATE INDEX idx_query_runs_project_id ON query_runs(project_id);
 CREATE INDEX idx_insights_project_id ON insights(project_id);
 CREATE INDEX idx_reports_project_id ON reports(project_id);
+CREATE INDEX idx_saved_searches_project_id ON saved_searches(project_id);
+CREATE INDEX idx_saved_searches_active ON saved_searches(is_active);
 CREATE INDEX idx_citations_project_id ON citations(project_id);
 CREATE INDEX idx_audit_events_project_id ON audit_events(project_id);
 CREATE INDEX idx_chat_sessions_project_id ON chat_sessions(project_id);

@@ -1282,6 +1282,9 @@ export function SourceManager() {
                                             <TableHead className="w-24">
                                                 Type
                                             </TableHead>
+                                            <TableHead className="w-28 hidden lg:table-cell">
+                                                Quality
+                                            </TableHead>
                                             <TableHead className="w-32">
                                                 Status
                                             </TableHead>
@@ -1335,6 +1338,34 @@ export function SourceManager() {
                                                         {source.provider ||
                                                             source.type}
                                                     </Badge>
+                                                </TableCell>
+                                                <TableCell className="hidden lg:table-cell">
+                                                    <div className="flex flex-col gap-1">
+                                                        <Badge
+                                                            variant={
+                                                                (source.quality
+                                                                    ?.trust_score ??
+                                                                    0) >= 0.8
+                                                                    ? "success"
+                                                                    : "secondary"
+                                                            }
+                                                            className="w-fit font-normal"
+                                                        >
+                                                            Trust{" "}
+                                                            {Math.round(
+                                                                (source.quality
+                                                                    ?.trust_score ??
+                                                                    0) * 100,
+                                                            )}
+                                                            %
+                                                        </Badge>
+                                                        <span className="text-[11px] text-muted-foreground">
+                                                            {source
+                                                                .retrieval_filters
+                                                                ?.language ||
+                                                                "unknown"}
+                                                        </span>
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell>
                                                     {source.status ===

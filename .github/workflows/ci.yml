@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "master"]
   pull_request:
 
 jobs:
@@ -22,6 +22,14 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Lint backend
         run: ruff check app tests
+      - name: Contract sync guardrail
+        run: python -m scripts.check_contract_sync
+      - name: Alembic migration guardrail
+        run: |
+          alembic heads
+          test "$(alembic heads | wc -l)" -eq 1
+      - name: Compile staging smoke script
+        run: python -m py_compile scripts/smoke_staging.py
       - name: Typecheck backend
         run: mypy app
       - name: Backend smoke tests
@@ -45,3 +53,5 @@ jobs:
         run: npm run typecheck
       - name: Frontend smoke tests
         run: npm run test
+      - name: Frontend production build
+        run: npm run build

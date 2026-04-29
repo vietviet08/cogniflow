@@ -4,10 +4,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
+  CheckCircle2,
   ClipboardList,
   Copy,
   Download,
   FileText,
+  Gauge,
   History,
   RefreshCcw,
   ShieldAlert,
@@ -16,10 +18,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import {
+  compareRuns,
+  createSavedSearch,
   generateReport,
   getReport,
   getReportLineage,
+  getReportQuality,
   listReports,
+  listSavedSearches,
+  runSavedSearch,
   updateActionItemStatus,
 } from "@/lib/api/client";
 import type {
@@ -29,11 +36,14 @@ import type {
   ExecutiveBriefPayload,
   ReportLineage,
   ReportListItem,
+  ReportQualityData,
   ReportResult,
   ReportType,
   ProjectRole,
   RiskAnalysisPayload,
   RiskItemData,
+  RunCompareData,
+  SavedSearchData,
   StructuredReportPayload,
 } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
@@ -42,6 +52,7 @@ import { getActiveProject } from "@/lib/project-store";
 import { useCitationViewer } from "@/components/citation-viewer-provider";
 import { LineageExplorer } from "@/components/lineage-explorer";
 import { PageWrapper } from "@/components/layout/page-wrapper";
+import { ResearchReviewPanel } from "@/components/research-review-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -161,6 +172,12 @@ function getStatusVariant(status: string) {
   if (status === "done" || status === "accepted") return "success";
   if (status === "needs_review") return "warning";
   return "outline";
+}
+
+function getQualityVariant(status: ReportQualityData["status"]) {
+  if (status === "pass") return "success";
+  if (status === "warning") return "warning";
+  return "destructive";
 }
 
 function CitationList({ citations }: { citations: CitationData[] }) {
@@ -411,6 +428,336 @@ function MarkdownPreview({
   );
 }
 
+function ReportQualityPanel({
+  quality,
+  loading,
+  onRefresh,
+}: {
+  quality: ReportQualityData | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  if (!quality && !loading) return null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Quality Evaluation</CardTitle>
+            {quality ? (
+              <Badge variant={getQualityVariant(quality.status)}>
+                {quality.status}
+              </Badge>
+            ) : null}
+          </div>
+          <CardDescription>
+            Citation coverage, fidelity, diversity, and reproducibility checks.
+          </CardDescription>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={loading}
+          className="gap-2"
+        >
+          {loading ? <Spinner size="sm" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+          Refresh
+        </Button>
+      </CardHeader>
+      {quality ? (
+        <CardContent className="grid gap-4 lg:grid-cols-[140px_1fr]">
+          <div className="rounded-xl border border-border bg-muted/20 p-4 text-center">
+            <div className="text-3xl font-semibold">
+              {quality.overall_score}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              overall score
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {quality.checks.map((check) => (
+              <div
+                key={check.code}
+                className="rounded-xl border border-border bg-muted/20 p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm font-medium">{check.label}</span>
+                  <Badge
+                    variant={getQualityVariant(check.status)}
+                    className="ml-auto"
+                  >
+                    {Math.round(check.score * 100)}%
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {check.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+          {quality.recommendations.length > 0 ? (
+            <div className="lg:col-span-2 rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+              {quality.recommendations[0]}
+            </div>
+          ) : null}
+        </CardContent>
+      ) : (
+        <CardContent className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Spinner size="sm" />
+          Evaluating report quality...
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function RunDiffPanel({
+  history,
+  leftReportId,
+  rightReportId,
+  diff,
+  comparing,
+  onLeftChange,
+  onRightChange,
+  onCompare,
+}: {
+  history: ReportListItem[];
+  leftReportId: string;
+  rightReportId: string;
+  diff: RunCompareData | null;
+  comparing: boolean;
+  onLeftChange: (reportId: string) => void;
+  onRightChange: (reportId: string) => void;
+  onCompare: () => void;
+}) {
+  const comparableReports = history.filter((item) => item.run_id);
+  const changedFields: string[] = [];
+  if (diff?.diff.model_changed) changedFields.push("model");
+  if (diff?.diff.prompt_changed) changedFields.push("prompt");
+  if (diff?.diff.config_changed) changedFields.push("config");
+  if (diff?.diff.retrieval_config_changed) changedFields.push("retrieval");
+  if (diff) {
+    changedFields.push(
+      ...diff.diff.metadata_changed.map((field) => `metadata:${field}`),
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Run Diff</CardTitle>
+        <CardDescription>
+          Compare two generated outputs to spot model, prompt, retrieval, and metadata drift.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="grid gap-3">
+          <Select value={leftReportId} onValueChange={onLeftChange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Left report" />
+            </SelectTrigger>
+            <SelectContent>
+              {comparableReports.map((item) => (
+                <SelectItem key={item.report_id} value={item.report_id}>
+                  {item.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={rightReportId} onValueChange={onRightChange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Right report" />
+            </SelectTrigger>
+            <SelectContent>
+              {comparableReports.map((item) => (
+                <SelectItem key={item.report_id} value={item.report_id}>
+                  {item.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCompare}
+          disabled={
+            comparing ||
+            !leftReportId ||
+            !rightReportId ||
+            leftReportId === rightReportId
+          }
+          className="gap-2"
+        >
+          {comparing ? <Spinner size="sm" /> : <History className="h-3.5 w-3.5" />}
+          Compare Runs
+        </Button>
+
+        {diff ? (
+          <div className="rounded-xl border border-border bg-muted/20 p-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={diff.same_run_type ? "success" : "warning"}>
+                {diff.same_run_type ? "same run type" : "different run types"}
+              </Badge>
+              <Badge variant={changedFields.length ? "warning" : "success"}>
+                {changedFields.length
+                  ? `${changedFields.length} changes`
+                  : "no drift"}
+              </Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {changedFields.length ? (
+                changedFields.map((field) => (
+                  <Badge key={field} variant="outline">
+                    {field}
+                  </Badge>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No model, prompt, config, retrieval, or metadata drift detected.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : comparableReports.length < 2 ? (
+          <p className="text-xs text-muted-foreground">
+            Generate at least two reports with run metadata to compare drift.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SavedSearchPanel({
+  query,
+  reportType,
+  provider,
+  savedSearches,
+  saving,
+  runningId,
+  canMutateProject,
+  onSave,
+  onRun,
+  onRefresh,
+}: {
+  query: string;
+  reportType: ReportType;
+  provider: string;
+  savedSearches: SavedSearchData[];
+  saving: boolean;
+  runningId: string | null;
+  canMutateProject: boolean;
+  onSave: (name: string, intervalMinutes: number | null) => void;
+  onRun: (savedSearch: SavedSearchData) => void;
+  onRefresh: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [interval, setInterval] = useState("10080");
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle className="text-base">Saved Searches</CardTitle>
+          <CardDescription>
+            Save recurring research prompts and queue scheduled report runs.
+          </CardDescription>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onRefresh}
+        >
+          <RefreshCcw className="h-3.5 w-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="grid gap-2">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Saved search name"
+            disabled={!canMutateProject}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          />
+          <Select value={interval} onValueChange={setInterval}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1440">Daily</SelectItem>
+              <SelectItem value="10080">Weekly</SelectItem>
+              <SelectItem value="43200">Monthly</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              onSave(name || query.slice(0, 48) || "Saved research", Number(interval));
+              setName("");
+            }}
+            disabled={saving || !query || !canMutateProject}
+            className="gap-2"
+          >
+            {saving ? <Spinner size="sm" /> : null}
+            Save current prompt
+          </Button>
+        </div>
+        <div className="flex flex-col gap-2">
+          {savedSearches.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No saved searches yet.
+            </p>
+          ) : (
+            savedSearches.slice(0, 4).map((item) => (
+              <div
+                key={item.saved_search_id}
+                className="rounded-xl border border-border bg-muted/20 p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="line-clamp-1 text-sm font-medium">
+                    {item.name}
+                  </span>
+                  <Badge variant="outline" className="ml-auto">
+                    {item.schedule_interval_minutes
+                      ? `${Math.round(item.schedule_interval_minutes / 1440)}d`
+                      : "manual"}
+                  </Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                  {item.query}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRun(item)}
+                  disabled={runningId === item.saved_search_id || !canMutateProject}
+                  className="mt-2 h-7 px-2 text-xs"
+                >
+                  {runningId === item.saved_search_id ? <Spinner size="sm" /> : null}
+                  Queue report
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Current template: {getReportTypeLabel(reportType)} via {provider}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function StructuredReportView({
   report,
   updatingItemId,
@@ -480,11 +827,20 @@ export function ReportViewer() {
 
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingQuality, setLoadingQuality] = useState(false);
+  const [comparingRuns, setComparingRuns] = useState(false);
+  const [savingSearch, setSavingSearch] = useState(false);
+  const [runningSavedSearchId, setRunningSavedSearchId] = useState<string | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
   const [report, setReport] = useState<ReportResult | null>(null);
   const [lineage, setLineage] = useState<ReportLineage | null>(null);
+  const [quality, setQuality] = useState<ReportQualityData | null>(null);
+  const [runDiff, setRunDiff] = useState<RunCompareData | null>(null);
   const [history, setHistory] = useState<ReportListItem[]>([]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearchData[]>([]);
+  const [leftReportId, setLeftReportId] = useState("");
+  const [rightReportId, setRightReportId] = useState("");
 
   useEffect(() => {
     const active = getActiveProject();
@@ -496,11 +852,23 @@ export function ReportViewer() {
   }, []);
 
   const canMutateProject = canEditProject(activeProjectRole);
+  const canReviewProject = activeProjectRole === "owner";
 
   useEffect(() => {
     if (!activeProjectId) return;
     void loadHistory();
+    void loadSavedSearches();
   }, [activeProjectId]);
+
+  useEffect(() => {
+    const comparableReports = history.filter((item) => item.run_id);
+    if (!leftReportId && comparableReports[0]) {
+      setLeftReportId(comparableReports[0].report_id);
+    }
+    if (!rightReportId && comparableReports[1]) {
+      setRightReportId(comparableReports[1].report_id);
+    }
+  }, [history, leftReportId, rightReportId]);
 
   async function loadHistory() {
     if (!activeProjectId) return;
@@ -515,6 +883,16 @@ export function ReportViewer() {
     }
   }
 
+  async function loadSavedSearches() {
+    if (!activeProjectId) return;
+    try {
+      const response = await listSavedSearches(activeProjectId);
+      setSavedSearches(response.data.items);
+    } catch (error) {
+      console.error("Failed to load saved searches", error);
+    }
+  }
+
   async function loadLineage(reportId: string) {
     try {
       const response = await getReportLineage(reportId);
@@ -522,6 +900,19 @@ export function ReportViewer() {
     } catch (error) {
       console.error("Failed to load lineage", error);
       setLineage(null);
+    }
+  }
+
+  async function loadQuality(reportId: string) {
+    setLoadingQuality(true);
+    try {
+      const response = await getReportQuality(reportId);
+      setQuality(response.data);
+    } catch (error) {
+      console.error("Failed to load quality evaluation", error);
+      setQuality(null);
+    } finally {
+      setLoadingQuality(false);
     }
   }
 
@@ -538,6 +929,7 @@ export function ReportViewer() {
     setBusy(true);
     setReport(null);
     setLineage(null);
+    setQuality(null);
     const toastId = toast.loading(
       `Generating ${getReportTypeLabel(reportType)} with ${provider}...`,
     );
@@ -550,6 +942,7 @@ export function ReportViewer() {
       });
       setReport(response.data);
       await loadLineage(response.data.report_id);
+      await loadQuality(response.data.report_id);
       toast.success("Output generated successfully.", { id: toastId });
       void loadHistory();
     } catch {
@@ -561,17 +954,83 @@ export function ReportViewer() {
 
   async function handleLoadReport(reportId: string) {
     setBusy(true);
+    setQuality(null);
     try {
       const response = await getReport(reportId);
       setReport(response.data);
       setReportType(response.data.type);
       setQuery(response.data.query);
       await loadLineage(reportId);
+      await loadQuality(reportId);
       toast.success("Output loaded.");
     } catch {
       toast.error("Failed to load full output.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleCompareRuns() {
+    const left = history.find((item) => item.report_id === leftReportId);
+    const right = history.find((item) => item.report_id === rightReportId);
+    if (!left?.run_id || !right?.run_id) {
+      toast.error("Select two reports with run metadata.");
+      return;
+    }
+    setComparingRuns(true);
+    try {
+      const response = await compareRuns({
+        leftRunId: left.run_id,
+        rightRunId: right.run_id,
+      });
+      setRunDiff(response.data);
+      toast.success("Run diff loaded.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to compare runs.");
+    } finally {
+      setComparingRuns(false);
+    }
+  }
+
+  async function handleSaveSearch(name: string, intervalMinutes: number | null) {
+    if (!activeProjectId || !query) return;
+    if (!canMutateProject) {
+      toast.error("Saving searches requires editor role or higher.");
+      return;
+    }
+    setSavingSearch(true);
+    try {
+      await createSavedSearch({
+        projectId: activeProjectId,
+        name,
+        query,
+        reportType,
+        provider,
+        scheduleIntervalMinutes: intervalMinutes,
+      });
+      toast.success("Saved search created.");
+      await loadSavedSearches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save search.");
+    } finally {
+      setSavingSearch(false);
+    }
+  }
+
+  async function handleRunSavedSearch(savedSearch: SavedSearchData) {
+    if (!activeProjectId) return;
+    setRunningSavedSearchId(savedSearch.saved_search_id);
+    try {
+      const response = await runSavedSearch({
+        projectId: activeProjectId,
+        savedSearchId: savedSearch.saved_search_id,
+      });
+      toast.success(`Queued report job ${response.data.job_id.slice(0, 8)}.`);
+      await loadSavedSearches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to queue saved search.");
+    } finally {
+      setRunningSavedSearchId(null);
     }
   }
 
@@ -779,6 +1238,21 @@ export function ReportViewer() {
             </CardContent>
           </Card>
 
+          <SavedSearchPanel
+            query={query}
+            reportType={reportType}
+            provider={provider}
+            savedSearches={savedSearches}
+            saving={savingSearch}
+            runningId={runningSavedSearchId}
+            canMutateProject={canMutateProject}
+            onSave={(name, intervalMinutes) =>
+              void handleSaveSearch(name, intervalMinutes)
+            }
+            onRun={(savedSearch) => void handleRunSavedSearch(savedSearch)}
+            onRefresh={() => void loadSavedSearches()}
+          />
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between py-4">
               <div className="flex items-center gap-2">
@@ -828,6 +1302,23 @@ export function ReportViewer() {
               )}
             </CardContent>
           </Card>
+
+          <RunDiffPanel
+            history={history}
+            leftReportId={leftReportId}
+            rightReportId={rightReportId}
+            diff={runDiff}
+            comparing={comparingRuns}
+            onLeftChange={(reportId) => {
+              setLeftReportId(reportId);
+              setRunDiff(null);
+            }}
+            onRightChange={(reportId) => {
+              setRightReportId(reportId);
+              setRunDiff(null);
+            }}
+            onCompare={() => void handleCompareRuns()}
+          />
         </div>
 
         <div className="flex flex-col gap-6 lg:col-span-2">
@@ -915,6 +1406,22 @@ export function ReportViewer() {
                   </div>
                 </CardHeader>
               </Card>
+
+              <ReportQualityPanel
+                quality={quality}
+                loading={loadingQuality}
+                onRefresh={() => {
+                  if (report) void loadQuality(report.report_id);
+                }}
+              />
+
+              <ResearchReviewPanel
+                projectId={activeProjectId}
+                targetType="report"
+                targetId={report.report_id}
+                canRequest={canMutateProject}
+                canReview={canReviewProject}
+              />
 
               <StructuredReportView
                 report={report}

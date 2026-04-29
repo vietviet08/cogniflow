@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -175,28 +176,29 @@ def send_chat_message(
         minimum_role="editor",
     )
 
-    # 1. Save User Message
+    history_context = _load_recent_chat_context(db, session_id)
+    contextual_query = _build_contextual_query(payload.content, history_context)
+
     user_msg = ChatMessage(
         session_id=session_id,
         role="user",
         content=payload.content,
+        created_at=datetime.now(timezone.utc),
     )
     db.add(user_msg)
     db.commit()
 
-    # 2. Extract chat context to send to RAG/LLM.
-    # For now, we reuse search_knowledge_base which doesn't directly take chat history.
-    # To make it a true chatbot, we'd need to update `query_service` to accept history.
-    # We use the retrieval answer with the user query and save it as assistant reply.
-
-    # 3. Call RAG engine
     try:
         rag_result = search_knowledge_base(
             db=db,
             project_id=session.project_id,
-            query=payload.content,
+            query=contextual_query,
             provider=payload.provider,
             top_k=payload.top_k,
+            conversation_context=[
+                *history_context,
+                {"role": "user", "content": payload.content},
+            ],
         )
     except QueryError as e:
         return error_response(
@@ -209,12 +211,12 @@ def send_chat_message(
     except Exception as e:
         return error_response(request, "RAG_ERROR", str(e), status_code=500)
 
-    # 4. Save Assistant Message
     assistant_msg = ChatMessage(
         session_id=session_id,
         role="assistant",
         content=rag_result["answer"],
         citations=rag_result["citations"],
+        created_at=datetime.now(timezone.utc),
     )
     db.add(assistant_msg)
     
@@ -240,10 +242,67 @@ def send_chat_message(
                 "role": assistant_msg.role,
                 "content": assistant_msg.content,
                 "citations": assistant_msg.citations,
-            }
+                "retrieval": rag_result.get("retrieval"),
+            },
+            "context": {
+                "history_turns_used": len(history_context),
+                "history_aware_retrieval": contextual_query != payload.content,
+            },
         },
         status_code=201,
     )
+
+
+def _load_recent_chat_context(
+    db: Session,
+    session_id: uuid.UUID,
+    *,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    ordered = list(reversed(messages))
+    return [
+        {
+            "role": message.role,
+            "content": _compact_chat_context(message.content),
+        }
+        for message in ordered
+        if message.role in {"user", "assistant"} and message.content.strip()
+    ]
+
+
+def _build_contextual_query(
+    current_query: str,
+    history_context: list[dict[str, str]],
+) -> str:
+    if not history_context:
+        return current_query
+
+    context_lines = [
+        f"[{message['role']}] {message['content']}"
+        for message in history_context[-6:]
+        if message.get("content")
+    ]
+    if not context_lines:
+        return current_query
+    return (
+        f"{current_query}\n\n"
+        "Recent conversation context for resolving follow-up references:\n"
+        f"{'\n'.join(context_lines)}"
+    )
+
+
+def _compact_chat_context(value: str, *, limit: int = 500) -> str:
+    compact = " ".join(value.split())
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[: limit - 3]}..."
 
 
 class UpdateMessageRequest(BaseModel):

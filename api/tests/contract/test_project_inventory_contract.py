@@ -1,7 +1,7 @@
 import uuid
 
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
-from app.storage.models import Chunk, Document, Job, ProcessingRun, Source
+from app.storage.models import Chunk, Document, Job, ProcessingRun, Report, Source
 
 
 def test_list_project_documents_returns_processed_inventory(client, db_session):
@@ -53,6 +53,42 @@ def test_list_processing_runs_returns_reproducibility_metadata(client, db_sessio
     assert item["run_type"] == "processing"
     assert item["model_id"] == LOCAL_EMBEDDING_MODEL
     assert item["run_metadata"]["chunks_created"] == 1
+
+
+def test_list_project_reports_includes_run_id_for_diff_view(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+    run = ProcessingRun(
+        project_id=project_id,
+        run_type="report",
+        model_id="gpt-test",
+        config_hash="config-a",
+        run_metadata={"query": "What changed?"},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    report = Report(
+        project_id=project_id,
+        query="What changed?",
+        title="Research Brief: Change",
+        report_type="research_brief",
+        format="markdown",
+        content="# Change",
+        structured_payload={},
+        status="completed",
+        run_id=run.id,
+    )
+    db_session.add(report)
+    db_session.commit()
+
+    response = client.get(f"/api/v1/projects/{project['id']}/reports")
+
+    assert response.status_code == 200
+    item = response.json()["data"]["items"][0]
+    assert item["report_id"] == str(report.id)
+    assert item["run_id"] == str(run.id)
 
 
 def _seed_processed_artifacts(db_session, project_id):
