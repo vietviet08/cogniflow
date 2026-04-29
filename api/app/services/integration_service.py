@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.services.ingestion_service import save_source_bytes, save_source_snapshot
 from app.storage.models import IntegrationConnection
 from app.storage.repositories.integration_connection_repository import (
@@ -128,17 +129,17 @@ def upsert_integration_connection(
             project_id=project_id,
             provider=normalized_provider,
             account_label=(account_label or "").strip() or None,
-            access_token=cleaned_token,
+            access_token=encrypt_secret(cleaned_token),
             base_url=cleaned_base_url,
-            connection_metadata=connection_metadata or {},
+            connection_metadata=_encrypt_connection_metadata(connection_metadata or {}),
             status="connected",
         )
     else:
         connection.account_label = (account_label or "").strip() or None
         if cleaned_token:
-            connection.access_token = cleaned_token
+            connection.access_token = encrypt_secret(cleaned_token)
         connection.base_url = cleaned_base_url
-        connection.connection_metadata = connection_metadata or {}
+        connection.connection_metadata = _encrypt_connection_metadata(connection_metadata or {})
         connection.status = "connected"
 
     repo.save(connection)
@@ -260,7 +261,7 @@ def browse_google_drive_items(
         )
 
     normalized_folder_id = (folder_id or "root").strip() or "root"
-    headers = {"Authorization": f"Bearer {connection.access_token}"}
+    headers = {"Authorization": f"Bearer {decrypt_secret(connection.access_token)}"}
     search_query_parts = [f"'{normalized_folder_id}' in parents", "trashed = false"]
 
     cleaned_query = (query or "").strip()
@@ -471,7 +472,7 @@ def _import_google_drive_source(
     item_reference: str,
 ) -> ImportedSourcePayload:
     file_id = _extract_google_drive_file_id(item_reference)
-    headers = {"Authorization": f"Bearer {connection.access_token}"}
+    headers = {"Authorization": f"Bearer {decrypt_secret(connection.access_token)}"}
     metadata_response = requests.get(
         f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}",
         params={"fields": "id,name,mimeType,webViewLink", "supportsAllDrives": "true"},
@@ -575,7 +576,7 @@ def _import_notion_source(
 ) -> ImportedSourcePayload:
     page_id = _extract_notion_page_id(item_reference)
     headers = {
-        "Authorization": f"Bearer {connection.access_token}",
+        "Authorization": f"Bearer {decrypt_secret(connection.access_token)}",
         "Notion-Version": NOTION_VERSION,
     }
     page_response = requests.get(
@@ -618,7 +619,7 @@ def _import_slack_source(
     item_reference: str,
 ) -> ImportedSourcePayload:
     channel_id, ts, permalink = _extract_slack_thread_reference(item_reference)
-    headers = {"Authorization": f"Bearer {connection.access_token}"}
+    headers = {"Authorization": f"Bearer {decrypt_secret(connection.access_token)}"}
     response = requests.get(
         f"{SLACK_API_BASE}/conversations.replies",
         params={"channel": channel_id, "ts": ts},
@@ -684,7 +685,7 @@ def _import_confluence_source(
         raise IntegrationError("Confluence base URL is required.")
 
     headers = {
-        "Authorization": f"Bearer {connection.access_token}",
+        "Authorization": f"Bearer {decrypt_secret(connection.access_token)}",
         "Accept": "application/json",
     }
     response = requests.get(
@@ -843,7 +844,7 @@ def _serialize_connection_status(
         "status": connection.status if connection else "disconnected",
         "account_label": connection.account_label if connection else None,
         "base_url": connection.base_url if connection else None,
-        "masked_access_token": _mask_secret(connection.access_token) if connection else None,
+        "masked_access_token": mask_secret(connection.access_token) if connection else None,
         "updated_at": connection.updated_at.isoformat() if connection and connection.updated_at else None,
     }
 
@@ -863,10 +864,13 @@ def _normalize_base_url(base_url: str | None) -> str | None:
     return cleaned.rstrip("/") if cleaned else None
 
 
-def _mask_secret(value: str) -> str:
-    if len(value) <= 8:
-        return "*" * len(value)
-    return f"{value[:4]}{'*' * max(4, len(value) - 8)}{value[-4:]}"
+def _encrypt_connection_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    encrypted = dict(metadata)
+    for key in ("access_token", "refresh_token", "client_secret"):
+        value = encrypted.get(key)
+        if isinstance(value, str) and value.strip():
+            encrypted[key] = encrypt_secret(value)
+    return encrypted
 
 
 def _normalize_uuid_fragment(value: str) -> str:

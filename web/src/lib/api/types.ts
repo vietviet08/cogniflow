@@ -22,6 +22,43 @@ export interface HealthData {
     service: string;
 }
 
+export interface OpsAlertData {
+    code: string;
+    severity: "warning" | "critical";
+    message: string;
+    value?: number;
+    threshold?: number;
+    target?: string;
+}
+
+export interface OpsSloData {
+    status: "healthy" | "warning" | "critical";
+    generated_at: string;
+    thresholds: {
+        queue_backlog_warning: number;
+        queue_lag_warning_seconds: number;
+        job_failure_rate_warning: number;
+        latency_p95_warning_ms: number;
+    };
+    jobs: {
+        status_counts: Record<string, number>;
+        queue_counts: Array<{
+            queue_name: string;
+            queued: number;
+            running: number;
+            backlog: number;
+        }>;
+        oldest_queued_age_seconds: number | null;
+        failure_rate: number;
+        provider_failures: number;
+    };
+    latency: {
+        http_latency_ms: Record<string, unknown>;
+        job_latency_ms: Record<string, unknown>;
+    };
+    alerts: OpsAlertData[];
+}
+
 export type ProjectRole = "viewer" | "editor" | "owner";
 
 export interface OrganizationData {
@@ -141,6 +178,19 @@ export interface CitationData {
     quote?: string;
 }
 
+export interface EvidenceSnapshotData {
+    index: number;
+    citation_id?: string | null;
+    source_id?: string | null;
+    document_id?: string | null;
+    chunk_id?: string | null;
+    title?: string | null;
+    url?: string | null;
+    page_number?: number | null;
+    quote_hash?: string | null;
+    quote_preview: string;
+}
+
 export type ReportType =
     | "research_brief"
     | "summary"
@@ -232,6 +282,7 @@ export interface QueryResultData {
     run_id: string;
     provider: string;
     model: string;
+    retrieval?: Record<string, unknown>;
 }
 
 export interface ProviderSettingData {
@@ -324,6 +375,8 @@ export interface InsightResult {
     model: string;
     status: string;
     created_at: string;
+    retrieval?: Record<string, unknown>;
+    evidence_snapshot?: EvidenceSnapshotData[];
 }
 
 export interface InsightListItem {
@@ -356,15 +409,96 @@ export interface ReportResult {
     insight_id?: string;
     source_ids?: string[];
     citations?: CitationData[];
+    evidence_snapshot?: EvidenceSnapshotData[];
     created_at?: string;
 }
 
-export interface ReportLineage {
+export interface LineageRunData {
+    run_id: string;
+    run_type: string;
+    model_id: string | null;
+    prompt_hash: string | null;
+    config_hash: string | null;
+    retrieval_config: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+    parent_run_id: string | null;
+    created_at: string | null;
+}
+
+export interface LineageChunkData {
+    chunk_id: string;
+    chunk_index: number;
+    embedding_model: string | null;
+    preview: string;
+    citation_count: number;
+}
+
+export interface LineageDocumentData {
+    document_id: string;
+    title: string;
+    token_count: number;
+    created_at: string | null;
+    chunks: LineageChunkData[];
+}
+
+export interface LineageSourceData {
+    source_id: string;
+    type: string;
+    title: string;
+    original_uri: string | null;
+    status: string;
+    provider: string | null;
+    external_url: string | null;
+    created_at: string | null;
+    documents: LineageDocumentData[];
+}
+
+export interface LineageInsightData {
+    insight_id: string;
+    query: string;
+    summary: string | null;
+    provider: string | null;
+    model: string | null;
+    status: string;
+    run_id: string | null;
+    created_at: string | null;
+}
+
+export interface LineageReportData {
     report_id: string;
+    query: string;
+    title: string;
+    type: ReportType;
+    status: string;
+    run_id: string | null;
+    created_at: string | null;
+}
+
+export interface LineageSummaryData {
+    insight_count: number;
+    source_count: number;
+    document_count: number;
+    chunk_count: number;
+    citation_count: number;
+    run_count: number;
+}
+
+export interface LineagePayload {
+    report_id: string | null;
+    insight_id: string | null;
     insight_ids: string[];
     source_ids: string[];
     run_id: string | null;
+    report: LineageReportData | null;
+    insights: LineageInsightData[];
+    runs: LineageRunData[];
+    sources: LineageSourceData[];
+    citations: CitationData[];
+    summary: LineageSummaryData;
 }
+
+export type ReportLineage = LineagePayload;
+export type InsightLineage = LineagePayload;
 
 export interface ReportListItem {
     report_id: string;

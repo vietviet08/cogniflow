@@ -264,6 +264,9 @@ def generate_report(
     title = _derive_title(query, report_type)
     prompt_hash = hashlib.sha256(prompt_template.encode()).hexdigest()[:16]
     config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    evidence_snapshot = insight_result.get("evidence_snapshot") or _build_evidence_snapshot(
+        insight_result.get("citations", [])
+    )
 
     run = ProcessingRunRepository(db).create(
         project_id=project_id,
@@ -280,6 +283,7 @@ def generate_report(
             "provider": answer_provider,
             "insight_id": insight_result["insight_id"],
             "structured_output": report_type in _ACTIONABLE_REPORT_TYPES,
+            "evidence_snapshot": evidence_snapshot,
         },
         parent_run_id=parent_run_id,
     )
@@ -326,6 +330,7 @@ def generate_report(
         "insight_id": insight_result["insight_id"],
         "source_ids": source_ids,
         "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
     }
 
 
@@ -406,31 +411,9 @@ def update_action_item_status(
 
 def get_report_lineage(db: Session, report_id: uuid.UUID) -> dict[str, Any]:
     """Return lineage info for a given report."""
-    from app.storage.models import ReportInsight
+    from app.services.lineage_service import get_report_lineage as build_report_lineage
 
-    links = db.query(ReportInsight).filter(ReportInsight.report_id == report_id).all()
-    insight_ids = [str(link.insight_id) for link in links]
-
-    # Gather source ids from insight citations
-    from app.storage.models import InsightCitation
-
-    source_ids_set: set[str] = set()
-    for link in links:
-        cits = db.query(InsightCitation).filter(InsightCitation.insight_id == link.insight_id).all()
-        for c in cits:
-            if c.source_id:
-                source_ids_set.add(c.source_id)
-
-    # find run_id
-    report = db.get(Report, report_id)
-    run_id = str(report.run_id) if report and report.run_id else None
-
-    return {
-        "report_id": str(report_id),
-        "insight_ids": insight_ids,
-        "source_ids": list(source_ids_set),
-        "run_id": run_id,
-    }
+    return build_report_lineage(db, report_id)
 
 
 def serialize_report(report: Report, db: Session | None = None) -> dict[str, Any]:
@@ -557,6 +540,36 @@ def _derive_title(query: str, report_type: str) -> str:
         "conflict_mesh": "Conflict Mesh",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
+
+
+def _build_evidence_snapshot(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    snapshot: list[dict[str, Any]] = []
+    for index, citation in enumerate(citations, start=1):
+        quote = str(citation.get("quote") or "")
+        snapshot.append(
+            {
+                "index": index,
+                "citation_id": citation.get("citation_id"),
+                "source_id": citation.get("source_id"),
+                "document_id": citation.get("document_id"),
+                "chunk_id": citation.get("chunk_id"),
+                "title": citation.get("title"),
+                "url": citation.get("url"),
+                "page_number": citation.get("page_number"),
+                "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest()[:16]
+                if quote
+                else None,
+                "quote_preview": _preview(quote),
+            }
+        )
+    return snapshot
+
+
+def _preview(value: str, *, limit: int = 360) -> str:
+    clean = " ".join(value.split())
+    if len(clean) <= limit:
+        return clean
+    return f"{clean[: limit - 3]}..."
 
 
 def _get_actionable_prompt_template(report_type: str) -> str:

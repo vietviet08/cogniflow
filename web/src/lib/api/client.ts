@@ -10,6 +10,7 @@ import type {
     ChatSessionListData,
     HealthData,
     InsightListData,
+    InsightLineage,
     InsightResult,
     IntelligenceActionData,
     IntelligenceActionListData,
@@ -50,6 +51,7 @@ import type {
     SourceIngestionData,
     OrganizationData,
     OrganizationListData,
+    OpsSloData,
 } from "./types";
 import { clearStoredAuthSession, getStoredAuthToken } from "../auth-session";
 
@@ -121,6 +123,10 @@ export async function requestJson<T>(
 
 export function getHealth(): Promise<ApiSuccess<HealthData>> {
     return requestJson<HealthData>("/health");
+}
+
+export function getOpsSlo(): Promise<ApiSuccess<OpsSloData>> {
+    return requestJson<OpsSloData>("/ops/slo");
 }
 
 export function listOrganizations(): Promise<ApiSuccess<OrganizationListData>> {
@@ -558,6 +564,12 @@ export function getInsight(
     insightId: string,
 ): Promise<ApiSuccess<InsightResult>> {
     return requestJson<InsightResult>(`/insights/${insightId}`);
+}
+
+export function getInsightLineage(
+    insightId: string,
+): Promise<ApiSuccess<InsightLineage>> {
+    return requestJson<InsightLineage>(`/insights/${insightId}/lineage`);
 }
 
 export function listInsights(

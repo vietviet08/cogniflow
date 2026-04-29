@@ -3,15 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertCircle, RotateCcw, Square, TimerReset } from "lucide-react";
+import { Activity, AlertCircle, RotateCcw, Square, TimerReset } from "lucide-react";
 
 import {
     cancelJob,
+    getOpsSlo,
     listProjectJobs,
     listProjects,
     retryJob,
 } from "@/lib/api/client";
-import type { ProjectRole } from "@/lib/api/types";
+import type { OpsSloData, ProjectRole } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
 import { getActiveProject, setActiveProject } from "@/lib/project-store";
 import { useOrganization } from "@/components/organization-provider";
@@ -98,6 +99,15 @@ export function JobOperations() {
     });
 
     const jobs = jobsData?.data.items ?? [];
+
+    const { data: opsData } = useQuery({
+        queryKey: ["ops-slo"],
+        queryFn: getOpsSlo,
+        refetchInterval: 5000,
+        retry: false,
+    });
+
+    const opsSlo = opsData?.data ?? null;
 
     const sortedJobs = useMemo(
         () =>
@@ -357,6 +367,8 @@ export function JobOperations() {
                 </CardContent>
             </Card>
 
+            {opsSlo ? <OpsSloPanel snapshot={opsSlo} /> : null}
+
             {!canMutateJobs && activeProjectId ? (
                 <Card>
                     <CardContent className="pt-6 text-sm text-muted-foreground">
@@ -369,6 +381,142 @@ export function JobOperations() {
             {jobsContent}
         </PageWrapper>
     );
+}
+
+function OpsSloPanel({ snapshot }: { snapshot: OpsSloData }) {
+    const queued = snapshot.jobs.status_counts.queued ?? 0;
+    const running = snapshot.jobs.status_counts.running ?? 0;
+    const completed = snapshot.jobs.status_counts.completed ?? 0;
+    const failed =
+        (snapshot.jobs.status_counts.failed ?? 0) +
+        (snapshot.jobs.status_counts.dead_letter ?? 0);
+
+    return (
+        <Card>
+            <CardHeader className="pb-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-base">Operations SLO</CardTitle>
+                    </div>
+                    <Badge variant={getOpsStatusVariant(snapshot.status)}>
+                        {snapshot.status}
+                    </Badge>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-4">
+                    <SloMetric label="Queued" value={queued} />
+                    <SloMetric label="Running" value={running} />
+                    <SloMetric label="Completed" value={completed} />
+                    <SloMetric label="Failed" value={failed} />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-md border p-3">
+                        <p className="text-xs font-medium text-muted-foreground">
+                            Queue Backlog
+                        </p>
+                        <div className="mt-2 space-y-2">
+                            {snapshot.jobs.queue_counts.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    No active queue backlog.
+                                </p>
+                            ) : (
+                                snapshot.jobs.queue_counts.map((queue) => (
+                                    <div
+                                        key={queue.queue_name}
+                                        className="flex items-center justify-between gap-3 text-sm"
+                                    >
+                                        <span>{queue.queue_name}</span>
+                                        <span className="font-mono text-muted-foreground">
+                                            {queue.backlog}
+                                        </span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    <div className="rounded-md border p-3">
+                        <p className="text-xs font-medium text-muted-foreground">
+                            Reliability
+                        </p>
+                        <div className="mt-2 grid gap-2 text-sm">
+                            <span>
+                                Failure rate:{" "}
+                                {(snapshot.jobs.failure_rate * 100).toFixed(1)}%
+                            </span>
+                            <span>
+                                Provider failures:{" "}
+                                {snapshot.jobs.provider_failures}
+                            </span>
+                            <span>
+                                Oldest queued:{" "}
+                                {formatAge(snapshot.jobs.oldest_queued_age_seconds)}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {snapshot.alerts.length > 0 ? (
+                    <div className="grid gap-2">
+                        {snapshot.alerts.map((alert) => (
+                            <div
+                                key={`${alert.code}-${alert.target ?? "global"}`}
+                                className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 p-3 text-sm"
+                            >
+                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                                <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium">{alert.code}</p>
+                                        <Badge
+                                            variant={
+                                                alert.severity === "critical"
+                                                    ? "destructive"
+                                                    : "warning"
+                                            }
+                                        >
+                                            {alert.severity}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-muted-foreground">
+                                        {alert.message}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : null}
+            </CardContent>
+        </Card>
+    );
+}
+
+function SloMetric({ label, value }: { label: string; value: number }) {
+    return (
+        <div className="rounded-md border p-3">
+            <p className="text-xs text-muted-foreground">{label}</p>
+            <p className="text-2xl font-semibold">{value}</p>
+        </div>
+    );
+}
+
+function getOpsStatusVariant(status: OpsSloData["status"]) {
+    if (status === "critical") return "destructive";
+    if (status === "warning") return "warning";
+    return "success";
+}
+
+function formatAge(value: number | null): string {
+    if (value === null) {
+        return "-";
+    }
+    if (value < 60) {
+        return `${value}s`;
+    }
+    const minutes = Math.floor(value / 60);
+    const seconds = value % 60;
+    return `${minutes}m ${seconds}s`;
 }
 
 function formatStatus(status: string): string {

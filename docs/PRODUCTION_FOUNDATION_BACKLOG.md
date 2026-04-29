@@ -44,6 +44,11 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Frontend intelligence radar dashboard for sources, scans, events, digest, ROI, outputs, and approvals
 - [x] Portfolio demo seed script and golden path documentation
 - [x] Run replay and compare endpoints for reproducibility/drift baseline
+- [x] Hybrid retrieval with lexical candidates and reciprocal-rank-fusion reranking
+- [x] Lineage explorer for report/insight audit graphs
+- [x] Operations SLO dashboard and `/ops/slo` alert endpoint
+- [x] Secret encryption for provider and integration credentials
+- [x] Source deletion audit trail and evidence snapshots
 - [x] Contract tests for intelligence end-to-end baseline
 
 ## Must
@@ -55,7 +60,7 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Job lifecycle controls for retry, cancellation, attempt tracking, and dead-letter states
 - [x] Structured observability with correlation IDs, metrics, and traces across request and job flows
 - [x] Contract sync guardrail for ORM models, SQL docs, migrations, and API envelopes
-- [ ] Hybrid retrieval and reranking baseline
+- [x] Hybrid retrieval and reranking baseline
 - [x] Replay and compare runs for processing, insight, report, and mesh flows
 
 ### Frontend
@@ -63,20 +68,20 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Auth flow and permission-aware UI states
 - [x] Job operations screen with progress, retry, cancel, and failure detail
 - [x] Intelligence radar dashboard for daily pilot workflow
-- [ ] Lineage explorer from report and insight to source, document, and chunk
+- [x] Lineage explorer from report and insight to source, document, and chunk
 
 ### Infra
 
 - [x] Dedicated worker process in deployment topology
 - [x] Backend Dockerfile and Next static export baseline for Jenkins deploy
-- [ ] Monitoring and alerting for backlog, latency, and upstream provider failures
-- [ ] Secret management hardening for provider and integration credentials
+- [x] Monitoring and alerting for backlog, latency, and upstream provider failures
+- [x] Secret management hardening for provider and integration credentials
 
 ### Data
 
 - [x] Source versioning and deduplication policy
-- [ ] Artifact retention and deletion audit trail
-- [ ] Evidence snapshot support for reproducible report generation
+- [x] Artifact retention and deletion audit trail
+- [x] Evidence snapshot support for reproducible report generation
 
 ## Should
 

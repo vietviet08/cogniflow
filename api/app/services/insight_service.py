@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import uuid
 from typing import Any
 
@@ -12,18 +11,14 @@ import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-from app.services.chroma_service import get_retrieval_collection
 from app.services.citation_service import hydrate_citations
-from app.services.embedding_service import (
-    LOCAL_EMBEDDING_MODEL,
-    embed_texts_with_local_model,
-)
+from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     normalize_provider,
     resolve_chat_provider_config,
 )
-from app.storage.models import Document, Source
+from app.services.query_service import QueryError, retrieve_hybrid_evidence
 from app.storage.repositories.insight_repository import InsightRepository
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
@@ -93,54 +88,33 @@ def generate_insight(
     except ProviderSettingsError as exc:
         raise InsightError(str(exc)) from exc
 
-    # --- Retrieve evidence ---
     try:
-        query_embedding = embed_texts_with_local_model([query], model_name=LOCAL_EMBEDDING_MODEL)[0]
+        retrieval = retrieve_hybrid_evidence(
+            db,
+            project_id=project_id,
+            query=query,
+            top_k=min(max_sources, 20),
+        )
+    except QueryError as exc:
+        raise InsightError(
+            exc.message,
+            code="INSIGHT_RETRIEVAL_ERROR",
+            status_code=exc.status_code,
+            details=exc.details,
+        ) from exc
     except Exception as exc:
         raise InsightError(
-            "Local embedding backend unavailable during insight retrieval.",
+            "Failed to retrieve evidence for insight generation.",
             code="INSIGHT_RETRIEVAL_ERROR",
             status_code=503,
             details={"stage": "retrieval", "reason": str(exc)[:240]},
         ) from exc
 
-    collection = get_retrieval_collection(LOCAL_EMBEDDING_MODEL)
-    retrieval_error: Exception | None = None
-    try:
-        result = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(max_sources, 20),
-            where={"project_id": str(project_id)},
-        )
-    except Exception as exc:
-        retrieval_error = exc
-        result = {}
+    documents = [record.document for record in retrieval.records]
+    metadatas = [record.metadata for record in retrieval.records]
+    ids = [record.id for record in retrieval.records]
 
-    documents: list[str] = result.get("documents", [[]])[0]
-    metadatas: list[dict] = result.get("metadatas", [[]])[0]
-    ids: list[str] = result.get("ids", [[]])[0]
-
-    if not documents:
-        fallback_records = _load_document_fallback_records(
-            db,
-            project_id=project_id,
-            query=query,
-            limit=min(max_sources, 20),
-        )
-        if fallback_records:
-            documents = [record["document"] for record in fallback_records]
-            metadatas = [record["metadata"] for record in fallback_records]
-            ids = [record["id"] for record in fallback_records]
-
-    if not documents:
-        if retrieval_error is not None:
-            raise InsightError(
-                "Failed to query vector store for insight generation.",
-                code="INSIGHT_RETRIEVAL_ERROR",
-                status_code=503,
-                details={"stage": "retrieval", "reason": str(retrieval_error)[:240]},
-            ) from retrieval_error
-        # No evidence — return empty insight.
+    if not retrieval.records:
         return _persist_insight(
             db,
             project_id=project_id,
@@ -153,6 +127,7 @@ def generate_insight(
             prompt_template=_SYNTHESIS_PROMPT_TEMPLATE,
             max_sources=max_sources,
             parent_run_id=parent_run_id,
+            retrieval_diagnostics=retrieval.diagnostics,
         )
 
     citations = hydrate_citations(db, [
@@ -200,6 +175,7 @@ def generate_insight(
         prompt_template=_SYNTHESIS_PROMPT_TEMPLATE,
         max_sources=max_sources,
         parent_run_id=parent_run_id,
+        retrieval_diagnostics=retrieval.diagnostics,
     )
 
 
@@ -290,9 +266,11 @@ def _persist_insight(
     prompt_template: str,
     max_sources: int,
     parent_run_id: uuid.UUID | None = None,
+    retrieval_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     prompt_hash = hashlib.sha256(prompt_template.encode()).hexdigest()[:16]
     config_hash = hashlib.sha256(f"{provider}:{model_id}".encode()).hexdigest()[:16]
+    evidence_snapshot = _build_evidence_snapshot(citations)
 
     run = ProcessingRunRepository(db).create(
         project_id=project_id,
@@ -301,12 +279,16 @@ def _persist_insight(
         model_id=model_id,
         prompt_hash=prompt_hash,
         config_hash=config_hash,
-        retrieval_config={"embedding_model": LOCAL_EMBEDDING_MODEL},
+        retrieval_config={
+            "embedding_model": LOCAL_EMBEDDING_MODEL,
+            **(retrieval_diagnostics or {}),
+        },
         run_metadata={
             "query": query,
             "provider": provider,
             "max_sources": max_sources,
             "sources_used": len(citations),
+            "evidence_snapshot": evidence_snapshot,
         },
         parent_run_id=parent_run_id,
     )
@@ -333,64 +315,36 @@ def _persist_insight(
         "run_id": str(run.id),
         "provider": provider,
         "model": model_id,
+        "retrieval": retrieval_diagnostics or {},
+        "evidence_snapshot": evidence_snapshot,
     }
 
 
-def _load_document_fallback_records(
-    db: Session,
-    *,
-    project_id: uuid.UUID,
-    query: str,
-    limit: int,
-) -> list[dict[str, Any]]:
-    rows = (
-        db.query(Document, Source)
-        .join(Source, Document.source_id == Source.id)
-        .filter(Source.project_id == project_id)
-        .order_by(Document.created_at.desc())
-        .all()
-    )
-    if not rows:
-        return []
-
-    terms = _tokenize_query(query)
-    ranked: list[tuple[int, Document, Source, str]] = []
-    for document, source in rows:
-        clean_text = (document.clean_text or "").strip()
-        if not clean_text:
-            continue
-        lowered = clean_text.lower()
-        score = sum(1 for term in terms if term in lowered)
-        ranked.append((score, document, source, clean_text[:2400]))
-
-    if not ranked:
-        return []
-
-    ranked.sort(key=lambda item: (item[0], item[1].created_at), reverse=True)
-    filtered = [item for item in ranked if item[0] > 0] or ranked
-    selected = filtered[: max(limit, 1)]
-
-    records: list[dict[str, Any]] = []
-    for _, document, source, content in selected:
-        source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
-        records.append(
+def _build_evidence_snapshot(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    snapshot: list[dict[str, Any]] = []
+    for index, citation in enumerate(citations, start=1):
+        quote = str(citation.get("quote") or "")
+        snapshot.append(
             {
-                "id": str(document.id),
-                "document": content,
-                "metadata": {
-                    "project_id": str(project_id),
-                    "source_id": str(source.id),
-                    "source_type": source.type,
-                    "document_id": str(document.id),
-                    "chunk_id": f"doc-{document.id}",
-                    "chunk_index": 0,
-                    "title": document.title or source.original_uri or "Imported source",
-                    "url": str(source_metadata.get("external_url") or ""),
-                },
+                "index": index,
+                "citation_id": citation.get("citation_id"),
+                "source_id": citation.get("source_id"),
+                "document_id": citation.get("document_id"),
+                "chunk_id": citation.get("chunk_id"),
+                "title": citation.get("title"),
+                "url": citation.get("url"),
+                "page_number": citation.get("page_number"),
+                "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest()[:16]
+                if quote
+                else None,
+                "quote_preview": _preview(quote),
             }
         )
-    return records
+    return snapshot
 
 
-def _tokenize_query(query: str) -> list[str]:
-    return [token for token in re.findall(r"[a-z0-9]+", query.lower()) if len(token) > 1]
+def _preview(value: str, *, limit: int = 360) -> str:
+    clean = " ".join(value.split())
+    if len(clean) <= limit:
+        return clean
+    return f"{clean[: limit - 3]}..."

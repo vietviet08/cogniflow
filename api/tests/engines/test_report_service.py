@@ -1,7 +1,7 @@
 import uuid
 
 from app.services import report_service
-from app.storage.models import Chunk, Document, Project, Report, Source
+from app.storage.models import Chunk, Document, ProcessingRun, Project, Report, Source
 
 
 def test_generate_action_items_report_persists_structured_payload(db_session, monkeypatch):
@@ -68,6 +68,7 @@ def test_generate_action_items_report_persists_structured_payload(db_session, mo
                     "chunk_id": str(chunk.id),
                     "title": "Project Handoff",
                     "url": "",
+                    "quote": chunk.content,
                 }
             ],
             "run_id": str(uuid.uuid4()),
@@ -128,6 +129,11 @@ def test_generate_action_items_report_persists_structured_payload(db_session, mo
     assert persisted is not None
     assert persisted.structured_payload is not None
     assert persisted.structured_payload["items"][0]["owner_suggested"] == "Alice"
+
+    run = db_session.get(ProcessingRun, uuid.UUID(result["run_id"]))
+    assert run is not None
+    assert run.run_metadata["evidence_snapshot"][0]["chunk_id"] == str(chunk.id)
+    assert run.run_metadata["evidence_snapshot"][0]["quote_preview"] == chunk.content
 
 
 def test_update_action_item_status_updates_payload_and_markdown(db_session):

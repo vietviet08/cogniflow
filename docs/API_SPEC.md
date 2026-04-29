@@ -372,6 +372,10 @@ Response data:
 - `GET /sources/{source_id}/artifact`
 - `DELETE /sources/bulk`
 
+Bulk delete removes the source graph (`sources -> documents -> chunks`), attempts to remove owned
+local artifacts under `UPLOAD_DIR`, deletes vector records when Chroma is reachable, and writes a
+`source.delete` row to `audit_logs` with the deletion/retention result.
+
 ## Source Integrations
 
 Project integrations import external knowledge into the same source/document/chunk pipeline.
@@ -580,6 +584,14 @@ Response data:
   "answer": "...",
   "provider": "gemini",
   "model": "gemini-2.5-flash",
+  "retrieval": {
+    "mode": "hybrid",
+    "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "semantic_candidates": 12,
+    "lexical_candidates": 8,
+    "returned": 8,
+    "reranker": "reciprocal_rank_fusion"
+  },
   "citations": [
     {
       "citation_id": "chk_045",
@@ -598,7 +610,9 @@ Notes:
 
 - `provider` supports `openai` and `gemini`
 - the answer model comes from the project provider settings UI/API
-- retrieval uses the local multilingual embedding backend:
+- retrieval uses a hybrid path: local multilingual vector retrieval plus lexical chunk retrieval,
+  merged with reciprocal-rank-fusion reranking
+- vector retrieval uses the local multilingual embedding backend:
   `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 
 ## Chat
@@ -644,6 +658,11 @@ Response data:
   "run_id": "run_insight_001",
   "status": "completed",
   "created_at": "2026-04-12T10:05:00Z",
+  "retrieval": {
+    "mode": "hybrid",
+    "reranker": "reciprocal_rank_fusion"
+  },
+  "evidence_snapshot": [],
   "citations": []
 }
 ```
@@ -656,6 +675,13 @@ Async mode response:
   "status": "queued"
 }
 ```
+
+### Get Insight Lineage
+
+`GET /insights/{insight_id}/lineage`
+
+Returns the insight-level audit graph: insight node, run metadata, sources, documents, chunks,
+citations, and summary counts.
 
 ## Reports
 
@@ -697,7 +723,8 @@ Response data:
   "content": "# Research Brief",
   "structured_payload": null,
   "status": "completed",
-  "run_id": "run_report_001"
+  "run_id": "run_report_001",
+  "evidence_snapshot": []
 }
 ```
 
@@ -723,9 +750,27 @@ Response data:
 ```json
 {
   "report_id": "rep_001",
+  "report": {
+    "report_id": "rep_001",
+    "title": "Research Brief: AI research infrastructure 2026",
+    "type": "research_brief",
+    "status": "completed"
+  },
   "insight_ids": ["ins_001", "ins_002"],
   "source_ids": ["src_001", "src_005"],
-  "run_id": "run_report_001"
+  "run_id": "run_report_001",
+  "runs": [],
+  "insights": [],
+  "sources": [],
+  "citations": [],
+  "summary": {
+    "insight_count": 2,
+    "source_count": 2,
+    "document_count": 2,
+    "chunk_count": 8,
+    "citation_count": 8,
+    "run_count": 3
+  }
 }
 ```
 
@@ -832,6 +877,46 @@ Response data:
     "job_latency_ms": {},
     "recent_events": []
   }
+}
+```
+
+### Operations SLO Snapshot
+
+`GET /ops/slo`
+
+Protected admin endpoint for queue, latency, job reliability, provider failure, and alert state.
+
+Response data:
+
+```json
+{
+  "status": "warning",
+  "jobs": {
+    "status_counts": {
+      "queued": 26,
+      "running": 0,
+      "completed": 100,
+      "failed": 1,
+      "dead_letter": 1,
+      "cancelled": 0
+    },
+    "queue_counts": [
+      {
+        "queue_name": "processing",
+        "queued": 26,
+        "running": 0,
+        "backlog": 26
+      }
+    ],
+    "failure_rate": 0.0196,
+    "provider_failures": 1
+  },
+  "alerts": [
+    {
+      "code": "QUEUE_BACKLOG_HIGH",
+      "severity": "warning"
+    }
+  ]
 }
 ```
 

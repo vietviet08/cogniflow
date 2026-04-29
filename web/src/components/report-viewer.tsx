@@ -9,7 +9,6 @@ import {
   Download,
   FileText,
   History,
-  Quote,
   RefreshCcw,
   ShieldAlert,
 } from "lucide-react";
@@ -41,6 +40,7 @@ import { canEditProject } from "@/lib/permissions";
 import { getActiveProject } from "@/lib/project-store";
 
 import { useCitationViewer } from "@/components/citation-viewer-provider";
+import { LineageExplorer } from "@/components/lineage-explorer";
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -923,44 +923,8 @@ export function ReportViewer() {
                 onActionItemStatusChange={handleActionItemStatusChange}
               />
 
-              {lineage && lineage.source_ids.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center gap-2">
-                      <Quote className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-base">
-                        Document Lineage
-                      </CardTitle>
-                      <Badge variant="outline" className="ml-auto">
-                        {lineage.source_ids.length} sources
-                      </Badge>
-                    </div>
-                    <CardDescription>
-                      This output was generated from verified chunks across{" "}
-                      {lineage.source_ids.length} indexed source(s).
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="grid gap-px bg-border">
-                      {lineage.source_ids.map((sourceId) => (
-                        <div
-                          key={sourceId}
-                          className="flex items-center justify-between bg-card px-6 py-4"
-                        >
-                          <p className="text-sm font-mono text-muted-foreground">
-                            Source ID: {sourceId}
-                          </p>
-                          <a
-                            href={`/sources?id=${sourceId}`}
-                            className="text-xs text-primary hover:underline"
-                          >
-                            View details
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+              {lineage && lineage.summary.citation_count > 0 && (
+                <LineageExplorer lineage={lineage} />
               )}
             </>
           ) : null}

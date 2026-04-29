@@ -14,8 +14,10 @@ Status cập nhật ngày `2026-04-28`:
 - Đã có baseline production foundation cho `auth/RBAC`, `async worker`, và `request/job observability`
 - Đã có P0 portfolio readiness baseline: frontend build sạch, Dockerfile backend, static export,
   demo seed/golden path, intelligence radar dashboard, và run replay/compare baseline
-- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có hybrid retrieval, external metrics/alerts,
-  secret encryption cho provider credentials, và evidence snapshot support đầy đủ
+- Đã có P1 portfolio readiness baseline: hybrid retrieval/reranking, lineage explorer,
+  operations SLO dashboard, secret encryption, deletion audit trail, và evidence snapshots
+- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có scheduled reports, retrieval evaluation,
+  staging smoke tests, và go-live incident playbook đầy đủ
 
 ## Roadmap Mapping
 
@@ -35,14 +37,14 @@ Status cập nhật ngày `2026-04-28`:
 - [x] Reprocessing cùng source thay thế document/chunk cũ thay vì nhân bản
 - [x] Có API để inspect `documents`, `chunks`, `processing_runs` sau khi xử lý
 - [x] Async worker hóa processing flow
-- [ ] Metrics/observability cho indexing latency
+- [x] Metrics/observability cho indexing latency
 
 ## Goal Coverage
 
 - [x] Goal 1: Transform information into actionable insight
 - [x] Goal 2: Maintain durable and queryable knowledge base
 - [x] Goal 3: Evidence-first outputs with citation traceability
-- [~] Goal 4: Reproducible runs for audit and drift analysis
+- [x] Goal 4: Reproducible runs for audit and drift analysis
 - [~] Goal 5: Reliable operations at async/high-volume workload
 
 ## Phase 1: Knowledge Foundation
@@ -51,7 +53,7 @@ Status cập nhật ngày `2026-04-28`:
 - [x] Ingestion baseline (file + URL) hoạt động end-to-end
 - [x] Processing baseline (extract, chunk, embedding, Chroma indexing)
 - [x] Retrieval baseline có semantic query path
-- [ ] Hybrid retrieval path
+- [x] Hybrid retrieval path
 - [x] Async worker-based execution cho processing
 
 ### API and Data
@@ -63,7 +65,7 @@ Status cập nhật ngày `2026-04-28`:
 
 ### Readiness Gate
 - [x] Query trả lời có citation tối thiểu ở mức baseline
-- [ ] P95 indexing lag và query latency được đo
+- [x] P95 indexing lag và query latency được đo
 - [x] Frontend upload + query flow đã có implementation cho Phase 1
 - [ ] Smoke test backend/frontend pass trên môi trường cài đủ dependency
 
@@ -77,12 +79,12 @@ Status cập nhật ngày `2026-04-28`:
 ### Contracts
 - [x] `POST /insights/generate` chạy async với `job_id` (synchronous API wrapper available)
 - [x] Insight output có citation map tới source/chunk
-- [x] Lưu run metadata (model/prompt/config hash)
+- [x] Lưu run metadata (model/prompt/config hash/evidence snapshot)
 
 ### Readiness Gate
 - [x] Replay được run insight với cấu hình cũ
-- [ ] Insight quality baseline có metric theo dõi
-- [ ] Regression tests cho insight contract pass
+- [~] Insight quality baseline có metric theo dõi
+- [x] Regression tests cho insight contract pass
 
 ## Phase 3: Report Layer
 
@@ -117,15 +119,15 @@ Status cập nhật ngày `2026-04-28`:
 ### Scope
 - [ ] Crawler/RSS scheduling vận hành ổn định
 - [ ] Queue safety (retry/backoff/dead-letter/idempotency)
-- [ ] Retention/deletion policy và audit events
+- [x] Retention/deletion policy và audit events
 
 ### Operations
-- [ ] Dashboard SLO (availability, success ratio, latency, lag)
-- [ ] Alerting cho queue backlog, fail rate, timeout
-- [ ] Security baseline (authN/authZ/encryption/audit) được enforce
+- [x] Dashboard SLO (availability, success ratio, latency, lag)
+- [x] Alerting cho queue backlog, fail rate, timeout
+- [x] Security baseline (authN/authZ/encryption/audit) được enforce
 
 ### Readiness Gate
-- [ ] Job success ratio đạt mục tiêu baseline
+- [~] Job success ratio đạt mục tiêu baseline
 - [ ] Chính sách governance chạy tự động theo lịch
 - [ ] Incident playbook cho lỗi trọng yếu đã có
 
@@ -134,6 +136,6 @@ Status cập nhật ngày `2026-04-28`:
 - [ ] All phase readiness gates hoàn tất
 - [x] API docs, schema, code implementation đồng bộ cho auth/worker/observability baseline
 - [~] CI pipeline ổn định (lint/typecheck/test/integration)
-- [~] Reproducibility + lineage verified ở môi trường staging
+- [x] Reproducibility + lineage verified ở môi trường staging
 - [ ] UAT với nhóm user mục tiêu pass
 - [ ] Go-live checklist và rollback plan hoàn tất

@@ -16,9 +16,11 @@ import {
   exportProjectInsights,
   generateInsight,
   getInsight,
+  getInsightLineage,
   listInsights,
 } from "@/lib/api/client";
 import type {
+  InsightLineage,
   InsightResult,
   InsightListItem,
   ProjectRole,
@@ -48,6 +50,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { PageWrapper } from "@/components/layout/page-wrapper";
+import { LineageExplorer } from "@/components/lineage-explorer";
 
 export function InsightConsole() {
   const { openCitation } = useCitationViewer();
@@ -62,6 +65,7 @@ export function InsightConsole() {
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [insight, setInsight] = useState<InsightResult | null>(null);
+  const [lineage, setLineage] = useState<InsightLineage | null>(null);
   const [history, setHistory] = useState<InsightListItem[]>([]);
 
   useEffect(() => {
@@ -106,6 +110,7 @@ export function InsightConsole() {
     }
     setBusy(true);
     setInsight(null);
+    setLineage(null);
     const toastId = toast.loading(`Synthesizing evidence with ${provider}...`);
     try {
       const response = await generateInsight({
@@ -115,6 +120,7 @@ export function InsightConsole() {
         maxSources: 20,
       });
       setInsight(response.data);
+      await loadLineage(response.data.insight_id);
       toast.success(`Synthesis completed successfully.`, { id: toastId });
       loadHistory();
     } catch (error) {
@@ -133,11 +139,22 @@ export function InsightConsole() {
       const response = await getInsight(insightId);
       setInsight(response.data);
       setQuery(response.data.query);
+      await loadLineage(insightId);
       toast.success("Insight loaded.");
     } catch {
       toast.error("Failed to load full insight.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function loadLineage(insightId: string) {
+    try {
+      const response = await getInsightLineage(insightId);
+      setLineage(response.data);
+    } catch (error) {
+      console.error("Failed to load insight lineage", error);
+      setLineage(null);
     }
   }
 
@@ -419,6 +436,10 @@ export function InsightConsole() {
                     </div>
                   </CardContent>
                 </Card>
+              )}
+
+              {lineage && lineage.summary.citation_count > 0 && (
+                <LineageExplorer lineage={lineage} />
               )}
             </>
           ) : null}

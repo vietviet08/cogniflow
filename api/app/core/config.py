@@ -21,6 +21,10 @@ class Settings(BaseSettings):
         default="dev-integration-oauth-state-secret",
         alias="INTEGRATION_OAUTH_STATE_SECRET",
     )
+    secret_encryption_key: str = Field(
+        default="dev-secret-encryption-key-change-me",
+        alias="SECRET_ENCRYPTION_KEY",
+    )
     google_oauth_client_id: str | None = Field(default=None, alias="GOOGLE_OAUTH_CLIENT_ID")
     google_oauth_client_secret: str | None = Field(
         default=None,
@@ -48,6 +52,22 @@ class Settings(BaseSettings):
     intelligence_default_alert_threshold: str = Field(
         default="medium",
         alias="INTELLIGENCE_DEFAULT_ALERT_THRESHOLD",
+    )
+    ops_queue_backlog_warning_threshold: int = Field(
+        default=25,
+        alias="OPS_QUEUE_BACKLOG_WARNING_THRESHOLD",
+    )
+    ops_queue_lag_warning_seconds: int = Field(
+        default=300,
+        alias="OPS_QUEUE_LAG_WARNING_SECONDS",
+    )
+    ops_job_failure_rate_warning: float = Field(
+        default=0.2,
+        alias="OPS_JOB_FAILURE_RATE_WARNING",
+    )
+    ops_latency_p95_warning_ms: float = Field(
+        default=5000.0,
+        alias="OPS_LATENCY_P95_WARNING_MS",
     )
     api_cors_allow_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
