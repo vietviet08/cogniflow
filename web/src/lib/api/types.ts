@@ -558,6 +558,33 @@ export interface RunCompareData {
     diff: RunDiffData;
 }
 
+export interface SavedSearchData {
+    saved_search_id: string;
+    project_id: string;
+    name: string;
+    query: string;
+    filters: Record<string, unknown>;
+    report_type: ReportType;
+    provider: string;
+    schedule_interval_minutes: number | null;
+    is_active: boolean;
+    created_by_user_id: string | null;
+    last_run_at: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+}
+
+export interface SavedSearchListData {
+    items: SavedSearchData[];
+    total: number;
+}
+
+export interface SavedSearchRunData {
+    saved_search: SavedSearchData;
+    job_id: string;
+    status: string;
+}
+
 export interface ReportQualityCheckData {
     code: string;
     label: string;

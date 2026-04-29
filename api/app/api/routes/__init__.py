@@ -16,6 +16,7 @@ from app.api.routes import (
     reports,
     reviews,
     runs,
+    saved_searches,
     share_links,
     sources,
 )
@@ -37,6 +38,7 @@ api_router.include_router(insights.router, tags=["insights"])
 api_router.include_router(reports.router, tags=["reports"])
 api_router.include_router(reviews.router, tags=["reviews"])
 api_router.include_router(runs.router, tags=["runs"])
+api_router.include_router(saved_searches.router, tags=["saved-searches"])
 api_router.include_router(share_links.router, tags=["share-links"])
 api_router.include_router(share_links.public_router, tags=["public"])
 api_router.include_router(organizations.router, tags=["organizations"])

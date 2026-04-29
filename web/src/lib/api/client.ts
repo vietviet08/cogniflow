@@ -49,6 +49,9 @@ import type {
     ResearchReviewData,
     ResearchReviewListData,
     RunCompareData,
+    SavedSearchData,
+    SavedSearchListData,
+    SavedSearchRunData,
     ReportType,
     ShareLinkData,
     ShareLinkListData,
@@ -691,6 +694,51 @@ export function decideResearchReview(payload: {
                 review_notes: payload.reviewNotes,
             }),
         },
+    );
+}
+
+export function createSavedSearch(payload: {
+    projectId: string;
+    name: string;
+    query: string;
+    filters?: Record<string, unknown>;
+    reportType?: ReportType;
+    provider?: string;
+    scheduleIntervalMinutes?: number | null;
+    isActive?: boolean;
+}): Promise<ApiSuccess<SavedSearchData>> {
+    return requestJson<SavedSearchData>(
+        `/projects/${payload.projectId}/saved-searches`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                name: payload.name,
+                query: payload.query,
+                filters: payload.filters,
+                report_type: payload.reportType ?? "research_brief",
+                provider: payload.provider ?? "openai",
+                schedule_interval_minutes: payload.scheduleIntervalMinutes,
+                is_active: payload.isActive ?? true,
+            }),
+        },
+    );
+}
+
+export function listSavedSearches(
+    projectId: string,
+): Promise<ApiSuccess<SavedSearchListData>> {
+    return requestJson<SavedSearchListData>(
+        `/projects/${projectId}/saved-searches`,
+    );
+}
+
+export function runSavedSearch(payload: {
+    projectId: string;
+    savedSearchId: string;
+}): Promise<ApiSuccess<SavedSearchRunData>> {
+    return requestJson<SavedSearchRunData>(
+        `/projects/${payload.projectId}/saved-searches/${payload.savedSearchId}/run`,
+        { method: "POST" },
     );
 }
 

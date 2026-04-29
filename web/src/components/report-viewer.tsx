@@ -19,11 +19,14 @@ import remarkGfm from "remark-gfm";
 
 import {
   compareRuns,
+  createSavedSearch,
   generateReport,
   getReport,
   getReportLineage,
   getReportQuality,
   listReports,
+  listSavedSearches,
+  runSavedSearch,
   updateActionItemStatus,
 } from "@/lib/api/client";
 import type {
@@ -40,6 +43,7 @@ import type {
   RiskAnalysisPayload,
   RiskItemData,
   RunCompareData,
+  SavedSearchData,
   StructuredReportPayload,
 } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
@@ -630,6 +634,130 @@ function RunDiffPanel({
   );
 }
 
+function SavedSearchPanel({
+  query,
+  reportType,
+  provider,
+  savedSearches,
+  saving,
+  runningId,
+  canMutateProject,
+  onSave,
+  onRun,
+  onRefresh,
+}: {
+  query: string;
+  reportType: ReportType;
+  provider: string;
+  savedSearches: SavedSearchData[];
+  saving: boolean;
+  runningId: string | null;
+  canMutateProject: boolean;
+  onSave: (name: string, intervalMinutes: number | null) => void;
+  onRun: (savedSearch: SavedSearchData) => void;
+  onRefresh: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [interval, setInterval] = useState("10080");
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle className="text-base">Saved Searches</CardTitle>
+          <CardDescription>
+            Save recurring research prompts and queue scheduled report runs.
+          </CardDescription>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onRefresh}
+        >
+          <RefreshCcw className="h-3.5 w-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="grid gap-2">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Saved search name"
+            disabled={!canMutateProject}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          />
+          <Select value={interval} onValueChange={setInterval}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1440">Daily</SelectItem>
+              <SelectItem value="10080">Weekly</SelectItem>
+              <SelectItem value="43200">Monthly</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              onSave(name || query.slice(0, 48) || "Saved research", Number(interval));
+              setName("");
+            }}
+            disabled={saving || !query || !canMutateProject}
+            className="gap-2"
+          >
+            {saving ? <Spinner size="sm" /> : null}
+            Save current prompt
+          </Button>
+        </div>
+        <div className="flex flex-col gap-2">
+          {savedSearches.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No saved searches yet.
+            </p>
+          ) : (
+            savedSearches.slice(0, 4).map((item) => (
+              <div
+                key={item.saved_search_id}
+                className="rounded-xl border border-border bg-muted/20 p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="line-clamp-1 text-sm font-medium">
+                    {item.name}
+                  </span>
+                  <Badge variant="outline" className="ml-auto">
+                    {item.schedule_interval_minutes
+                      ? `${Math.round(item.schedule_interval_minutes / 1440)}d`
+                      : "manual"}
+                  </Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                  {item.query}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRun(item)}
+                  disabled={runningId === item.saved_search_id || !canMutateProject}
+                  className="mt-2 h-7 px-2 text-xs"
+                >
+                  {runningId === item.saved_search_id ? <Spinner size="sm" /> : null}
+                  Queue report
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Current template: {getReportTypeLabel(reportType)} via {provider}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function StructuredReportView({
   report,
   updatingItemId,
@@ -701,6 +829,8 @@ export function ReportViewer() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingQuality, setLoadingQuality] = useState(false);
   const [comparingRuns, setComparingRuns] = useState(false);
+  const [savingSearch, setSavingSearch] = useState(false);
+  const [runningSavedSearchId, setRunningSavedSearchId] = useState<string | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
   const [report, setReport] = useState<ReportResult | null>(null);
@@ -708,6 +838,7 @@ export function ReportViewer() {
   const [quality, setQuality] = useState<ReportQualityData | null>(null);
   const [runDiff, setRunDiff] = useState<RunCompareData | null>(null);
   const [history, setHistory] = useState<ReportListItem[]>([]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearchData[]>([]);
   const [leftReportId, setLeftReportId] = useState("");
   const [rightReportId, setRightReportId] = useState("");
 
@@ -726,6 +857,7 @@ export function ReportViewer() {
   useEffect(() => {
     if (!activeProjectId) return;
     void loadHistory();
+    void loadSavedSearches();
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -748,6 +880,16 @@ export function ReportViewer() {
       console.error("Failed to load history", error);
     } finally {
       setLoadingHistory(false);
+    }
+  }
+
+  async function loadSavedSearches() {
+    if (!activeProjectId) return;
+    try {
+      const response = await listSavedSearches(activeProjectId);
+      setSavedSearches(response.data.items);
+    } catch (error) {
+      console.error("Failed to load saved searches", error);
     }
   }
 
@@ -847,6 +989,48 @@ export function ReportViewer() {
       toast.error(error instanceof Error ? error.message : "Failed to compare runs.");
     } finally {
       setComparingRuns(false);
+    }
+  }
+
+  async function handleSaveSearch(name: string, intervalMinutes: number | null) {
+    if (!activeProjectId || !query) return;
+    if (!canMutateProject) {
+      toast.error("Saving searches requires editor role or higher.");
+      return;
+    }
+    setSavingSearch(true);
+    try {
+      await createSavedSearch({
+        projectId: activeProjectId,
+        name,
+        query,
+        reportType,
+        provider,
+        scheduleIntervalMinutes: intervalMinutes,
+      });
+      toast.success("Saved search created.");
+      await loadSavedSearches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save search.");
+    } finally {
+      setSavingSearch(false);
+    }
+  }
+
+  async function handleRunSavedSearch(savedSearch: SavedSearchData) {
+    if (!activeProjectId) return;
+    setRunningSavedSearchId(savedSearch.saved_search_id);
+    try {
+      const response = await runSavedSearch({
+        projectId: activeProjectId,
+        savedSearchId: savedSearch.saved_search_id,
+      });
+      toast.success(`Queued report job ${response.data.job_id.slice(0, 8)}.`);
+      await loadSavedSearches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to queue saved search.");
+    } finally {
+      setRunningSavedSearchId(null);
     }
   }
 
@@ -1053,6 +1237,21 @@ export function ReportViewer() {
               </form>
             </CardContent>
           </Card>
+
+          <SavedSearchPanel
+            query={query}
+            reportType={reportType}
+            provider={provider}
+            savedSearches={savedSearches}
+            saving={savingSearch}
+            runningId={runningSavedSearchId}
+            canMutateProject={canMutateProject}
+            onSave={(name, intervalMinutes) =>
+              void handleSaveSearch(name, intervalMinutes)
+            }
+            onRun={(savedSearch) => void handleRunSavedSearch(savedSearch)}
+            onRefresh={() => void loadSavedSearches()}
+          />
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between py-4">
