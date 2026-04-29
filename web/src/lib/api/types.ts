@@ -746,5 +746,10 @@ export interface ChatSendResponse {
         role: string;
         content: string;
         citations: CitationData[] | null;
+        retrieval?: Record<string, unknown> | null;
+    };
+    context?: {
+        history_turns_used: number;
+        history_aware_retrieval: boolean;
     };
 }
