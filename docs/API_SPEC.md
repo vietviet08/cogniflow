@@ -372,6 +372,10 @@ Response data:
 - `GET /sources/{source_id}/artifact`
 - `DELETE /sources/bulk`
 
+Source inventory items include source quality metadata (`parser`, `parser_warnings`,
+`ocr_confidence`, `freshness_score`, `trust_score`) and standardized retrieval filters
+(`author`, `published_at`, `language`, `tags`) when available.
+
 Bulk delete removes the source graph (`sources -> documents -> chunks`), attempts to remove owned
 local artifacts under `UPLOAD_DIR`, deletes vector records when Chroma is reachable, and writes a
 `source.delete` row to `audit_logs` with the deletion/retention result.
@@ -571,7 +575,10 @@ Request:
   "query": "What are major trends in AI agent infrastructure?",
   "provider": "gemini",
   "filters": {
-    "source_types": ["url", "pdf"]
+    "source_types": ["url", "pdf"],
+    "author": "Ada Lovelace",
+    "language": "en",
+    "tags": ["pricing"]
   },
   "top_k": 8
 }
@@ -612,12 +619,16 @@ Notes:
 - the answer model comes from the project provider settings UI/API
 - retrieval uses a hybrid path: local multilingual vector retrieval plus lexical chunk retrieval,
   merged with reciprocal-rank-fusion reranking
+- retrieval filters use standardized source metadata fields when present:
+  `source_types`, `author`, `published_at`, `language`, and `tags`
 - vector retrieval uses the local multilingual embedding backend:
   `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 
 ## Chat
 
 Chat sessions persist conversational research history and reuse the query engine for grounded answers.
+Follow-up messages pass recent turns into retrieval and generation so pronouns and references can be
+resolved against the active research thread.
 
 - `POST /projects/{project_id}/chat/sessions`
 - `GET /projects/{project_id}/chat/sessions`
@@ -777,6 +788,78 @@ Response data:
 ### Update Action Item Status
 
 `PUT /reports/{report_id}/action-items/{item_id}`
+
+### Report Quality Evaluation
+
+`GET /reports/{report_id}/quality`
+
+Returns deterministic citation coverage, citation fidelity, source diversity, and evidence snapshot
+checks for reviewer confidence.
+
+## Saved Searches
+
+Saved searches store recurring research prompts and can queue scheduled report runs.
+
+- `POST /projects/{project_id}/saved-searches`
+- `GET /projects/{project_id}/saved-searches`
+- `PATCH /projects/{project_id}/saved-searches/{saved_search_id}`
+- `POST /projects/{project_id}/saved-searches/{saved_search_id}/run`
+
+Create request:
+
+```json
+{
+  "name": "Weekly pricing changes",
+  "query": "What changed in pricing this week?",
+  "filters": {
+    "language": "en",
+    "tags": ["pricing"]
+  },
+  "report_type": "executive_brief",
+  "provider": "openai",
+  "schedule_interval_minutes": 10080,
+  "is_active": true
+}
+```
+
+Run response data:
+
+```json
+{
+  "saved_search": {
+    "saved_search_id": "ss_001",
+    "last_run_at": "2026-04-29T10:00:00Z"
+  },
+  "job_id": "job_report_001",
+  "status": "queued"
+}
+```
+
+## Research Reviews
+
+Generic human review workflow for generated insights and reports.
+
+- `POST /projects/{project_id}/reviews`
+- `GET /projects/{project_id}/reviews`
+- `POST /projects/{project_id}/reviews/{review_id}/decision`
+
+Create request:
+
+```json
+{
+  "target_type": "report",
+  "target_id": "rep_001"
+}
+```
+
+Decision request:
+
+```json
+{
+  "status": "approved",
+  "review_notes": "Citations are sufficient for sharing."
+}
+```
 
 ## Reproducibility
 

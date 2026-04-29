@@ -4,7 +4,7 @@ Checklist này dùng để theo dõi tiến độ triển khai theo phase, bám 
 
 ## Current Snapshot
 
-Status cập nhật ngày `2026-04-28`:
+Status cập nhật ngày `2026-04-29`:
 
 - Theo roadmap của bạn: `Phase 1 complete`, `Phase 2 complete`, `Phase 3 baseline complete`
 - Theo phase naming trong docs repo: `Phase 1 complete`, `Phase 2 Insight Layer chưa bắt đầu`
@@ -16,8 +16,11 @@ Status cập nhật ngày `2026-04-28`:
   demo seed/golden path, intelligence radar dashboard, và run replay/compare baseline
 - Đã có P1 portfolio readiness baseline: hybrid retrieval/reranking, lineage explorer,
   operations SLO dashboard, secret encryption, deletion audit trail, và evidence snapshots
-- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có scheduled reports, retrieval evaluation,
-  staging smoke tests, và go-live incident playbook đầy đủ
+- Đã có P2 portfolio readiness baseline: history-aware chat, saved searches/scheduled report queue,
+  report quality evaluation, report diff viewer, research review workflow, source quality metadata,
+  staging smoke script, và CI contract/migration/build guardrails
+- Vẫn chưa đóng hoàn toàn theo nghĩa production: chưa có UAT pilot thật, connector mở rộng đầy đủ
+  cho Notion/Slack/Confluence/RSS, và go-live incident playbook đầy đủ
 
 ## Roadmap Mapping
 
@@ -67,7 +70,7 @@ Status cập nhật ngày `2026-04-28`:
 - [x] Query trả lời có citation tối thiểu ở mức baseline
 - [x] P95 indexing lag và query latency được đo
 - [x] Frontend upload + query flow đã có implementation cho Phase 1
-- [ ] Smoke test backend/frontend pass trên môi trường cài đủ dependency
+- [x] Smoke test backend/frontend pass trên môi trường cài đủ dependency
 
 ## Phase 2: Insight Layer
 
@@ -83,7 +86,7 @@ Status cập nhật ngày `2026-04-28`:
 
 ### Readiness Gate
 - [x] Replay được run insight với cấu hình cũ
-- [~] Insight quality baseline có metric theo dõi
+- [x] Insight/report quality baseline có metric theo dõi
 - [x] Regression tests cho insight contract pass
 
 ## Phase 3: Report Layer
@@ -96,6 +99,7 @@ Status cập nhật ngày `2026-04-28`:
 ### Contracts
 - [x] `POST /reports/generate`, `GET /reports/{id}` hoạt động
 - [x] `GET /reports/{id}/lineage` trả đúng upstream references
+- [x] `GET /reports/{id}/quality` trả quality/citation fidelity checks
 - [x] Report artifact lưu trữ được trong object storage (database backed)
 
 ### Readiness Gate
@@ -117,9 +121,11 @@ Status cập nhật ngày `2026-04-28`:
 ## Phase 5: Scale and Governance
 
 ### Scope
-- [ ] Crawler/RSS scheduling vận hành ổn định
+- [~] Crawler/RSS scheduling vận hành ổn định (saved-search scheduled report queue baseline đã có)
 - [ ] Queue safety (retry/backoff/dead-letter/idempotency)
 - [x] Retention/deletion policy và audit events
+- [x] Saved searches cho recurring research workflows
+- [x] Source quality metadata và retrieval filters chuẩn hóa
 
 ### Operations
 - [x] Dashboard SLO (availability, success ratio, latency, lag)
@@ -128,14 +134,14 @@ Status cập nhật ngày `2026-04-28`:
 
 ### Readiness Gate
 - [~] Job success ratio đạt mục tiêu baseline
-- [ ] Chính sách governance chạy tự động theo lịch
+- [~] Chính sách governance chạy tự động theo lịch
 - [ ] Incident playbook cho lỗi trọng yếu đã có
 
 ## Cross-Phase Exit Checklist (Project Complete)
 
 - [ ] All phase readiness gates hoàn tất
 - [x] API docs, schema, code implementation đồng bộ cho auth/worker/observability baseline
-- [~] CI pipeline ổn định (lint/typecheck/test/integration)
+- [x] CI pipeline ổn định (lint/typecheck/test/integration)
 - [x] Reproducibility + lineage verified ở môi trường staging
 - [ ] UAT với nhóm user mục tiêu pass
 - [ ] Go-live checklist và rollback plan hoàn tất

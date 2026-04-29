@@ -50,6 +50,13 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 - [x] Secret encryption for provider and integration credentials
 - [x] Source deletion audit trail and evidence snapshots
 - [x] Contract tests for intelligence end-to-end baseline
+- [x] History-aware conversational research chat
+- [x] Saved searches with scheduled report queueing baseline
+- [x] Report quality evaluation for retrieval/citation fidelity
+- [x] Report run diff viewer
+- [x] Research review workflow for insights and reports
+- [x] Source quality metadata and standardized retrieval filters
+- [x] Staging smoke script and CI migration/contract/build guardrails
 
 ## Must
 
@@ -87,27 +94,27 @@ Scope: NoteMesh production hardening backlog derived from the current repository
 
 ### Backend
 
-- [ ] Conversational research engine with history-aware retrieval
-- [ ] Saved search, monitoring, and scheduled reports
-- [ ] Human review workflow for insights and reports
-- [ ] Evaluation pipeline for retrieval quality and citation fidelity
-- [ ] Expanded source connectors (Notion, Slack, Confluence, RSS scheduler)
+- [x] Conversational research engine with history-aware retrieval
+- [x] Saved search, monitoring, and scheduled reports
+- [x] Human review workflow for insights and reports
+- [x] Evaluation pipeline for retrieval quality and citation fidelity
+- [~] Expanded source connectors (Google Drive implemented; Notion, Slack, Confluence, and RSS adapters remain connector-specific extensions)
 
 ### Frontend
 
-- [ ] Research workspace for saved findings, notes, and pinned evidence
-- [ ] Diff view between runs and reports
-- [ ] Citation annotation and review feedback tools
+- [~] Research workspace for saved findings, notes, and pinned evidence (saved searches, chat bookmarks, and pinned citation UX baseline)
+- [x] Diff view between runs and reports
+- [x] Citation annotation and review feedback tools
 
 ### Infra
 
-- [ ] Staging environment with smoke tests and seeded data
-- [~] CI checks for migrations, contracts, and integration flows
+- [x] Staging environment with smoke tests and seeded data
+- [x] CI checks for migrations, contracts, and integration flows
 
 ### Data
 
-- [ ] Source quality metadata (OCR confidence, parser warnings, freshness score, trust score)
-- [ ] Retrieval filter metadata standardization (author, published_at, language, tags)
+- [x] Source quality metadata (OCR confidence, parser warnings, freshness score, trust score)
+- [x] Retrieval filter metadata standardization (author, published_at, language, tags)
 
 ## Nice-to-have
 
