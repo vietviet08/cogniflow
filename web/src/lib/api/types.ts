@@ -516,6 +516,38 @@ export interface ReportListData {
     total: number;
 }
 
+export interface ReportQualityCheckData {
+    code: string;
+    label: string;
+    status: "pass" | "warning" | "fail";
+    score: number;
+    detail: string;
+}
+
+export interface ReportQualityData {
+    report_id: string;
+    project_id: string;
+    status: "pass" | "warning" | "fail";
+    overall_score: number;
+    metrics: {
+        citation_count: number;
+        source_count: number;
+        chunk_count: number;
+        structured_item_count: number;
+        items_with_citations: number;
+        missing_quote_count: number;
+        evidence_snapshot_count: number;
+    };
+    scores: {
+        citation_coverage: number;
+        citation_fidelity: number;
+        source_diversity: number;
+        evidence_snapshot: number;
+    };
+    checks: ReportQualityCheckData[];
+    recommendations: string[];
+}
+
 export type IntelligenceSeverity = "low" | "medium" | "high";
 
 export interface IntelligenceSourceData {

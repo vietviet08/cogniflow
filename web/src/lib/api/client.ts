@@ -43,6 +43,7 @@ import type {
     QueryResultData,
     ReportLineage,
     ReportListData,
+    ReportQualityData,
     ReportResult,
     IntegrationProvider,
     ReportType,
@@ -621,6 +622,12 @@ export function getReportLineage(
     reportId: string,
 ): Promise<ApiSuccess<ReportLineage>> {
     return requestJson<ReportLineage>(`/reports/${reportId}/lineage`);
+}
+
+export function getReportQuality(
+    reportId: string,
+): Promise<ApiSuccess<ReportQualityData>> {
+    return requestJson<ReportQualityData>(`/reports/${reportId}/quality`);
 }
 
 export function listReports(

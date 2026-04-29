@@ -8,6 +8,7 @@ from app.api.deps import get_db
 from app.contracts.common import error_response, success_response
 from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
+from app.services.evaluation_service import evaluate_report_quality
 from app.services.report_service import (
     ReportError,
     generate_report,
@@ -169,3 +170,22 @@ def get_report_lineage_route(
     require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
     lineage = get_report_lineage(db, report_id)
     return success_response(request, lineage)
+
+
+@router.get("/{report_id}/quality")
+def get_report_quality_route(
+    report_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    report = ReportRepository(db).get(report_id)
+    if not report:
+        return error_response(
+            request,
+            code="REPORT_NOT_FOUND",
+            message="Report does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
+    return success_response(request, evaluate_report_quality(db, report_id))

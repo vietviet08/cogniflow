@@ -4,10 +4,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
+  CheckCircle2,
   ClipboardList,
   Copy,
   Download,
   FileText,
+  Gauge,
   History,
   RefreshCcw,
   ShieldAlert,
@@ -19,6 +21,7 @@ import {
   generateReport,
   getReport,
   getReportLineage,
+  getReportQuality,
   listReports,
   updateActionItemStatus,
 } from "@/lib/api/client";
@@ -29,6 +32,7 @@ import type {
   ExecutiveBriefPayload,
   ReportLineage,
   ReportListItem,
+  ReportQualityData,
   ReportResult,
   ReportType,
   ProjectRole,
@@ -161,6 +165,12 @@ function getStatusVariant(status: string) {
   if (status === "done" || status === "accepted") return "success";
   if (status === "needs_review") return "warning";
   return "outline";
+}
+
+function getQualityVariant(status: ReportQualityData["status"]) {
+  if (status === "pass") return "success";
+  if (status === "warning") return "warning";
+  return "destructive";
 }
 
 function CitationList({ citations }: { citations: CitationData[] }) {
@@ -411,6 +421,94 @@ function MarkdownPreview({
   );
 }
 
+function ReportQualityPanel({
+  quality,
+  loading,
+  onRefresh,
+}: {
+  quality: ReportQualityData | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  if (!quality && !loading) return null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Quality Evaluation</CardTitle>
+            {quality ? (
+              <Badge variant={getQualityVariant(quality.status)}>
+                {quality.status}
+              </Badge>
+            ) : null}
+          </div>
+          <CardDescription>
+            Citation coverage, fidelity, diversity, and reproducibility checks.
+          </CardDescription>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={loading}
+          className="gap-2"
+        >
+          {loading ? <Spinner size="sm" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+          Refresh
+        </Button>
+      </CardHeader>
+      {quality ? (
+        <CardContent className="grid gap-4 lg:grid-cols-[140px_1fr]">
+          <div className="rounded-xl border border-border bg-muted/20 p-4 text-center">
+            <div className="text-3xl font-semibold">
+              {quality.overall_score}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              overall score
+            </div>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {quality.checks.map((check) => (
+              <div
+                key={check.code}
+                className="rounded-xl border border-border bg-muted/20 p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm font-medium">{check.label}</span>
+                  <Badge
+                    variant={getQualityVariant(check.status)}
+                    className="ml-auto"
+                  >
+                    {Math.round(check.score * 100)}%
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {check.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+          {quality.recommendations.length > 0 ? (
+            <div className="lg:col-span-2 rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+              {quality.recommendations[0]}
+            </div>
+          ) : null}
+        </CardContent>
+      ) : (
+        <CardContent className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Spinner size="sm" />
+          Evaluating report quality...
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 function StructuredReportView({
   report,
   updatingItemId,
@@ -480,10 +578,12 @@ export function ReportViewer() {
 
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingQuality, setLoadingQuality] = useState(false);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
   const [report, setReport] = useState<ReportResult | null>(null);
   const [lineage, setLineage] = useState<ReportLineage | null>(null);
+  const [quality, setQuality] = useState<ReportQualityData | null>(null);
   const [history, setHistory] = useState<ReportListItem[]>([]);
 
   useEffect(() => {
@@ -525,6 +625,19 @@ export function ReportViewer() {
     }
   }
 
+  async function loadQuality(reportId: string) {
+    setLoadingQuality(true);
+    try {
+      const response = await getReportQuality(reportId);
+      setQuality(response.data);
+    } catch (error) {
+      console.error("Failed to load quality evaluation", error);
+      setQuality(null);
+    } finally {
+      setLoadingQuality(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeProjectId) {
@@ -538,6 +651,7 @@ export function ReportViewer() {
     setBusy(true);
     setReport(null);
     setLineage(null);
+    setQuality(null);
     const toastId = toast.loading(
       `Generating ${getReportTypeLabel(reportType)} with ${provider}...`,
     );
@@ -550,6 +664,7 @@ export function ReportViewer() {
       });
       setReport(response.data);
       await loadLineage(response.data.report_id);
+      await loadQuality(response.data.report_id);
       toast.success("Output generated successfully.", { id: toastId });
       void loadHistory();
     } catch {
@@ -561,12 +676,14 @@ export function ReportViewer() {
 
   async function handleLoadReport(reportId: string) {
     setBusy(true);
+    setQuality(null);
     try {
       const response = await getReport(reportId);
       setReport(response.data);
       setReportType(response.data.type);
       setQuery(response.data.query);
       await loadLineage(reportId);
+      await loadQuality(reportId);
       toast.success("Output loaded.");
     } catch {
       toast.error("Failed to load full output.");
@@ -915,6 +1032,14 @@ export function ReportViewer() {
                   </div>
                 </CardHeader>
               </Card>
+
+              <ReportQualityPanel
+                quality={quality}
+                loading={loadingQuality}
+                onRefresh={() => {
+                  if (report) void loadQuality(report.report_id);
+                }}
+              />
 
               <StructuredReportView
                 report={report}
