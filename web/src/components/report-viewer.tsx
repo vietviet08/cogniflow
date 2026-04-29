@@ -18,6 +18,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import {
+  compareRuns,
   generateReport,
   getReport,
   getReportLineage,
@@ -38,6 +39,7 @@ import type {
   ProjectRole,
   RiskAnalysisPayload,
   RiskItemData,
+  RunCompareData,
   StructuredReportPayload,
 } from "@/lib/api/types";
 import { canEditProject } from "@/lib/permissions";
@@ -509,6 +511,124 @@ function ReportQualityPanel({
   );
 }
 
+function RunDiffPanel({
+  history,
+  leftReportId,
+  rightReportId,
+  diff,
+  comparing,
+  onLeftChange,
+  onRightChange,
+  onCompare,
+}: {
+  history: ReportListItem[];
+  leftReportId: string;
+  rightReportId: string;
+  diff: RunCompareData | null;
+  comparing: boolean;
+  onLeftChange: (reportId: string) => void;
+  onRightChange: (reportId: string) => void;
+  onCompare: () => void;
+}) {
+  const comparableReports = history.filter((item) => item.run_id);
+  const changedFields: string[] = [];
+  if (diff?.diff.model_changed) changedFields.push("model");
+  if (diff?.diff.prompt_changed) changedFields.push("prompt");
+  if (diff?.diff.config_changed) changedFields.push("config");
+  if (diff?.diff.retrieval_config_changed) changedFields.push("retrieval");
+  if (diff) {
+    changedFields.push(
+      ...diff.diff.metadata_changed.map((field) => `metadata:${field}`),
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Run Diff</CardTitle>
+        <CardDescription>
+          Compare two generated outputs to spot model, prompt, retrieval, and metadata drift.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="grid gap-3">
+          <Select value={leftReportId} onValueChange={onLeftChange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Left report" />
+            </SelectTrigger>
+            <SelectContent>
+              {comparableReports.map((item) => (
+                <SelectItem key={item.report_id} value={item.report_id}>
+                  {item.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={rightReportId} onValueChange={onRightChange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Right report" />
+            </SelectTrigger>
+            <SelectContent>
+              {comparableReports.map((item) => (
+                <SelectItem key={item.report_id} value={item.report_id}>
+                  {item.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCompare}
+          disabled={
+            comparing ||
+            !leftReportId ||
+            !rightReportId ||
+            leftReportId === rightReportId
+          }
+          className="gap-2"
+        >
+          {comparing ? <Spinner size="sm" /> : <History className="h-3.5 w-3.5" />}
+          Compare Runs
+        </Button>
+
+        {diff ? (
+          <div className="rounded-xl border border-border bg-muted/20 p-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={diff.same_run_type ? "success" : "warning"}>
+                {diff.same_run_type ? "same run type" : "different run types"}
+              </Badge>
+              <Badge variant={changedFields.length ? "warning" : "success"}>
+                {changedFields.length
+                  ? `${changedFields.length} changes`
+                  : "no drift"}
+              </Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {changedFields.length ? (
+                changedFields.map((field) => (
+                  <Badge key={field} variant="outline">
+                    {field}
+                  </Badge>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No model, prompt, config, retrieval, or metadata drift detected.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : comparableReports.length < 2 ? (
+          <p className="text-xs text-muted-foreground">
+            Generate at least two reports with run metadata to compare drift.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function StructuredReportView({
   report,
   updatingItemId,
@@ -579,12 +699,16 @@ export function ReportViewer() {
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingQuality, setLoadingQuality] = useState(false);
+  const [comparingRuns, setComparingRuns] = useState(false);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
 
   const [report, setReport] = useState<ReportResult | null>(null);
   const [lineage, setLineage] = useState<ReportLineage | null>(null);
   const [quality, setQuality] = useState<ReportQualityData | null>(null);
+  const [runDiff, setRunDiff] = useState<RunCompareData | null>(null);
   const [history, setHistory] = useState<ReportListItem[]>([]);
+  const [leftReportId, setLeftReportId] = useState("");
+  const [rightReportId, setRightReportId] = useState("");
 
   useEffect(() => {
     const active = getActiveProject();
@@ -601,6 +725,16 @@ export function ReportViewer() {
     if (!activeProjectId) return;
     void loadHistory();
   }, [activeProjectId]);
+
+  useEffect(() => {
+    const comparableReports = history.filter((item) => item.run_id);
+    if (!leftReportId && comparableReports[0]) {
+      setLeftReportId(comparableReports[0].report_id);
+    }
+    if (!rightReportId && comparableReports[1]) {
+      setRightReportId(comparableReports[1].report_id);
+    }
+  }, [history, leftReportId, rightReportId]);
 
   async function loadHistory() {
     if (!activeProjectId) return;
@@ -689,6 +823,28 @@ export function ReportViewer() {
       toast.error("Failed to load full output.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleCompareRuns() {
+    const left = history.find((item) => item.report_id === leftReportId);
+    const right = history.find((item) => item.report_id === rightReportId);
+    if (!left?.run_id || !right?.run_id) {
+      toast.error("Select two reports with run metadata.");
+      return;
+    }
+    setComparingRuns(true);
+    try {
+      const response = await compareRuns({
+        leftRunId: left.run_id,
+        rightRunId: right.run_id,
+      });
+      setRunDiff(response.data);
+      toast.success("Run diff loaded.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to compare runs.");
+    } finally {
+      setComparingRuns(false);
     }
   }
 
@@ -945,6 +1101,23 @@ export function ReportViewer() {
               )}
             </CardContent>
           </Card>
+
+          <RunDiffPanel
+            history={history}
+            leftReportId={leftReportId}
+            rightReportId={rightReportId}
+            diff={runDiff}
+            comparing={comparingRuns}
+            onLeftChange={(reportId) => {
+              setLeftReportId(reportId);
+              setRunDiff(null);
+            }}
+            onRightChange={(reportId) => {
+              setRightReportId(reportId);
+              setRunDiff(null);
+            }}
+            onCompare={() => void handleCompareRuns()}
+          />
         </div>
 
         <div className="flex flex-col gap-6 lg:col-span-2">

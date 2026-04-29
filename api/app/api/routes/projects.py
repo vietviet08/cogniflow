@@ -433,6 +433,7 @@ def list_project_reports(
                     "format": r.format,
                     "structured_payload": r.structured_payload,
                     "status": r.status,
+                    "run_id": str(r.run_id) if r.run_id else None,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
                 for r in reports

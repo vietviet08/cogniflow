@@ -508,12 +508,41 @@ export interface ReportListItem {
     format: string;
     structured_payload?: StructuredReportPayload | null;
     status: string;
+    run_id: string | null;
     created_at: string;
 }
 
 export interface ReportListData {
     items: ReportListItem[];
     total: number;
+}
+
+export interface RunSummaryData {
+    run_id: string;
+    project_id: string;
+    run_type: string;
+    model_id: string | null;
+    prompt_hash: string | null;
+    config_hash: string | null;
+    parent_run_id: string | null;
+    created_at: string | null;
+    run_metadata: Record<string, unknown>;
+}
+
+export interface RunDiffData {
+    model_changed: boolean;
+    prompt_changed: boolean;
+    config_changed: boolean;
+    retrieval_config_changed: boolean;
+    metadata_changed: string[];
+}
+
+export interface RunCompareData {
+    left: RunSummaryData;
+    right: RunSummaryData;
+    same_project: boolean;
+    same_run_type: boolean;
+    diff: RunDiffData;
 }
 
 export interface ReportQualityCheckData {

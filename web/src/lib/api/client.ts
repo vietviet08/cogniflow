@@ -46,6 +46,7 @@ import type {
     ReportQualityData,
     ReportResult,
     IntegrationProvider,
+    RunCompareData,
     ReportType,
     ShareLinkData,
     ShareLinkListData,
@@ -634,6 +635,15 @@ export function listReports(
     projectId: string,
 ): Promise<ApiSuccess<ReportListData>> {
     return requestJson<ReportListData>(`/projects/${projectId}/reports`);
+}
+
+export function compareRuns(payload: {
+    leftRunId: string;
+    rightRunId: string;
+}): Promise<ApiSuccess<RunCompareData>> {
+    return requestJson<RunCompareData>(
+        `/runs/${payload.leftRunId}/compare/${payload.rightRunId}`,
+    );
 }
 
 export function listIntelligenceSources(
