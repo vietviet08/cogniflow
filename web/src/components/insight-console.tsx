@@ -51,6 +51,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { PageWrapper } from "@/components/layout/page-wrapper";
 import { LineageExplorer } from "@/components/lineage-explorer";
+import { ResearchReviewPanel } from "@/components/research-review-panel";
 
 export function InsightConsole() {
   const { openCitation } = useCitationViewer();
@@ -78,6 +79,7 @@ export function InsightConsole() {
   }, []);
 
   const canMutateProject = canEditProject(activeProjectRole);
+  const canReviewProject = activeProjectRole === "owner";
 
   useEffect(() => {
     if (!activeProjectId) return;
@@ -391,6 +393,14 @@ export function InsightConsole() {
                   )}
                 </CardContent>
               </Card>
+
+              <ResearchReviewPanel
+                projectId={activeProjectId}
+                targetType="insight"
+                targetId={insight.insight_id}
+                canRequest={canMutateProject}
+                canReview={canReviewProject}
+              />
 
               {insight.citations.length > 0 && (
                 <Card>

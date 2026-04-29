@@ -577,6 +577,24 @@ export interface ReportQualityData {
     recommendations: string[];
 }
 
+export interface ResearchReviewData {
+    approval_id: string;
+    project_id: string;
+    target_type: "insight" | "report";
+    target_id: string;
+    status: "pending" | "approved" | "rejected";
+    requested_by_user_id: string | null;
+    reviewed_by_user_id: string | null;
+    review_notes: string | null;
+    created_at: string | null;
+    reviewed_at: string | null;
+}
+
+export interface ResearchReviewListData {
+    items: ResearchReviewData[];
+    total: number;
+}
+
 export type IntelligenceSeverity = "low" | "medium" | "high";
 
 export interface IntelligenceSourceData {

@@ -46,6 +46,8 @@ import type {
     ReportQualityData,
     ReportResult,
     IntegrationProvider,
+    ResearchReviewData,
+    ResearchReviewListData,
     RunCompareData,
     ReportType,
     ShareLinkData,
@@ -643,6 +645,52 @@ export function compareRuns(payload: {
 }): Promise<ApiSuccess<RunCompareData>> {
     return requestJson<RunCompareData>(
         `/runs/${payload.leftRunId}/compare/${payload.rightRunId}`,
+    );
+}
+
+export function requestResearchReview(payload: {
+    projectId: string;
+    targetType: "insight" | "report";
+    targetId: string;
+}): Promise<ApiSuccess<ResearchReviewData>> {
+    return requestJson<ResearchReviewData>(`/projects/${payload.projectId}/reviews`, {
+        method: "POST",
+        body: JSON.stringify({
+            target_type: payload.targetType,
+            target_id: payload.targetId,
+        }),
+    });
+}
+
+export function listResearchReviews(payload: {
+    projectId: string;
+    status?: "pending" | "approved" | "rejected";
+    targetType?: "insight" | "report";
+}): Promise<ApiSuccess<ResearchReviewListData>> {
+    const params = new URLSearchParams();
+    if (payload.status) params.set("status", payload.status);
+    if (payload.targetType) params.set("target_type", payload.targetType);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return requestJson<ResearchReviewListData>(
+        `/projects/${payload.projectId}/reviews${suffix}`,
+    );
+}
+
+export function decideResearchReview(payload: {
+    projectId: string;
+    reviewId: string;
+    status: "approved" | "rejected";
+    reviewNotes?: string;
+}): Promise<ApiSuccess<ResearchReviewData>> {
+    return requestJson<ResearchReviewData>(
+        `/projects/${payload.projectId}/reviews/${payload.reviewId}/decision`,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                status: payload.status,
+                review_notes: payload.reviewNotes,
+            }),
+        },
     );
 }
 

@@ -48,6 +48,7 @@ import { getActiveProject } from "@/lib/project-store";
 import { useCitationViewer } from "@/components/citation-viewer-provider";
 import { LineageExplorer } from "@/components/lineage-explorer";
 import { PageWrapper } from "@/components/layout/page-wrapper";
+import { ResearchReviewPanel } from "@/components/research-review-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -720,6 +721,7 @@ export function ReportViewer() {
   }, []);
 
   const canMutateProject = canEditProject(activeProjectRole);
+  const canReviewProject = activeProjectRole === "owner";
 
   useEffect(() => {
     if (!activeProjectId) return;
@@ -1212,6 +1214,14 @@ export function ReportViewer() {
                 onRefresh={() => {
                   if (report) void loadQuality(report.report_id);
                 }}
+              />
+
+              <ResearchReviewPanel
+                projectId={activeProjectId}
+                targetType="report"
+                targetId={report.report_id}
+                canRequest={canMutateProject}
+                canReview={canReviewProject}
               />
 
               <StructuredReportView
