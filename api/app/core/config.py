@@ -73,6 +73,10 @@ class Settings(BaseSettings):
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
         alias="API_CORS_ALLOW_ORIGINS",
     )
+    # Web search configuration
+    web_search_provider: str = Field(default="duckduckgo", alias="WEB_SEARCH_PROVIDER")
+    web_search_api_key: str | None = Field(default=None, alias="WEB_SEARCH_API_KEY")
+    web_search_max_results: int = Field(default=10, alias="WEB_SEARCH_MAX_RESULTS")
 
     @field_validator("api_cors_allow_origins", mode="before")
     @classmethod

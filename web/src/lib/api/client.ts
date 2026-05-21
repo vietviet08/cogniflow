@@ -59,6 +59,8 @@ import type {
     OrganizationData,
     OrganizationListData,
     OpsSloData,
+    WebSearchListData,
+    WebPreviewResult,
 } from "./types";
 import { clearStoredAuthSession, getStoredAuthToken } from "../auth-session";
 
@@ -1276,4 +1278,32 @@ export function updateChatMessage(payload: {
             }),
         },
     );
+}
+
+// ---- Web Source Discovery ----
+
+/**
+ * Search the internet for sources related to a keyword.
+ * Powered by DuckDuckGo (no API key required).
+ */
+export function searchWeb(
+    query: string,
+    limit: number = 10,
+): Promise<ApiSuccess<WebSearchListData>> {
+    const params = new URLSearchParams({
+        q: query,
+        limit: String(limit),
+    });
+    return requestJson<WebSearchListData>(`/web-search?${params.toString()}`);
+}
+
+/**
+ * Fetch a URL and return a rich content preview card.
+ * Reuses the backend's web article scraper.
+ */
+export function previewWebUrl(
+    url: string,
+): Promise<ApiSuccess<WebPreviewResult>> {
+    const params = new URLSearchParams({ url });
+    return requestJson<WebPreviewResult>(`/web-search/preview?${params.toString()}`);
 }

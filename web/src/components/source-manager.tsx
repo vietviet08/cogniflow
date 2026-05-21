@@ -58,6 +58,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { WebSourceDiscovery } from "@/components/web-source-discovery";
 
 export function SourceManager() {
     const GOOGLE_DRIVE_FOLDER_PREFIX = "folder:";
@@ -85,6 +86,7 @@ export function SourceManager() {
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<"sources" | "discover">("sources");
     const [drivePickerLoading, setDrivePickerLoading] = useState(false);
     const [drivePickerItems, setDrivePickerItems] = useState<
         GoogleDriveBrowseItemData[]
@@ -1196,8 +1198,46 @@ export function SourceManager() {
                     </Card>
                 </div>
 
-                {/* Right Column: Source List */}
+                {/* Right Column: Source List + Discover tab */}
                 <div className="lg:col-span-2">
+                    {/* Tab header */}
+                    <div className="flex gap-1 mb-4 p-1 bg-muted/50 rounded-lg border w-fit">
+                        <button
+                            type="button"
+                            id="tab-sources"
+                            onClick={() => setActiveTab("sources")}
+                            className={[
+                                "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
+                                activeTab === "sources"
+                                    ? "bg-background shadow-sm text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                            ].join(" ")}
+                        >
+                            <FileText className="h-4 w-4" />
+                            Sources
+                            {sources.length > 0 && (
+                                <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                                    {sources.length}
+                                </span>
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            id="tab-discover"
+                            onClick={() => setActiveTab("discover")}
+                            className={[
+                                "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
+                                activeTab === "discover"
+                                    ? "bg-background shadow-sm text-foreground"
+                                    : "text-muted-foreground hover:text-foreground",
+                            ].join(" ")}
+                        >
+                            <Globe className="h-4 w-4" />
+                            Discover Web
+                        </button>
+                    </div>
+                    {/* Sources Tab */}
+                    {activeTab === "sources" && (
                     <Card className="h-full flex flex-col">
                         <CardHeader className="pb-3 break-words flex flex-row items-center justify-between">
                             <div>
@@ -1424,6 +1464,42 @@ export function SourceManager() {
                             )}
                         </CardContent>
                     </Card>
+                    )} {/* end sources tab */}
+
+                    {/* Discover Tab */}
+                    {activeTab === "discover" && (
+                        <Card className="flex flex-col" style={{ minHeight: 520 }}>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <Globe className="h-4 w-4" />
+                                    Discover Web Sources
+                                </CardTitle>
+                                <CardDescription>
+                                    Search the internet for relevant articles, docs and pages — then add them directly to this project.
+                                </CardDescription>
+                            </CardHeader>
+                            <Separator />
+                            <CardContent className="flex-1 pt-4">
+                                {activeProjectId && (
+                                    <WebSourceDiscovery
+                                        projectId={activeProjectId}
+                                        canMutate={canMutateProject}
+                                        addedUrls={
+                                            new Set(
+                                                sources
+                                                    .filter((s) => s.type === "url" || s.type === "arxiv")
+                                                    .map((s) => s.file_name ?? "")
+                                                    .filter(Boolean),
+                                            )
+                                        }
+                                        onSourceAdded={async () => {
+                                            await refetch();
+                                        }}
+                                    />
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             </div>
             {drivePickerOpen ? (
