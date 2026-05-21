@@ -872,3 +872,34 @@ export interface ChatSendResponse {
         history_aware_retrieval: boolean;
     };
 }
+
+// ---- Web Source Discovery ----
+
+export interface WebSearchResult {
+    title: string;
+    url: string;
+    snippet: string;
+    domain: string;
+    favicon_url: string | null;
+}
+
+export interface WebPreviewResult {
+    url: string;
+    title: string;
+    domain: string;
+    description: string | null;
+    content_preview: string;
+    estimated_word_count: number;
+    estimated_reading_time_minutes: number;
+    favicon_url: string | null;
+    published_at: string | null;
+    author: string | null;
+    tags: string[];
+    language: string | null;
+}
+
+export interface WebSearchListData {
+    items: WebSearchResult[];
+    query: string;
+    total: number;
+}

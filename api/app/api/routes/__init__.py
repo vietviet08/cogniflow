@@ -19,6 +19,7 @@ from app.api.routes import (
     saved_searches,
     share_links,
     sources,
+    web_search,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -42,3 +43,4 @@ api_router.include_router(saved_searches.router, tags=["saved-searches"])
 api_router.include_router(share_links.router, tags=["share-links"])
 api_router.include_router(share_links.public_router, tags=["public"])
 api_router.include_router(organizations.router, tags=["organizations"])
+api_router.include_router(web_search.router, tags=["web-search"])
