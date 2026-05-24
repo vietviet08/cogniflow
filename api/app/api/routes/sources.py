@@ -408,6 +408,11 @@ def _delete_source_with_audit(
     source: Source,
     current_user: User,
 ) -> dict[str, object]:
+    jobs_detached = (
+        db.query(Job)
+        .filter(Job.source_id == source.id)
+        .update({Job.source_id: None}, synchronize_session=False)
+    )
     documents = db.query(Document).filter(Document.source_id == source.id).all()
     document_ids = [document.id for document in documents]
     chunks = (
@@ -437,6 +442,7 @@ def _delete_source_with_audit(
             "source_metadata": source.source_metadata or {},
             "documents_deleted": len(documents),
             "chunks_deleted": len(chunks),
+            "jobs_detached": jobs_detached,
             "vector_delete": vector_delete,
             "artifact_delete": artifact_delete,
             "retention_policy": {
@@ -455,6 +461,7 @@ def _delete_source_with_audit(
         "source_id": str(source.id),
         "documents_deleted": len(documents),
         "chunks_deleted": len(chunks),
+        "jobs_detached": jobs_detached,
         "artifact_delete": artifact_delete,
         "vector_delete": vector_delete,
     }

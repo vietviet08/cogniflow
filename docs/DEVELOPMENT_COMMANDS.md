@@ -17,7 +17,7 @@
 - Start backend + frontend:
     - `pwsh infra/scripts/dev.ps1`
 - Start only backend:
-    - `cd api && uvicorn app.main:app --reload`
+    - `cd api && WATCHFILES_FORCE_POLLING=true fastapi dev app/main.py --reload-dir app --reload-dir alembic`
 - Start dedicated worker runtime:
     - `cd api && WORKER_INLINE_EXECUTION=false python -m app.workers.runtime`
 - Start only frontend:

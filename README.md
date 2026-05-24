@@ -28,7 +28,7 @@ Research assistant scaffold organized as two top-level services:
 5. Apply backend migrations:
    - `cd api && alembic upgrade head`
 6. Run the backend:
-   - `cd api && uvicorn app.main:app --reload`
+   - `cd api && WATCHFILES_FORCE_POLLING=true fastapi dev app/main.py --reload-dir app --reload-dir alembic`
 7. Run the frontend:
    - `cd web && npm run dev`
 
