@@ -3,7 +3,7 @@ import uuid
 from types import SimpleNamespace
 
 from app.api.routes import sources as sources_route_module
-from app.storage.models import AuditLog, Chunk, Document, Source
+from app.storage.models import AuditLog, Chunk, Document, Job, Source
 
 
 def test_upload_file_source_persists_metadata(client, db_session, monkeypatch, tmp_path):
@@ -168,9 +168,22 @@ def test_bulk_delete_sources_removes_graph_and_writes_audit(client, db_session, 
     db_session.add(chunk)
     db_session.commit()
     db_session.refresh(chunk)
+
+    job = Job(
+        project_id=project_id,
+        source_id=source.id,
+        job_type="process_sources",
+        status="completed",
+        progress=100,
+        job_payload={"source_ids": [str(source.id)]},
+    )
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
     source_id = source.id
     document_id = document.id
     chunk_id = chunk.id
+    job_id = job.id
 
     deleted_vector_ids: list[str] = []
 
@@ -204,11 +217,13 @@ def test_bulk_delete_sources_removes_graph_and_writes_audit(client, db_session, 
     assert db_session.get(Source, source_id) is None
     assert db_session.get(Document, document_id) is None
     assert db_session.get(Chunk, chunk_id) is None
+    assert db_session.get(Job, job_id).source_id is None
 
     audit = db_session.query(AuditLog).filter(AuditLog.action == "source.delete").one()
     assert audit.target_id == str(source_id)
     assert audit.payload["documents_deleted"] == 1
     assert audit.payload["chunks_deleted"] == 1
+    assert audit.payload["jobs_detached"] == 1
     assert audit.payload["artifact_delete"]["deleted"] is True
 
 
