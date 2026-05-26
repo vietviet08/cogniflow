@@ -638,13 +638,43 @@ def _load_json_object(raw: str) -> dict[str, Any]:
         lines = text.splitlines()
         if len(lines) >= 2:
             text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except (json.JSONDecodeError, ValueError):
-        pass
+    for candidate in (text, _extract_json_object_text(text)):
+        if not candidate:
+            continue
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
     return {}
+
+
+def _extract_json_object_text(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index, char in enumerate(text[start:], start=start):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
 
 
 def _normalize_action_items_payload(
