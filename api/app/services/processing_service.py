@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import uuid
@@ -8,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 import fitz
+import google.genai as genai
 import pdfplumber
+from google.genai import types as genai_types
+from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.services.chroma_service import get_retrieval_collection
@@ -19,6 +23,10 @@ from app.services.embedding_service import (
     count_tokens,
     embed_texts_with_local_model,
 )
+from app.services.provider_settings_service import (
+    ProviderSettingsError,
+    resolve_chat_provider_config,
+)
 from app.storage.models import Chunk, Document, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
@@ -27,12 +35,24 @@ class ProcessingError(Exception):
     pass
 
 
+PDF_VISION_MAX_PAGES = 80
+PDF_VISION_TIMEOUT_SECONDS = 45
+
+
 @dataclass
 class ExtractedSourceContent:
     title: str
     text: str
     source_url: str
     page_texts: list[str] | None = None
+
+
+@dataclass
+class VisionExtractionConfig:
+    provider: str
+    api_key: str
+    model: str
+    base_url: str | None = None
 
 
 def process_sources(
@@ -81,7 +101,7 @@ def process_sources(
 
     for source in sources:
         _replace_source_documents(db, source)
-        extracted = _extract_source_content(source)
+        extracted = _extract_source_content(db, source)
         document = Document(
             source_id=source.id,
             title=extracted.title,
@@ -169,7 +189,7 @@ def _replace_source_documents(db: Session, source: Source) -> None:
     db.commit()
 
 
-def _extract_source_content(source: Source) -> ExtractedSourceContent:
+def _extract_source_content(db: Session, source: Source) -> ExtractedSourceContent:
     if not source.storage_path:
         raise ProcessingError(f"Source '{source.id}' does not have a stored artifact.")
 
@@ -178,16 +198,19 @@ def _extract_source_content(source: Source) -> ExtractedSourceContent:
         raise ProcessingError(f"Stored artifact '{storage_path}' does not exist.")
 
     if source.type == "file":
-        return _extract_file_content(storage_path)
+        return _extract_file_content(storage_path, _resolve_vision_config(db, source.project_id))
     if source.type in {"url", "arxiv", "google_drive", "notion", "slack", "confluence"}:
         return _extract_remote_payload(storage_path)
     raise ProcessingError(f"Unsupported source type '{source.type}'.")
 
 
-def _extract_file_content(path: Path) -> ExtractedSourceContent:
+def _extract_file_content(
+    path: Path,
+    vision_config: VisionExtractionConfig | None = None,
+) -> ExtractedSourceContent:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        page_texts = _extract_pdf_pages(path)
+        page_texts = _extract_pdf_pages(path, vision_config=vision_config)
         text = "\n".join(page.strip() for page in page_texts if page.strip())
         if not text.strip():
             raise ProcessingError(f"No readable text found in '{path.name}'.")
@@ -207,19 +230,218 @@ def _extract_file_content(path: Path) -> ExtractedSourceContent:
     return ExtractedSourceContent(title=path.name, text=clean_text, source_url="")
 
 
-def _extract_pdf_pages(path: Path) -> list[str]:
-    extracted_pages: list[str] = []
+def _extract_pdf_pages(
+    path: Path,
+    vision_config: VisionExtractionConfig | None = None,
+) -> list[str]:
+    fitz_pages: list[str] = []
+    page_is_landscape: list[bool] = []
 
     with fitz.open(path) as document:
         for page in document:
-            extracted_pages.append(page.get_text("text"))
-
-    if any(page.strip() for page in extracted_pages):
-        return [page.strip() for page in extracted_pages]
+            fitz_pages.append(page.get_text("text"))
+            page_is_landscape.append(page.rect.width > page.rect.height)
 
     with pdfplumber.open(path) as pdf:
-        plumber_pages = [page.extract_text() or "" for page in pdf.pages]
-    return [page.strip() for page in plumber_pages]
+        plumber_pages = [(page.extract_text() or "") for page in pdf.pages]
+
+    text_pages = _choose_pdf_text_pages(fitz_pages, plumber_pages)
+    if vision_config is None or not _should_use_pdf_vision(text_pages, page_is_landscape):
+        return text_pages
+
+    return _augment_pdf_pages_with_vision(
+        path,
+        text_pages=text_pages,
+        vision_config=vision_config,
+    )
+
+
+def _choose_pdf_text_pages(fitz_pages: list[str], plumber_pages: list[str]) -> list[str]:
+    page_count = max(len(fitz_pages), len(plumber_pages))
+    selected_pages: list[str] = []
+    for index in range(page_count):
+        fitz_text = fitz_pages[index].strip() if index < len(fitz_pages) else ""
+        plumber_text = plumber_pages[index].strip() if index < len(plumber_pages) else ""
+        selected_pages.append(_choose_better_page_text(fitz_text, plumber_text))
+    return selected_pages
+
+
+def _choose_better_page_text(fitz_text: str, plumber_text: str) -> str:
+    if not fitz_text:
+        return plumber_text
+    if not plumber_text:
+        return fitz_text
+    if _pdf_text_quality_score(plumber_text) >= _pdf_text_quality_score(fitz_text):
+        return plumber_text
+    return fitz_text
+
+
+def _pdf_text_quality_score(text: str) -> int:
+    word_separators = text.count(" ") + text.count("\n") * 2
+    replacement_penalty = text.count("\ufffd") * 20
+    return len(text.strip()) + word_separators - replacement_penalty
+
+
+def _resolve_vision_config(
+    db: Session,
+    project_id: uuid.UUID,
+) -> VisionExtractionConfig | None:
+    for provider in ("openai", "gemini"):
+        try:
+            config = resolve_chat_provider_config(db, project_id, provider)
+        except ProviderSettingsError:
+            continue
+        return VisionExtractionConfig(
+            provider=provider,
+            api_key=config["api_key"],
+            model=config["chat_model"],
+            base_url=config.get("base_url"),
+        )
+    return None
+
+
+def _should_use_pdf_vision(text_pages: list[str], page_is_landscape: list[bool]) -> bool:
+    if not text_pages:
+        return False
+    non_empty_lengths = [len(page.strip()) for page in text_pages if page.strip()]
+    if not non_empty_lengths:
+        return True
+    average_text_length = sum(non_empty_lengths) / len(non_empty_lengths)
+    landscape_ratio = (
+        sum(1 for is_landscape in page_is_landscape if is_landscape) / len(page_is_landscape)
+        if page_is_landscape
+        else 0
+    )
+    return average_text_length < 900 or landscape_ratio >= 0.6
+
+
+def _augment_pdf_pages_with_vision(
+    path: Path,
+    *,
+    text_pages: list[str],
+    vision_config: VisionExtractionConfig,
+) -> list[str]:
+    augmented_pages: list[str] = []
+    consecutive_vision_failures = 0
+    with fitz.open(path) as document:
+        for index, page in enumerate(document, start=1):
+            text_layer = text_pages[index - 1] if index - 1 < len(text_pages) else ""
+            if index > PDF_VISION_MAX_PAGES or consecutive_vision_failures >= 3:
+                augmented_pages.append(text_layer)
+                continue
+            try:
+                image_bytes = _render_pdf_page_png(page)
+                visual_text = _describe_slide_image(
+                    image_bytes=image_bytes,
+                    page_number=index,
+                    vision_config=vision_config,
+                )
+            except Exception:
+                consecutive_vision_failures += 1
+                visual_text = ""
+            else:
+                consecutive_vision_failures = 0
+            augmented_pages.append(_merge_text_and_visual_summary(text_layer, visual_text))
+    return augmented_pages
+
+
+def _render_pdf_page_png(page: fitz.Page) -> bytes:
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+    return pixmap.tobytes("png")
+
+
+def _describe_slide_image(
+    *,
+    image_bytes: bytes,
+    page_number: int,
+    vision_config: VisionExtractionConfig,
+) -> str:
+    prompt = (
+        "You are extracting study notes from a Vietnamese university lecture slide. "
+        "Read the slide image carefully. Return plain text in Vietnamese. Include: "
+        "1) all visible headings and bullet text, 2) important text inside images, "
+        "diagrams, tables, charts, and handwritten/scan regions when readable, "
+        "3) a short explanation of what the visual content contributes. "
+        f"This is slide/page {page_number}. Do not invent content that is not visible."
+    )
+    if vision_config.provider == "gemini":
+        return _describe_slide_image_with_gemini(
+            prompt=prompt,
+            image_bytes=image_bytes,
+            vision_config=vision_config,
+        )
+    return _describe_slide_image_with_openai(
+        prompt=prompt,
+        image_bytes=image_bytes,
+        vision_config=vision_config,
+    )
+
+
+def _describe_slide_image_with_openai(
+    *,
+    prompt: str,
+    image_bytes: bytes,
+    vision_config: VisionExtractionConfig,
+) -> str:
+    kwargs: dict[str, Any] = {
+        "api_key": vision_config.api_key,
+        "max_retries": 0,
+        "timeout": PDF_VISION_TIMEOUT_SECONDS,
+    }
+    if vision_config.base_url:
+        kwargs["base_url"] = vision_config.base_url
+    client = OpenAI(**kwargs)
+    encoded_image = base64.b64encode(image_bytes).decode("ascii")
+    response = client.chat.completions.create(
+        model=vision_config.model,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{encoded_image}"},
+                    },
+                ],
+            }
+        ],
+        temperature=0.1,
+    )
+    content = response.choices[0].message.content
+    return content.strip() if content else ""
+
+
+def _describe_slide_image_with_gemini(
+    *,
+    prompt: str,
+    image_bytes: bytes,
+    vision_config: VisionExtractionConfig,
+) -> str:
+    client = genai.Client(
+        api_key=vision_config.api_key,
+        http_options=genai_types.HttpOptions(timeout=PDF_VISION_TIMEOUT_SECONDS * 1000),
+    )
+    try:
+        response = client.models.generate_content(
+            model=vision_config.model,
+            contents=[
+                prompt,
+                genai_types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+            ],
+        )
+        content = getattr(response, "text", None)
+        return content.strip() if content else ""
+    finally:
+        client.close()
+
+
+def _merge_text_and_visual_summary(text_layer: str, visual_text: str) -> str:
+    text_layer = text_layer.strip()
+    visual_text = visual_text.strip()
+    if text_layer and visual_text:
+        return f"{text_layer}\n\nPhân tích nội dung trực quan của slide:\n{visual_text}"
+    return visual_text or text_layer
 
 
 def _extract_remote_payload(path: Path) -> ExtractedSourceContent:

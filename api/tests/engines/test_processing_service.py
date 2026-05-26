@@ -169,7 +169,7 @@ def test_process_pdf_sources_store_page_number_metadata(
     monkeypatch.setattr(
         processing_service,
         "_extract_pdf_pages",
-        lambda path: ["Page one text", "Page two text"],
+        lambda path, vision_config=None: ["Page one text", "Page two text"],
     )
 
     job = Job(
@@ -196,3 +196,42 @@ def test_process_pdf_sources_store_page_number_metadata(
         chunk.chunk_metadata["page_number"] for chunk in db_session.query(Chunk).all()
     }
     assert page_numbers == {1, 2}
+
+
+def test_extract_pdf_pages_uses_vision_for_slide_pdf(monkeypatch, tmp_path):
+    source_path = tmp_path / "slides.pdf"
+    document = processing_service.fitz.open()
+    page = document.new_page(width=1280, height=720)
+    page.draw_rect(processing_service.fitz.Rect(0, 0, 1280, 720), color=(1, 1, 0))
+    document.save(source_path)
+    document.close()
+
+    monkeypatch.setattr(
+        processing_service,
+        "_describe_slide_image",
+        lambda image_bytes, page_number, vision_config: (
+            "CHƯƠNG 1\nKhái niệm, đối tượng, phương pháp nghiên cứu."
+        ),
+    )
+
+    page_texts = processing_service._extract_pdf_pages(
+        source_path,
+        vision_config=processing_service.VisionExtractionConfig(
+            provider="openai",
+            api_key="test-key",
+            model="gpt-vision-test",
+        ),
+    )
+
+    assert len(page_texts) == 1
+    assert "CHƯƠNG 1" in page_texts[0]
+    assert "phương pháp nghiên cứu" in page_texts[0]
+
+
+def test_choose_pdf_text_pages_prefers_better_spacing():
+    pages = processing_service._choose_pdf_text_pages(
+        ["Tư tưởng HồChí Minh là hệthống quan điểm."],
+        ["Tư tưởng Hồ Chí Minh là hệ thống quan điểm."],
+    )
+
+    assert pages == ["Tư tưởng Hồ Chí Minh là hệ thống quan điểm."]

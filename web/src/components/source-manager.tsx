@@ -1,6 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useState, useMemo } from "react";
+import {
+    ChangeEvent,
+    DragEvent,
+    FormEvent,
+    useEffect,
+    useMemo,
+    useState,
+} from "react";
 import { toast } from "sonner";
 import {
     Upload,
@@ -69,7 +76,8 @@ export function SourceManager() {
     const [activeProjectRole, setActiveProjectRole] =
         useState<ProjectRole | null>(null);
     const [url, setUrl] = useState("");
-    const [file, setFile] = useState<File | null>(null);
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+    const [dragActive, setDragActive] = useState(false);
     const [busy, setBusy] = useState(false);
     const [integrationBusy, setIntegrationBusy] = useState<string | null>(null);
     const [integrationDrafts, setIntegrationDrafts] = useState<
@@ -86,7 +94,9 @@ export function SourceManager() {
 
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [drivePickerOpen, setDrivePickerOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<"sources" | "discover">("sources");
+    const [activeTab, setActiveTab] = useState<"sources" | "discover">(
+        "sources",
+    );
     const [drivePickerLoading, setDrivePickerLoading] = useState(false);
     const [drivePickerItems, setDrivePickerItems] = useState<
         GoogleDriveBrowseItemData[]
@@ -372,8 +382,36 @@ export function SourceManager() {
         }
     }
 
-    async function handleFileSubmit(event: FormEvent<HTMLFormElement>) {
-        event.preventDefault();
+    function getSupportedPdfFiles(files: FileList | File[]) {
+        return Array.from(files).filter(
+            (item) =>
+                item.type === "application/pdf" ||
+                item.name.toLowerCase().endsWith(".pdf"),
+        );
+    }
+
+    function formatFileSize(bytes: number) {
+        if (bytes < 1024 * 1024) {
+            return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+        }
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+        const inputFiles = event.target.files;
+        if (!inputFiles) {
+            setSelectedFiles([]);
+            return;
+        }
+        const pdfFiles = getSupportedPdfFiles(inputFiles);
+        if (pdfFiles.length !== inputFiles.length) {
+            toast.error("Only PDF files can be uploaded.");
+        }
+        setSelectedFiles(pdfFiles);
+        event.target.value = "";
+    }
+
+    async function uploadFiles(filesToUpload: File[]) {
         if (!canMutateProject) {
             toast.error("This action requires editor role or higher.");
             return;
@@ -382,29 +420,92 @@ export function SourceManager() {
             toast.error("Create or select a project first.");
             return;
         }
-        if (!file) {
-            toast.error("Select a PDF file first.");
+        if (filesToUpload.length === 0) {
+            toast.error("Select at least one PDF file first.");
             return;
         }
         setBusy(true);
-        const toastId = toast.loading("Uploading file...");
+        const toastId = toast.loading(
+            filesToUpload.length === 1
+                ? "Uploading file..."
+                : `Uploading ${filesToUpload.length} files...`,
+        );
         try {
-            await uploadSourceFile({ projectId: activeProjectId, file });
-            setFile(null);
+            const results = await Promise.allSettled(
+                filesToUpload.map((item) =>
+                    uploadSourceFile({
+                        projectId: activeProjectId,
+                        file: item,
+                    }),
+                ),
+            );
+            const failedFiles = filesToUpload.filter(
+                (_, index) => results[index].status === "rejected",
+            );
+            const uploadedCount = filesToUpload.length - failedFiles.length;
+            setSelectedFiles(failedFiles);
             await refetch();
-            toast.success("File uploaded. Run processing to index it.", {
-                id: toastId,
-            });
+            if (failedFiles.length > 0) {
+                toast.error(
+                    `Uploaded ${uploadedCount} of ${filesToUpload.length} files. ${failedFiles.length} failed.`,
+                    { id: toastId },
+                );
+            } else {
+                toast.success(
+                    filesToUpload.length === 1
+                        ? "File uploaded. Run processing to index it."
+                        : `${filesToUpload.length} files uploaded. Run processing to index them.`,
+                    { id: toastId },
+                );
+            }
         } catch (error) {
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Failed to upload file.",
+                    : "Failed to upload files.",
                 { id: toastId },
             );
         } finally {
             setBusy(false);
         }
+    }
+
+    async function handleFileSubmit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        await uploadFiles(selectedFiles);
+    }
+
+    function handleFileDragOver(event: DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!busy && canMutateProject) {
+            setDragActive(true);
+        }
+    }
+
+    function handleFileDragLeave(event: DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        event.stopPropagation();
+        setDragActive(false);
+    }
+
+    async function handleFileDrop(event: DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        event.stopPropagation();
+        setDragActive(false);
+        if (busy || !canMutateProject) {
+            return;
+        }
+
+        const droppedFiles = getSupportedPdfFiles(event.dataTransfer.files);
+        if (droppedFiles.length !== event.dataTransfer.files.length) {
+            toast.error("Only PDF files can be uploaded.");
+        }
+        if (droppedFiles.length === 0) {
+            return;
+        }
+        setSelectedFiles(droppedFiles);
+        await uploadFiles(droppedFiles);
     }
 
     async function handleProcessAll() {
@@ -765,30 +866,90 @@ export function SourceManager() {
                                 onSubmit={handleFileSubmit}
                                 className="flex flex-col gap-4"
                             >
-                                <div className="flex flex-col gap-1.5">
-                                    <Label htmlFor="file-upload">
-                                        Select File
-                                    </Label>
+                                <div
+                                    onDragOver={handleFileDragOver}
+                                    onDragLeave={handleFileDragLeave}
+                                    onDrop={handleFileDrop}
+                                    className={`flex min-h-36 flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-6 text-center transition-colors ${
+                                        dragActive
+                                            ? "border-primary bg-primary/10"
+                                            : "border-input bg-muted/20"
+                                    } ${
+                                        busy || !canMutateProject
+                                            ? "opacity-60"
+                                            : "hover:bg-muted/30"
+                                    }`}
+                                >
+                                    <Upload className="h-6 w-6 text-muted-foreground" />
+                                    <div className="space-y-1">
+                                        <Label
+                                            htmlFor="file-upload"
+                                            className="cursor-pointer text-sm font-medium"
+                                        >
+                                            Drop PDFs here or choose files
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Multiple files upload together.
+                                        </p>
+                                    </div>
                                     <Input
                                         id="file-upload"
                                         type="file"
+                                        multiple
                                         accept=".pdf,application/pdf"
-                                        onChange={(e) =>
-                                            setFile(e.target.files?.[0] || null)
-                                        }
+                                        onChange={handleFileSelection}
                                         disabled={busy || !canMutateProject}
-                                        className="cursor-pointer"
+                                        className="max-w-xs cursor-pointer"
                                     />
-                                    {file && (
-                                        <p className="text-xs text-muted-foreground mt-1 text-right">
-                                            {Math.round(file.size / 1024)} KB
-                                        </p>
-                                    )}
                                 </div>
+                                {selectedFiles.length > 0 ? (
+                                    <div className="rounded-md border bg-background">
+                                        <div className="flex items-center justify-between border-b px-3 py-2 text-xs text-muted-foreground">
+                                            <span>
+                                                {selectedFiles.length} file
+                                                {selectedFiles.length === 1
+                                                    ? ""
+                                                    : "s"}{" "}
+                                                selected
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() =>
+                                                    setSelectedFiles([])
+                                                }
+                                                disabled={busy}
+                                                className="h-7 px-2"
+                                            >
+                                                Clear
+                                            </Button>
+                                        </div>
+                                        <div className="max-h-32 overflow-auto">
+                                            {selectedFiles.map((item) => (
+                                                <div
+                                                    key={`${item.name}-${item.size}-${item.lastModified}`}
+                                                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                                                >
+                                                    <span className="min-w-0 truncate">
+                                                        {item.name}
+                                                    </span>
+                                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                                        {formatFileSize(
+                                                            item.size,
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
                                 <Button
                                     type="submit"
                                     disabled={
-                                        !file || busy || !canMutateProject
+                                        selectedFiles.length === 0 ||
+                                        busy ||
+                                        !canMutateProject
                                     }
                                     title={
                                         canMutateProject
@@ -797,7 +958,7 @@ export function SourceManager() {
                                     }
                                     className="w-full"
                                 >
-                                    {busy && file ? (
+                                    {busy && selectedFiles.length > 0 ? (
                                         <Spinner size="sm" className="mr-2" />
                                     ) : null}
                                     Upload to Project
@@ -1238,244 +1399,262 @@ export function SourceManager() {
                     </div>
                     {/* Sources Tab */}
                     {activeTab === "sources" && (
-                    <Card className="h-full flex flex-col">
-                        <CardHeader className="pb-3 break-words flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle className="text-base">
-                                    Project Sources
-                                </CardTitle>
-                                <CardDescription>
-                                    All sources ingested into this project.
-                                </CardDescription>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {selectedIds.size > 0 && (
+                        <Card className="h-full flex flex-col">
+                            <CardHeader className="pb-3 break-words flex flex-row items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-base">
+                                        Project Sources
+                                    </CardTitle>
+                                    <CardDescription>
+                                        All sources ingested into this project.
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {selectedIds.size > 0 && (
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={handleDeleteSelected}
+                                            disabled={busy || !canMutateProject}
+                                            title={
+                                                canMutateProject
+                                                    ? undefined
+                                                    : "Requires editor role"
+                                            }
+                                        >
+                                            <Trash2 className="h-4 w-4 mr-1" />
+                                            Delete ({selectedIds.size})
+                                        </Button>
+                                    )}
                                     <Button
-                                        variant="destructive"
-                                        size="sm"
-                                        onClick={handleDeleteSelected}
-                                        disabled={busy || !canMutateProject}
+                                        onClick={handleProcessAll}
+                                        disabled={
+                                            busy ||
+                                            sources.length === 0 ||
+                                            !canMutateProject
+                                        }
                                         title={
                                             canMutateProject
                                                 ? undefined
                                                 : "Requires editor role"
                                         }
+                                        size="sm"
                                     >
-                                        <Trash2 className="h-4 w-4 mr-1" />
-                                        Delete ({selectedIds.size})
+                                        {busy &&
+                                        selectedFiles.length === 0 &&
+                                        !url ? (
+                                            <Spinner
+                                                size="sm"
+                                                className="mr-2"
+                                            />
+                                        ) : null}
+                                        Process All
                                     </Button>
-                                )}
-                                <Button
-                                    onClick={handleProcessAll}
-                                    disabled={
-                                        busy ||
-                                        sources.length === 0 ||
-                                        !canMutateProject
-                                    }
-                                    title={
-                                        canMutateProject
-                                            ? undefined
-                                            : "Requires editor role"
-                                    }
-                                    size="sm"
-                                >
-                                    {busy && !file && !url ? (
-                                        <Spinner size="sm" className="mr-2" />
-                                    ) : null}
-                                    Process All
-                                </Button>
-                            </div>
-                        </CardHeader>
-                        <Separator />
-                        <CardContent className="p-0 overflow-auto flex-1 min-h-[300px]">
-                            {isLoading ? (
-                                <div className="flex items-center justify-center h-full min-h-[200px]">
-                                    <Spinner />
                                 </div>
-                            ) : sources.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center p-8 text-muted-foreground min-h-[200px]">
-                                    <Globe className="h-8 w-8 mb-3 opacity-20" />
-                                    <p>No sources yet.</p>
-                                    <p className="text-sm">
-                                        Upload a file or add a URL to get
-                                        started.
-                                    </p>
-                                </div>
-                            ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-12 text-center">
-                                                <Checkbox
-                                                    checked={
-                                                        selectedIds.size ===
-                                                            sources.length &&
-                                                        sources.length > 0
-                                                    }
-                                                    onCheckedChange={
-                                                        toggleSelectAll
-                                                    }
-                                                    aria-label="Select all"
-                                                />
-                                            </TableHead>
-                                            <TableHead>File / URL</TableHead>
-                                            <TableHead className="w-24">
-                                                Type
-                                            </TableHead>
-                                            <TableHead className="w-28 hidden lg:table-cell">
-                                                Quality
-                                            </TableHead>
-                                            <TableHead className="w-32">
-                                                Status
-                                            </TableHead>
-                                            <TableHead className="w-32 hidden md:table-cell">
-                                                Date
-                                            </TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {sources.map((source) => (
-                                            <TableRow
-                                                key={source.id}
-                                                className="group"
-                                            >
-                                                <TableCell className="text-center">
+                            </CardHeader>
+                            <Separator />
+                            <CardContent className="p-0 overflow-auto flex-1 min-h-[300px]">
+                                {isLoading ? (
+                                    <div className="flex items-center justify-center h-full min-h-[200px]">
+                                        <Spinner />
+                                    </div>
+                                ) : sources.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-center p-8 text-muted-foreground min-h-[200px]">
+                                        <Globe className="h-8 w-8 mb-3 opacity-20" />
+                                        <p>No sources yet.</p>
+                                        <p className="text-sm">
+                                            Upload a file or add a URL to get
+                                            started.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="w-12 text-center">
                                                     <Checkbox
-                                                        checked={selectedIds.has(
-                                                            source.id,
-                                                        )}
-                                                        onCheckedChange={() =>
-                                                            toggleSelectOne(
-                                                                source.id,
-                                                            )
+                                                        checked={
+                                                            selectedIds.size ===
+                                                                sources.length &&
+                                                            sources.length > 0
                                                         }
-                                                        aria-label={`Select ${source.file_name}`}
+                                                        onCheckedChange={
+                                                            toggleSelectAll
+                                                        }
+                                                        aria-label="Select all"
                                                     />
-                                                </TableCell>
-                                                <TableCell className="font-medium">
-                                                    <div className="flex items-center gap-2 px-1 max-w-[200px] sm:max-w-xs md:max-w-sm lg:max-w-md truncate">
-                                                        {source.type ===
-                                                        "url" ? (
-                                                            <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
-                                                        ) : (
-                                                            <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-                                                        )}
-                                                        <span
-                                                            className="truncate"
-                                                            title={
-                                                                source.file_name
-                                                            }
-                                                        >
-                                                            {source.file_name}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge
-                                                        variant="outline"
-                                                        className="uppercase text-[10px] tracking-wider"
-                                                    >
-                                                        {source.provider ||
-                                                            source.type}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="hidden lg:table-cell">
-                                                    <div className="flex flex-col gap-1">
-                                                        <Badge
-                                                            variant={
-                                                                (source.quality
-                                                                    ?.trust_score ??
-                                                                    0) >= 0.8
-                                                                    ? "success"
-                                                                    : "secondary"
-                                                            }
-                                                            className="w-fit font-normal"
-                                                        >
-                                                            Trust{" "}
-                                                            {Math.round(
-                                                                (source.quality
-                                                                    ?.trust_score ??
-                                                                    0) * 100,
+                                                </TableHead>
+                                                <TableHead>
+                                                    File / URL
+                                                </TableHead>
+                                                <TableHead className="w-24">
+                                                    Type
+                                                </TableHead>
+                                                <TableHead className="w-28 hidden lg:table-cell">
+                                                    Quality
+                                                </TableHead>
+                                                <TableHead className="w-32">
+                                                    Status
+                                                </TableHead>
+                                                <TableHead className="w-32 hidden md:table-cell">
+                                                    Date
+                                                </TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {sources.map((source) => (
+                                                <TableRow
+                                                    key={source.id}
+                                                    className="group"
+                                                >
+                                                    <TableCell className="text-center">
+                                                        <Checkbox
+                                                            checked={selectedIds.has(
+                                                                source.id,
                                                             )}
-                                                            %
-                                                        </Badge>
-                                                        <span className="text-[11px] text-muted-foreground">
-                                                            {source
-                                                                .retrieval_filters
-                                                                ?.language ||
-                                                                "unknown"}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {source.status ===
-                                                    "completed" ? (
-                                                        <Badge
-                                                            variant="success"
-                                                            className="font-normal"
-                                                        >
-                                                            Completed
-                                                        </Badge>
-                                                    ) : source.status ===
-                                                          "processing" ||
-                                                      source.status ===
-                                                          "chunking" ||
-                                                      source.status ===
-                                                          "embedding" ? (
-                                                        <Badge
-                                                            variant="secondary"
-                                                            className="font-normal bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-                                                        >
-                                                            <Spinner
-                                                                size="sm"
-                                                                className="mr-1 inline-block"
-                                                            />
-                                                            {source.status}
-                                                        </Badge>
-                                                    ) : source.status ===
-                                                      "failed" ? (
-                                                        <Badge
-                                                            variant="destructive"
-                                                            className="font-normal"
-                                                        >
-                                                            Failed
-                                                        </Badge>
-                                                    ) : (
+                                                            onCheckedChange={() =>
+                                                                toggleSelectOne(
+                                                                    source.id,
+                                                                )
+                                                            }
+                                                            aria-label={`Select ${source.file_name}`}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        <div className="flex items-center gap-2 px-1 max-w-[200px] sm:max-w-xs md:max-w-sm lg:max-w-md truncate">
+                                                            {source.type ===
+                                                            "url" ? (
+                                                                <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                            ) : (
+                                                                <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                            )}
+                                                            <span
+                                                                className="truncate"
+                                                                title={
+                                                                    source.file_name
+                                                                }
+                                                            >
+                                                                {
+                                                                    source.file_name
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
                                                         <Badge
                                                             variant="outline"
-                                                            className="font-normal text-muted-foreground"
+                                                            className="uppercase text-[10px] tracking-wider"
                                                         >
-                                                            {source.status ||
-                                                                "Pending"}
+                                                            {source.provider ||
+                                                                source.type}
                                                         </Badge>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-xs text-muted-foreground hidden md:table-cell">
-                                                    {source.created_at
-                                                        ? new Date(
-                                                              source.created_at,
-                                                          ).toLocaleDateString()
-                                                        : ""}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            )}
-                        </CardContent>
-                    </Card>
-                    )} {/* end sources tab */}
-
+                                                    </TableCell>
+                                                    <TableCell className="hidden lg:table-cell">
+                                                        <div className="flex flex-col gap-1">
+                                                            <Badge
+                                                                variant={
+                                                                    (source
+                                                                        .quality
+                                                                        ?.trust_score ??
+                                                                        0) >=
+                                                                    0.8
+                                                                        ? "success"
+                                                                        : "secondary"
+                                                                }
+                                                                className="w-fit font-normal"
+                                                            >
+                                                                Trust{" "}
+                                                                {Math.round(
+                                                                    (source
+                                                                        .quality
+                                                                        ?.trust_score ??
+                                                                        0) *
+                                                                        100,
+                                                                )}
+                                                                %
+                                                            </Badge>
+                                                            <span className="text-[11px] text-muted-foreground">
+                                                                {source
+                                                                    .retrieval_filters
+                                                                    ?.language ||
+                                                                    "unknown"}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {source.status ===
+                                                        "completed" ? (
+                                                            <Badge
+                                                                variant="success"
+                                                                className="font-normal"
+                                                            >
+                                                                Completed
+                                                            </Badge>
+                                                        ) : source.status ===
+                                                              "processing" ||
+                                                          source.status ===
+                                                              "chunking" ||
+                                                          source.status ===
+                                                              "embedding" ? (
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className="font-normal bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                                            >
+                                                                <Spinner
+                                                                    size="sm"
+                                                                    className="mr-1 inline-block"
+                                                                />
+                                                                {source.status}
+                                                            </Badge>
+                                                        ) : source.status ===
+                                                          "failed" ? (
+                                                            <Badge
+                                                                variant="destructive"
+                                                                className="font-normal"
+                                                            >
+                                                                Failed
+                                                            </Badge>
+                                                        ) : (
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="font-normal text-muted-foreground"
+                                                            >
+                                                                {source.status ||
+                                                                    "Pending"}
+                                                            </Badge>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground hidden md:table-cell">
+                                                        {source.created_at
+                                                            ? new Date(
+                                                                  source.created_at,
+                                                              ).toLocaleDateString()
+                                                            : ""}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}{" "}
+                    {/* end sources tab */}
                     {/* Discover Tab */}
                     {activeTab === "discover" && (
-                        <Card className="flex flex-col" style={{ minHeight: 520 }}>
+                        <Card
+                            className="flex flex-col"
+                            style={{ minHeight: 520 }}
+                        >
                             <CardHeader className="pb-3">
                                 <CardTitle className="text-base flex items-center gap-2">
                                     <Globe className="h-4 w-4" />
                                     Discover Web Sources
                                 </CardTitle>
                                 <CardDescription>
-                                    Search the internet for relevant articles, docs and pages — then add them directly to this project.
+                                    Search the internet for relevant articles,
+                                    docs and pages — then add them directly to
+                                    this project.
                                 </CardDescription>
                             </CardHeader>
                             <Separator />
@@ -1487,8 +1666,15 @@ export function SourceManager() {
                                         addedUrls={
                                             new Set(
                                                 sources
-                                                    .filter((s) => s.type === "url" || s.type === "arxiv")
-                                                    .map((s) => s.file_name ?? "")
+                                                    .filter(
+                                                        (s) =>
+                                                            s.type === "url" ||
+                                                            s.type === "arxiv",
+                                                    )
+                                                    .map(
+                                                        (s) =>
+                                                            s.file_name ?? "",
+                                                    )
                                                     .filter(Boolean),
                                             )
                                         }
