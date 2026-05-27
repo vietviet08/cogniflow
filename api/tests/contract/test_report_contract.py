@@ -7,6 +7,7 @@ from app.storage.models import (
     Insight,
     InsightCitation,
     ProcessingRun,
+    QuizAttempt,
     Report,
     ReportInsight,
     Source,
@@ -114,6 +115,63 @@ def test_generate_flashcards_report_returns_structured_payload(client, monkeypat
     body = response.json()
     assert body["data"]["type"] == "flashcards"
     assert body["data"]["structured_payload"]["cards"][0]["front"] == "What is the main concept?"
+
+
+def test_generate_quiz_report_returns_structured_payload(client, monkeypatch):
+    project = _create_project(client)
+
+    monkeypatch.setattr(
+        report_route_module,
+        "generate_report",
+        lambda **kwargs: {
+            "report_id": "report-quiz",
+            "query": "Create quiz",
+            "title": "Quiz: Create quiz",
+            "type": "quiz",
+            "format": "markdown",
+            "content": "# Quiz\n\n## Questions",
+            "structured_payload": {
+                "overview": "One quiz was generated.",
+                "questions": [
+                    {
+                        "id": "question-1",
+                        "type": "multiple_choice",
+                        "question": "What is the main concept?",
+                        "options": [
+                            {"id": "a", "text": "The source-grounded concept"},
+                            {"id": "b", "text": "Unsupported option"},
+                            {"id": "c", "text": "Another unsupported option"},
+                            {"id": "d", "text": "A contradiction"},
+                        ],
+                        "correct_option_id": "a",
+                        "explanation": "The answer comes from indexed evidence.",
+                        "difficulty": "easy",
+                        "tags": ["concept"],
+                        "citations": [],
+                    }
+                ],
+            },
+            "status": "completed",
+            "run_id": "run-1",
+            "source_ids": [],
+            "citations": [],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/reports/generate",
+        json={
+            "project_id": project["id"],
+            "query": "Create quiz",
+            "type": "quiz",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["type"] == "quiz"
+    assert body["data"]["structured_payload"]["questions"][0]["question"] == "What is the main concept?"
 
 
 def test_get_report_returns_structured_payload(client, db_session):
@@ -233,6 +291,162 @@ def test_get_flashcards_report_hydrates_card_citations(client, db_session):
     assert card["citations"][0]["chunk_id"] == str(chunk.id)
     assert card["citations"][0]["title"] == "Deck"
     assert card["citations"][0]["page_number"] == 4
+
+
+def test_get_quiz_report_hydrates_question_citations(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+
+    source = Source(
+        project_id=project_id,
+        type="file",
+        original_uri="quiz-deck.pdf",
+        storage_path="data/uploads/quiz-deck.pdf",
+        checksum="quiz-contract",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Quiz Deck",
+        raw_path=source.storage_path,
+        clean_text="The indexed quiz fact.",
+        token_count=8,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="The indexed quiz fact supports the quiz answer.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model="local-test-model",
+        chunk_metadata={"page_number": 5},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+    db_session.refresh(chunk)
+
+    report = Report(
+        project_id=project_id,
+        query="Create quiz",
+        title="Quiz: Create quiz",
+        report_type="quiz",
+        format="markdown",
+        content="# Quiz",
+        structured_payload={
+            "overview": "One quiz.",
+            "questions": [
+                {
+                    "id": "question-1",
+                    "type": "true_false",
+                    "question": "The indexed fact supports the answer.",
+                    "options": [
+                        {"id": "true", "text": "True"},
+                        {"id": "false", "text": "False"},
+                    ],
+                    "correct_option_id": "true",
+                    "explanation": "The fact appears in the indexed source.",
+                    "difficulty": "easy",
+                    "tags": ["fact"],
+                    "citations": [{"chunk_id": str(chunk.id)}],
+                }
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    response = client.get(f"/api/v1/reports/{report.id}")
+
+    assert response.status_code == 200
+    question = response.json()["data"]["structured_payload"]["questions"][0]
+    assert question["citations"][0]["chunk_id"] == str(chunk.id)
+    assert question["citations"][0]["title"] == "Quiz Deck"
+    assert question["citations"][0]["page_number"] == 5
+
+
+def test_create_and_list_quiz_attempts_scores_answers(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+    report = Report(
+        project_id=project_id,
+        query="Create quiz",
+        title="Quiz: Create quiz",
+        report_type="quiz",
+        format="markdown",
+        content="# Quiz",
+        structured_payload={
+            "overview": "One quiz.",
+            "questions": [
+                {
+                    "id": "question-1",
+                    "type": "multiple_choice",
+                    "question": "What is correct?",
+                    "options": [
+                        {"id": "a", "text": "Correct"},
+                        {"id": "b", "text": "Wrong"},
+                        {"id": "c", "text": "Wrong"},
+                        {"id": "d", "text": "Wrong"},
+                    ],
+                    "correct_option_id": "a",
+                    "explanation": "A is supported.",
+                    "difficulty": "easy",
+                    "tags": [],
+                    "citations": [],
+                },
+                {
+                    "id": "question-2",
+                    "type": "true_false",
+                    "question": "The claim is true.",
+                    "options": [
+                        {"id": "true", "text": "True"},
+                        {"id": "false", "text": "False"},
+                    ],
+                    "correct_option_id": "true",
+                    "explanation": "The source says so.",
+                    "difficulty": "medium",
+                    "tags": [],
+                    "citations": [],
+                },
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    response = client.post(
+        f"/api/v1/reports/{report.id}/quiz-attempts",
+        json={"answers": {"question-1": "a", "question-2": "false"}},
+    )
+
+    assert response.status_code == 201
+    created = response.json()["data"]
+    assert created["score_correct"] == 1
+    assert created["score_total"] == 2
+    assert created["score_percent"] == 50
+    assert created["answers"]["question-2"] == "false"
+
+    persisted = db_session.get(QuizAttempt, uuid.UUID(created["attempt_id"]))
+    assert persisted is not None
+    assert persisted.score_correct == 1
+
+    list_response = client.get(f"/api/v1/reports/{report.id}/quiz-attempts")
+    assert list_response.status_code == 200
+    listed = list_response.json()["data"]
+    assert listed["total"] == 1
+    assert listed["items"][0]["attempt_id"] == created["attempt_id"]
 
 
 def test_update_action_item_status_returns_updated_report(client, db_session, monkeypatch):

@@ -14,6 +14,7 @@ import {
     Lightbulb,
     FileText,
     Layers,
+    CircleHelp,
     KeyRound,
     Moon,
     Sun,
@@ -39,6 +40,7 @@ const navItems = [
     { href: "/insights", label: "Insights", icon: Lightbulb },
     { href: "/reports", label: "Reports", icon: FileText },
     { href: "/flashcards", label: "Flashcards", icon: Layers },
+    { href: "/quiz", label: "Quiz", icon: CircleHelp },
     { href: "/settings", label: "Settings", icon: KeyRound },
 ];
 

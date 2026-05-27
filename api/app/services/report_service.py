@@ -18,7 +18,7 @@ from app.services.citation_service import hydrate_citations, hydrate_report_payl
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.insight_service import InsightError, generate_insight
 from app.services.query_service import ensure_project_sources_indexed
-from app.storage.models import Chunk, Document, Report, ReportInsight, Source
+from app.storage.models import Chunk, Document, QuizAttempt, Report, ReportInsight, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.report_repository import ReportRepository
 
@@ -192,10 +192,51 @@ Evidence:
 {evidence}
 """
 
-_STRUCTURED_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief", "flashcards"}
+_QUIZ_PROMPT_TEMPLATE = """\
+You are creating a source-grounded quiz from indexed source material.
+
+Return a JSON object with EXACTLY this shape:
+{{
+  "overview": "<short overview for this batch>",
+  "questions": [
+    {{
+      "type": "multiple_choice|true_false",
+      "question": "<question text>",
+      "options": [
+        {{ "id": "a", "text": "<option text>" }},
+        {{ "id": "b", "text": "<option text>" }}
+      ],
+      "correct_option_id": "a",
+      "explanation": "<why the answer is correct, grounded in the evidence>",
+      "difficulty": "easy|medium|hard",
+      "tags": ["<short topic tag>"],
+      "citation_indexes": [1]
+    }}
+  ]
+}}
+
+Rules:
+- Use only the evidence below. Do not add outside knowledge.
+- Prefer exam-worthy concepts, definitions, processes, comparisons, timelines, and cause/effect.
+- About 70% of questions should be multiple_choice and 30% true_false when the evidence supports it.
+- multiple_choice questions must have exactly 4 options with ids "a", "b", "c", "d".
+- true_false questions must have exactly 2 options with ids "true" and "false".
+- Each question must include at least one citation index from the evidence list.
+- Avoid duplicate questions in this batch.
+- Produce up to {question_limit} questions.
+
+User request: {query}
+
+Evidence:
+{evidence}
+"""
+
+_STRUCTURED_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief", "flashcards", "quiz"}
 _ACTIONABLE_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief"}
 _FLASHCARDS_MAX_CARDS = 40
 _FLASHCARDS_BATCH_SIZE = 10
+_QUIZ_MAX_QUESTIONS = 30
+_QUIZ_BATCH_SIZE = 10
 
 
 def generate_report(
@@ -214,6 +255,16 @@ def generate_report(
         return generate_conflict_mesh(db, project_id, query, provider, parent_run_id=parent_run_id)
     if report_type == "flashcards":
         return _generate_flashcards_report(
+            db=db,
+            project_id=project_id,
+            query=query,
+            report_type=report_type,
+            format=format,
+            provider=provider,
+            parent_run_id=parent_run_id,
+        )
+    if report_type == "quiz":
+        return _generate_quiz_report(
             db=db,
             project_id=project_id,
             query=query,
@@ -538,6 +589,159 @@ def _generate_flashcards_report(
     }
 
 
+def _generate_quiz_report(
+    *,
+    db: Session,
+    project_id: uuid.UUID,
+    query: str,
+    report_type: str,
+    format: str,
+    provider: str,
+    parent_run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.provider_settings_service import (
+        ProviderSettingsError,
+        normalize_provider,
+        resolve_chat_provider_config,
+    )
+
+    try:
+        answer_provider = normalize_provider(provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
+    except ProviderSettingsError as exc:
+        raise ReportError(str(exc)) from exc
+
+    indexing_result = ensure_project_sources_indexed(
+        db,
+        project_id=project_id,
+        filters=None,
+        trigger="quiz_indexing",
+    )
+    chunks = _load_flashcard_chunks(db, project_id)
+    if not chunks:
+        raise ReportError(
+            "No indexed chunks are available for quiz generation.",
+            code="REPORT_QUIZ_NO_CHUNKS",
+            status_code=409,
+            details={"indexing": indexing_result},
+        )
+
+    batches = _chunk_list(chunks, _QUIZ_BATCH_SIZE)
+    questions_per_batch = max(2, min(5, math.ceil(_QUIZ_MAX_QUESTIONS / max(len(batches), 1))))
+    collected_questions: list[dict[str, Any]] = []
+    seen_questions: set[str] = set()
+    overview_parts: list[str] = []
+
+    for batch in batches:
+        if len(collected_questions) >= _QUIZ_MAX_QUESTIONS:
+            break
+        evidence_blocks, citations = _format_flashcard_evidence(batch)
+        prompt = _QUIZ_PROMPT_TEMPLATE.format(
+            query=query,
+            evidence=evidence_blocks,
+            question_limit=questions_per_batch,
+        )
+        raw_payload = _call_llm_json(
+            prompt=prompt,
+            provider=answer_provider,
+            api_key=generation_config["api_key"],
+            base_url=generation_config.get("base_url"),
+            model=generation_config["chat_model"],
+        )
+        parsed = _load_json_object(raw_payload)
+        normalized = _normalize_quiz_batch_payload(parsed, citations, query)
+        overview = _coerce_string(normalized.get("overview"))
+        if overview:
+            overview_parts.append(overview)
+        for question in normalized["questions"]:
+            fingerprint = _flashcard_fingerprint(question.get("question", ""))
+            if not fingerprint or fingerprint in seen_questions:
+                continue
+            seen_questions.add(fingerprint)
+            collected_questions.append(question)
+            if len(collected_questions) >= _QUIZ_MAX_QUESTIONS:
+                break
+
+    if not collected_questions:
+        collected_questions = _fallback_quiz_questions(chunks[:_QUIZ_MAX_QUESTIONS], query)
+
+    payload = {
+        "overview": _build_quiz_overview(overview_parts, len(collected_questions), len(chunks)),
+        "questions": collected_questions[:_QUIZ_MAX_QUESTIONS],
+    }
+    title = _derive_title(query, report_type)
+    report_content = _render_structured_payload_as_markdown(
+        report_type=report_type,
+        title=title,
+        payload=payload,
+    )
+    prompt_hash = hashlib.sha256(_QUIZ_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
+    config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    all_citations = _unique_citations(citation for item in chunks for citation in [item["citation"]])
+    evidence_snapshot = _build_evidence_snapshot(all_citations)
+
+    run = ProcessingRunRepository(db).create(
+        project_id=project_id,
+        job_id=None,
+        run_type="report",
+        model_id=generation_config["chat_model"],
+        prompt_hash=prompt_hash,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata={
+            "report_type": report_type,
+            "format": format,
+            "query": query,
+            "provider": answer_provider,
+            "structured_output": True,
+            "indexed_chunk_count": len(chunks),
+            "generated_question_count": len(payload["questions"]),
+            "indexing": indexing_result,
+            "evidence_snapshot": evidence_snapshot,
+        },
+        parent_run_id=parent_run_id,
+    )
+    report = Report(
+        project_id=project_id,
+        query=query,
+        title=title,
+        report_type=report_type,
+        format=format,
+        content=report_content,
+        structured_payload=payload,
+        status="completed",
+        run_id=run.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    structured_payload = hydrate_report_payload_citations(db, payload)
+    citations = hydrate_citations(
+        db,
+        _unique_citations(
+            citation
+            for question in payload["questions"]
+            for citation in question.get("citations", [])
+        ),
+    )
+    source_ids = list({citation["source_id"] for citation in all_citations if citation.get("source_id")})
+    return {
+        "report_id": str(report.id),
+        "query": query,
+        "title": title,
+        "type": report_type,
+        "format": format,
+        "content": report_content,
+        "structured_payload": structured_payload,
+        "status": "completed",
+        "run_id": str(run.id),
+        "source_ids": source_ids,
+        "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
+    }
+
+
 def update_action_item_status(
     db: Session,
     report_id: uuid.UUID,
@@ -636,6 +840,92 @@ def serialize_report(report: Report, db: Session | None = None) -> dict[str, Any
         "status": report.status,
         "run_id": str(report.run_id) if report.run_id else None,
         "created_at": report.created_at.isoformat() if report.created_at else None,
+    }
+
+
+def create_quiz_attempt(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    user_id: uuid.UUID,
+    answers: dict[str, str],
+) -> dict[str, Any]:
+    report = db.get(Report, report_id)
+    if not report:
+        raise ReportError("Report does not exist.", code="REPORT_NOT_FOUND", status_code=404)
+    if report.report_type != "quiz":
+        raise ReportError(
+            "Only quiz reports support attempts.",
+            code="REPORT_QUIZ_ATTEMPTS_UNSUPPORTED",
+            status_code=409,
+        )
+    payload = report.structured_payload if isinstance(report.structured_payload, dict) else {}
+    raw_questions = payload.get("questions")
+    if not isinstance(raw_questions, list) or not raw_questions:
+        raise ReportError(
+            "Quiz report does not contain questions.",
+            code="REPORT_QUIZ_QUESTIONS_MISSING",
+            status_code=409,
+        )
+
+    sanitized_answers = {
+        str(question_id): str(option_id)
+        for question_id, option_id in answers.items()
+        if question_id and option_id
+    }
+    score_total = 0
+    score_correct = 0
+    for raw_question in raw_questions:
+        if not isinstance(raw_question, dict):
+            continue
+        question_id = _coerce_string(raw_question.get("id"))
+        correct_option_id = _coerce_string(raw_question.get("correct_option_id"))
+        if not question_id or not correct_option_id:
+            continue
+        score_total += 1
+        if sanitized_answers.get(question_id) == correct_option_id:
+            score_correct += 1
+
+    score_percent = round((score_correct / score_total) * 100) if score_total else 0
+    attempt = QuizAttempt(
+        report_id=report_id,
+        user_id=user_id,
+        answers=sanitized_answers,
+        score_correct=score_correct,
+        score_total=score_total,
+        score_percent=score_percent,
+    )
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+    return serialize_quiz_attempt(attempt)
+
+
+def list_quiz_attempts(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    attempts = (
+        db.query(QuizAttempt)
+        .filter(QuizAttempt.report_id == report_id, QuizAttempt.user_id == user_id)
+        .order_by(QuizAttempt.created_at.desc())
+        .all()
+    )
+    return [serialize_quiz_attempt(attempt) for attempt in attempts]
+
+
+def serialize_quiz_attempt(attempt: QuizAttempt) -> dict[str, Any]:
+    return {
+        "attempt_id": str(attempt.id),
+        "report_id": str(attempt.report_id),
+        "user_id": str(attempt.user_id),
+        "answers": attempt.answers or {},
+        "score_correct": attempt.score_correct,
+        "score_total": attempt.score_total,
+        "score_percent": attempt.score_percent,
+        "created_at": attempt.created_at.isoformat() if attempt.created_at else None,
     }
 
 
@@ -743,6 +1033,7 @@ def _derive_title(query: str, report_type: str) -> str:
         "executive_brief": "Executive Brief",
         "conflict_mesh": "Conflict Mesh",
         "flashcards": "Flashcards",
+        "quiz": "Quiz",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
 
@@ -965,12 +1256,165 @@ def _fallback_flashcard_tags(query: str, title: str) -> list[str]:
     return tags[:3]
 
 
+def _normalize_quiz_batch_payload(
+    parsed: dict[str, Any],
+    citations: list[dict[str, Any]],
+    query: str,
+) -> dict[str, Any]:
+    questions: list[dict[str, Any]] = []
+    raw_questions = parsed.get("questions")
+    if isinstance(raw_questions, list):
+        for raw_question in raw_questions:
+            if not isinstance(raw_question, dict):
+                continue
+            question_text = _coerce_string(raw_question.get("question"))
+            if not question_text:
+                continue
+            question_type = _coerce_enum(
+                raw_question.get("type"),
+                {"multiple_choice", "true_false"},
+                "multiple_choice",
+            )
+            options = _normalize_quiz_options(raw_question.get("options"), question_type)
+            if not options:
+                continue
+            correct_option_id = _coerce_string(raw_question.get("correct_option_id")).lower()
+            option_ids = {option["id"] for option in options}
+            if correct_option_id not in option_ids:
+                correct_option_id = options[0]["id"]
+            question_citations = _map_citation_indexes(raw_question.get("citation_indexes"), citations)
+            if not question_citations:
+                question_citations = citations[:1]
+            questions.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": question_type,
+                    "question": question_text,
+                    "options": options,
+                    "correct_option_id": correct_option_id,
+                    "explanation": _coerce_string(raw_question.get("explanation"), question_text),
+                    "difficulty": _coerce_enum(
+                        raw_question.get("difficulty"),
+                        {"easy", "medium", "hard"},
+                        "medium",
+                    ),
+                    "tags": _coerce_string_list(raw_question.get("tags"), max_items=5),
+                    "citations": question_citations,
+                }
+            )
+    if questions:
+        return {
+            "overview": _coerce_string(parsed.get("overview"), f"Quiz generated for: {query}"),
+            "questions": questions,
+        }
+    return {
+        "overview": f"Quiz generated for: {query}",
+        "questions": _fallback_quiz_questions(
+            [{"content": citation.get("quote", ""), "title": citation.get("title", ""), "citation": citation}
+             for citation in citations],
+            query,
+        ),
+    }
+
+
+def _normalize_quiz_options(raw_options: Any, question_type: str) -> list[dict[str, str]]:
+    if question_type == "true_false":
+        raw_correct = _extract_option_text_by_id(raw_options, {"true", "false"})
+        return [
+            {"id": "true", "text": raw_correct.get("true", "True")},
+            {"id": "false", "text": raw_correct.get("false", "False")},
+        ]
+
+    if not isinstance(raw_options, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    allowed_ids = ["a", "b", "c", "d"]
+    for index, raw_option in enumerate(raw_options[:4]):
+        if isinstance(raw_option, dict):
+            text = _coerce_string(raw_option.get("text"))
+            option_id = _coerce_string(raw_option.get("id")).lower()
+        else:
+            text = _coerce_string(raw_option)
+            option_id = ""
+        if not text:
+            continue
+        normalized.append(
+            {
+                "id": option_id if option_id in allowed_ids else allowed_ids[index],
+                "text": text,
+            }
+        )
+    seen_ids: set[str] = set()
+    deduped: list[dict[str, str]] = []
+    for index, option in enumerate(normalized):
+        option_id = option["id"]
+        if option_id in seen_ids:
+            option_id = allowed_ids[index]
+        seen_ids.add(option_id)
+        deduped.append({"id": option_id, "text": option["text"]})
+    return deduped if len(deduped) == 4 else []
+
+
+def _extract_option_text_by_id(raw_options: Any, allowed_ids: set[str]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not isinstance(raw_options, list):
+        return values
+    for raw_option in raw_options:
+        if not isinstance(raw_option, dict):
+            continue
+        option_id = _coerce_string(raw_option.get("id")).lower()
+        text = _coerce_string(raw_option.get("text"))
+        if option_id in allowed_ids and text:
+            values[option_id] = text
+    return values
+
+
+def _fallback_quiz_questions(items: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+    questions: list[dict[str, Any]] = []
+    for item in items:
+        citation = item["citation"]
+        content = _coerce_string(item.get("content") or citation.get("quote"))
+        title = _coerce_string(item.get("title") or citation.get("title"), "this source")
+        if not content:
+            continue
+        answer = _preview(content, limit=160)
+        questions.append(
+            {
+                "id": str(uuid.uuid4()),
+                "type": "multiple_choice",
+                "question": f"What is a key point from {title}?",
+                "options": [
+                    {"id": "a", "text": answer},
+                    {"id": "b", "text": "This is not supported by the indexed source."},
+                    {"id": "c", "text": "The source does not discuss this topic."},
+                    {"id": "d", "text": "The evidence states the opposite."},
+                ],
+                "correct_option_id": "a",
+                "explanation": _preview(content, limit=360),
+                "difficulty": "medium",
+                "tags": _fallback_flashcard_tags(query, title),
+                "citations": [citation],
+            }
+        )
+        if len(questions) >= _QUIZ_MAX_QUESTIONS:
+            break
+    return questions
+
+
 def _build_flashcards_overview(overview_parts: list[str], card_count: int, chunk_count: int) -> str:
     for overview in overview_parts:
         cleaned = _coerce_string(overview)
         if cleaned:
             return f"{cleaned} Generated {card_count} flashcards from {chunk_count} indexed chunks."
     return f"Generated {card_count} flashcards from {chunk_count} indexed chunks."
+
+
+def _build_quiz_overview(overview_parts: list[str], question_count: int, chunk_count: int) -> str:
+    for overview in overview_parts:
+        cleaned = _coerce_string(overview)
+        if cleaned:
+            return f"{cleaned} Generated {question_count} quiz questions from {chunk_count} indexed chunks."
+    return f"Generated {question_count} quiz questions from {chunk_count} indexed chunks."
 
 
 def _flashcard_fingerprint(front: str) -> str:
@@ -1298,6 +1742,8 @@ def _render_structured_payload_as_markdown(
         return _render_risk_analysis_markdown(title, payload)
     if report_type == "flashcards":
         return _render_flashcards_markdown(title, payload)
+    if report_type == "quiz":
+        return _render_quiz_markdown(title, payload)
     return _render_executive_brief_markdown(title, payload)
 
 
@@ -1364,6 +1810,42 @@ def _render_flashcards_markdown(title: str, payload: dict[str, Any]) -> str:
                 f"- Difficulty: {card.get('difficulty', 'medium')}",
                 f"- Tags: {tags or 'none'}",
                 _format_citation_line(card.get("citations", [])),
+            ]
+        )
+    return "\n".join(line for line in lines if line is not None)
+
+
+def _render_quiz_markdown(title: str, payload: dict[str, Any]) -> str:
+    lines = [f"# {title}", "", "## Overview", payload.get("overview", ""), "", "## Questions"]
+    for index, question in enumerate(payload.get("questions", []), start=1):
+        tags = ", ".join(question.get("tags", [])) if isinstance(question.get("tags"), list) else ""
+        options = question.get("options", [])
+        correct_option_id = question.get("correct_option_id", "")
+        correct_text = ""
+        if isinstance(options, list):
+            for option in options:
+                if isinstance(option, dict) and option.get("id") == correct_option_id:
+                    correct_text = str(option.get("text") or "")
+                    break
+        lines.extend(
+            [
+                "",
+                f"### {index}. {question.get('question', 'Untitled question')}",
+                f"- Type: {question.get('type', 'multiple_choice')}",
+                f"- Difficulty: {question.get('difficulty', 'medium')}",
+                f"- Tags: {tags or 'none'}",
+                "- Options:",
+            ]
+        )
+        if isinstance(options, list):
+            for option in options:
+                if isinstance(option, dict):
+                    lines.append(f"  - {option.get('id')}: {option.get('text', '')}")
+        lines.extend(
+            [
+                f"- Correct Answer: {correct_option_id} {correct_text}".strip(),
+                f"- Explanation: {question.get('explanation', '')}",
+                _format_citation_line(question.get("citations", [])),
             ]
         )
     return "\n".join(line for line in lines if line is not None)

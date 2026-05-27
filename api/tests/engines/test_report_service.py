@@ -339,6 +339,229 @@ def test_generate_flashcards_report_falls_back_on_malformed_json(db_session, mon
     assert card["citations"][0]["chunk_id"] == str(chunk.id)
 
 
+def test_generate_quiz_report_uses_all_indexed_chunks(db_session, monkeypatch):
+    project = Project(name="Quiz Project", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="quiz-chapter.pptx",
+        storage_path="data/uploads/quiz-chapter.pptx",
+        checksum="quiz-1",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Quiz Chapter",
+        raw_path=source.storage_path,
+        clean_text="Concept content. Method content. Meaning content.",
+        token_count=42,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunks = []
+    for index, content in enumerate(
+        [
+            "Slide 1 defines the central concept.",
+            "Slide 2 explains the main method.",
+            "Slide 3 states why the lesson matters.",
+        ]
+    ):
+        chunk = Chunk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            chunk_index=index,
+            content=content,
+            chroma_id=str(uuid.uuid4()),
+            embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+            chunk_metadata={
+                "source_id": str(source.id),
+                "document_id": str(document.id),
+                "page_number": index + 1,
+            },
+        )
+        chunks.append(chunk)
+    db_session.add_all(chunks)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        report_service,
+        "generate_insight",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("quiz must not use insight top-k")),
+    )
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    prompts: list[str] = []
+
+    def fake_quiz_json(**kwargs):
+        prompts.append(kwargs["prompt"])
+        return """
+        {
+          "overview": "A source-grounded quiz.",
+          "questions": [
+            {
+              "type": "multiple_choice",
+              "question": "What does slide 1 define?",
+              "options": [
+                {"id": "a", "text": "The central concept"},
+                {"id": "b", "text": "A due date"},
+                {"id": "c", "text": "A budget"},
+                {"id": "d", "text": "A risk"}
+              ],
+              "correct_option_id": "a",
+              "explanation": "Slide 1 defines the central concept.",
+              "difficulty": "easy",
+              "tags": ["concept"],
+              "citation_indexes": [1]
+            },
+            {
+              "type": "true_false",
+              "question": "Slide 2 explains the main method.",
+              "options": [
+                {"id": "true", "text": "True"},
+                {"id": "false", "text": "False"}
+              ],
+              "correct_option_id": "true",
+              "explanation": "Slide 2 explains the main method.",
+              "difficulty": "medium",
+              "tags": ["method"],
+              "citation_indexes": [2]
+            },
+            {
+              "type": "multiple_choice",
+              "question": "What does slide 3 state?",
+              "options": [
+                {"id": "a", "text": "Why the lesson matters"},
+                {"id": "b", "text": "The author biography"},
+                {"id": "c", "text": "The file name only"},
+                {"id": "d", "text": "A contradiction"}
+              ],
+              "correct_option_id": "a",
+              "explanation": "Slide 3 states why the lesson matters.",
+              "difficulty": "medium",
+              "tags": ["meaning"],
+              "citation_indexes": [3]
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(report_service, "_call_llm_json", fake_quiz_json)
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create a quiz from all documents",
+        report_type="quiz",
+        format="markdown",
+        provider="openai",
+    )
+
+    assert result["type"] == "quiz"
+    questions = result["structured_payload"]["questions"]
+    assert len(questions) == 3
+    assert questions[0]["type"] == "multiple_choice"
+    assert questions[1]["type"] == "true_false"
+    assert questions[0]["citations"][0]["chunk_id"] == str(chunks[0].id)
+    assert "## Questions" in result["content"]
+    assert prompts
+    assert "Slide 1 defines" in prompts[0]
+    assert "Slide 2 explains" in prompts[0]
+    assert "Slide 3 states" in prompts[0]
+
+    persisted = db_session.get(Report, uuid.UUID(result["report_id"]))
+    assert persisted is not None
+    assert persisted.structured_payload["questions"][1]["correct_option_id"] == "true"
+
+    run = db_session.get(ProcessingRun, uuid.UUID(result["run_id"]))
+    assert run is not None
+    assert run.run_metadata["indexed_chunk_count"] == 3
+    assert run.run_metadata["generated_question_count"] == 3
+
+
+def test_generate_quiz_report_falls_back_on_malformed_json(db_session, monkeypatch):
+    project = Project(name="Fallback Quiz", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="quiz-fallback.pdf",
+        storage_path="data/uploads/quiz-fallback.pdf",
+        checksum="quiz-2",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Quiz Fallback Source",
+        raw_path=source.storage_path,
+        clean_text="Fallback quiz content.",
+        token_count=12,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        id=uuid.uuid4(),
+        document_id=document.id,
+        chunk_index=0,
+        content="Fallback quiz content should still become a question.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    monkeypatch.setattr(report_service, "_call_llm_json", lambda **kwargs: "not json")
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create quiz",
+        report_type="quiz",
+        format="markdown",
+        provider="openai",
+    )
+
+    question = result["structured_payload"]["questions"][0]
+    assert question["question"].startswith("What is a key point")
+    assert question["correct_option_id"] == "a"
+    assert question["citations"][0]["chunk_id"] == str(chunk.id)
+
+
 def test_update_action_item_status_updates_payload_and_markdown(db_session):
     project = Project(name="Action item status", description="test")
     db_session.add(project)
