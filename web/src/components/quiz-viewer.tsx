@@ -12,10 +12,17 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { generateReport, getReport, listReports } from "@/lib/api/client";
+import {
+  createQuizAttempt,
+  generateReport,
+  getReport,
+  listQuizAttempts,
+  listReports,
+} from "@/lib/api/client";
 import type {
   CitationData,
   ProjectRole,
+  QuizAttemptData,
   QuizPayload,
   QuizQuestionData,
   ReportListItem,
@@ -114,30 +121,81 @@ function CitationList({ citations }: { citations: CitationData[] }) {
 }
 
 function QuizResultSummary({
-  payload,
-  answers,
+  attempt,
 }: {
-  payload: QuizPayload;
-  answers: Record<string, string>;
+  attempt: QuizAttemptData;
 }) {
-  const total = payload.questions.length;
-  const correct = payload.questions.filter(
-    (question) => answers[question.id] === question.correct_option_id,
-  ).length;
-  const percent = total ? Math.round((correct / total) * 100) : 0;
-
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-3">
           <CardTitle className="text-base">Score</CardTitle>
-          <Badge variant={percent >= 70 ? "success" : "warning"}>
-            {correct}/{total} correct
+          <Badge variant={attempt.score_percent >= 70 ? "success" : "warning"}>
+            {attempt.score_correct}/{attempt.score_total} correct
           </Badge>
-          <Badge variant="outline">{percent}%</Badge>
+          <Badge variant="outline">{attempt.score_percent}%</Badge>
         </div>
-        <CardDescription>{payload.overview}</CardDescription>
+        <CardDescription>
+          Saved {attempt.created_at ? new Date(attempt.created_at).toLocaleString() : "just now"}.
+        </CardDescription>
       </CardHeader>
+    </Card>
+  );
+}
+
+function QuizAttemptsPanel({
+  attempts,
+  loading,
+  onLoadAttempt,
+}: {
+  attempts: QuizAttemptData[];
+  loading: boolean;
+  onLoadAttempt: (attempt: QuizAttemptData) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Saved Attempts</CardTitle>
+        <CardDescription>
+          Compare this run with previous submitted answers.
+        </CardDescription>
+      </CardHeader>
+      <Separator />
+      <CardContent className="flex flex-col gap-2 p-4">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner size="sm" />
+            Loading attempts...
+          </div>
+        ) : attempts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No saved attempts for this quiz yet.
+          </p>
+        ) : (
+          attempts.map((attempt) => (
+            <button
+              key={attempt.attempt_id}
+              type="button"
+              onClick={() => onLoadAttempt(attempt)}
+              className="flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-muted/50"
+            >
+              <Badge variant={attempt.score_percent >= 70 ? "success" : "warning"}>
+                {attempt.score_percent}%
+              </Badge>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">
+                  {attempt.score_correct}/{attempt.score_total} correct
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {attempt.created_at
+                    ? new Date(attempt.created_at).toLocaleString()
+                    : "Saved attempt"}
+                </p>
+              </div>
+            </button>
+          ))
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -245,6 +303,10 @@ export function QuizViewer() {
   const [history, setHistory] = useState<ReportListItem[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [savingAttempt, setSavingAttempt] = useState(false);
+  const [loadingAttempts, setLoadingAttempts] = useState(false);
+  const [attempts, setAttempts] = useState<QuizAttemptData[]>([]);
+  const [activeAttempt, setActiveAttempt] = useState<QuizAttemptData | null>(null);
 
   useEffect(() => {
     const active = getActiveProject();
@@ -266,6 +328,12 @@ export function QuizViewer() {
   useEffect(() => {
     setAnswers({});
     setSubmitted(false);
+    setActiveAttempt(null);
+    if (report?.report_id) {
+      void loadAttempts(report.report_id);
+    } else {
+      setAttempts([]);
+    }
   }, [report?.report_id]);
 
   async function loadHistory() {
@@ -328,20 +396,56 @@ export function QuizViewer() {
     }
   }
 
-  function handleQuizSubmit() {
-    if (!payload) return;
+  async function loadAttempts(reportId: string) {
+    setLoadingAttempts(true);
+    try {
+      const response = await listQuizAttempts(reportId);
+      setAttempts(response.data.items);
+    } catch (error) {
+      console.error("Failed to load quiz attempts", error);
+      setAttempts([]);
+    } finally {
+      setLoadingAttempts(false);
+    }
+  }
+
+  async function handleQuizSubmit() {
+    if (!payload || !report) return;
     const unanswered = payload.questions.filter((question) => !answers[question.id]);
     if (unanswered.length) {
       toast.error(`Answer ${unanswered.length} more question(s) before submitting.`);
       return;
     }
-    setSubmitted(true);
-    toast.success("Quiz submitted.");
+    setSavingAttempt(true);
+    try {
+      const response = await createQuizAttempt({
+        reportId: report.report_id,
+        answers,
+      });
+      setActiveAttempt(response.data);
+      setAttempts((current) => [response.data, ...current]);
+      setSubmitted(true);
+      toast.success("Quiz submitted and saved.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save quiz attempt.",
+      );
+    } finally {
+      setSavingAttempt(false);
+    }
   }
 
   function resetAttempt() {
     setAnswers({});
     setSubmitted(false);
+    setActiveAttempt(null);
+  }
+
+  function loadSavedAttempt(attempt: QuizAttemptData) {
+    setAnswers(attempt.answers);
+    setActiveAttempt(attempt);
+    setSubmitted(true);
+    toast.success("Saved attempt loaded.");
   }
 
   async function handleCopyJson() {
@@ -573,18 +677,23 @@ export function QuizViewer() {
             </Card>
           ) : payload ? (
             <>
-              {submitted ? (
-                <QuizResultSummary payload={payload} answers={answers} />
+              {submitted && activeAttempt ? (
+                <QuizResultSummary attempt={activeAttempt} />
               ) : null}
+              <QuizAttemptsPanel
+                attempts={attempts}
+                loading={loadingAttempts}
+                onLoadAttempt={loadSavedAttempt}
+              />
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  onClick={handleQuizSubmit}
-                  disabled={submitted || !payload.questions.length}
+                  onClick={() => void handleQuizSubmit()}
+                  disabled={submitted || savingAttempt || !payload.questions.length}
                   className="gap-2"
                 >
-                  <CheckCircle2 className="h-4 w-4" />
-                  Submit Quiz
+                  {savingAttempt ? <Spinner size="sm" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {savingAttempt ? "Saving..." : "Submit Quiz"}
                 </Button>
                 <Button
                   type="button"

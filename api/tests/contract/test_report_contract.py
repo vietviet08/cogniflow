@@ -7,6 +7,7 @@ from app.storage.models import (
     Insight,
     InsightCitation,
     ProcessingRun,
+    QuizAttempt,
     Report,
     ReportInsight,
     Source,
@@ -371,6 +372,81 @@ def test_get_quiz_report_hydrates_question_citations(client, db_session):
     assert question["citations"][0]["chunk_id"] == str(chunk.id)
     assert question["citations"][0]["title"] == "Quiz Deck"
     assert question["citations"][0]["page_number"] == 5
+
+
+def test_create_and_list_quiz_attempts_scores_answers(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+    report = Report(
+        project_id=project_id,
+        query="Create quiz",
+        title="Quiz: Create quiz",
+        report_type="quiz",
+        format="markdown",
+        content="# Quiz",
+        structured_payload={
+            "overview": "One quiz.",
+            "questions": [
+                {
+                    "id": "question-1",
+                    "type": "multiple_choice",
+                    "question": "What is correct?",
+                    "options": [
+                        {"id": "a", "text": "Correct"},
+                        {"id": "b", "text": "Wrong"},
+                        {"id": "c", "text": "Wrong"},
+                        {"id": "d", "text": "Wrong"},
+                    ],
+                    "correct_option_id": "a",
+                    "explanation": "A is supported.",
+                    "difficulty": "easy",
+                    "tags": [],
+                    "citations": [],
+                },
+                {
+                    "id": "question-2",
+                    "type": "true_false",
+                    "question": "The claim is true.",
+                    "options": [
+                        {"id": "true", "text": "True"},
+                        {"id": "false", "text": "False"},
+                    ],
+                    "correct_option_id": "true",
+                    "explanation": "The source says so.",
+                    "difficulty": "medium",
+                    "tags": [],
+                    "citations": [],
+                },
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    response = client.post(
+        f"/api/v1/reports/{report.id}/quiz-attempts",
+        json={"answers": {"question-1": "a", "question-2": "false"}},
+    )
+
+    assert response.status_code == 201
+    created = response.json()["data"]
+    assert created["score_correct"] == 1
+    assert created["score_total"] == 2
+    assert created["score_percent"] == 50
+    assert created["answers"]["question-2"] == "false"
+
+    persisted = db_session.get(QuizAttempt, uuid.UUID(created["attempt_id"]))
+    assert persisted is not None
+    assert persisted.score_correct == 1
+
+    list_response = client.get(f"/api/v1/reports/{report.id}/quiz-attempts")
+    assert list_response.status_code == 200
+    listed = list_response.json()["data"]
+    assert listed["total"] == 1
+    assert listed["items"][0]["attempt_id"] == created["attempt_id"]
 
 
 def test_update_action_item_status_returns_updated_report(client, db_session, monkeypatch):

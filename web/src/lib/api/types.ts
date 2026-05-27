@@ -331,6 +331,22 @@ export interface QuizPayload {
     questions: QuizQuestionData[];
 }
 
+export interface QuizAttemptData {
+    attempt_id: string;
+    report_id: string;
+    user_id: string;
+    answers: Record<string, string>;
+    score_correct: number;
+    score_total: number;
+    score_percent: number;
+    created_at: string | null;
+}
+
+export interface QuizAttemptListData {
+    items: QuizAttemptData[];
+    total: number;
+}
+
 export type StructuredReportPayload =
     | ActionItemsPayload
     | RiskAnalysisPayload

@@ -11,8 +11,10 @@ from app.core.security import require_current_user, require_project_role
 from app.services.evaluation_service import evaluate_report_quality
 from app.services.report_service import (
     ReportError,
+    create_quiz_attempt,
     generate_report,
     get_report_lineage,
+    list_quiz_attempts,
     serialize_report,
     update_action_item_status,
 )
@@ -35,6 +37,10 @@ class GenerateReportRequest(BaseModel):
 
 class UpdateActionItemStatusRequest(BaseModel):
     status: str
+
+
+class CreateQuizAttemptRequest(BaseModel):
+    answers: dict[str, str]
 
 
 @router.post("/generate")
@@ -114,6 +120,67 @@ def get_report(
         )
     require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
     return success_response(request, serialize_report(report, db))
+
+
+@router.get("/{report_id}/quiz-attempts")
+def list_report_quiz_attempts_route(
+    report_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    report = ReportRepository(db).get(report_id)
+    if not report:
+        return error_response(
+            request,
+            code="REPORT_NOT_FOUND",
+            message="Report does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
+    attempts = list_quiz_attempts(db, report_id=report_id, user_id=current_user.id)
+    return success_response(
+        request,
+        {
+            "items": attempts,
+            "total": len(attempts),
+        },
+    )
+
+
+@router.post("/{report_id}/quiz-attempts")
+def create_report_quiz_attempt_route(
+    report_id: uuid.UUID,
+    payload: CreateQuizAttemptRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user),
+):
+    report = ReportRepository(db).get(report_id)
+    if not report:
+        return error_response(
+            request,
+            code="REPORT_NOT_FOUND",
+            message="Report does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
+    try:
+        result = create_quiz_attempt(
+            db,
+            report_id=report_id,
+            user_id=current_user.id,
+            answers=payload.answers,
+        )
+    except ReportError as exc:
+        return error_response(
+            request,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
+        )
+    return success_response(request, result, status_code=status.HTTP_201_CREATED)
 
 
 @router.put("/{report_id}/action-items/{item_id}")

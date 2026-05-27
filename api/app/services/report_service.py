@@ -18,7 +18,7 @@ from app.services.citation_service import hydrate_citations, hydrate_report_payl
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.insight_service import InsightError, generate_insight
 from app.services.query_service import ensure_project_sources_indexed
-from app.storage.models import Chunk, Document, Report, ReportInsight, Source
+from app.storage.models import Chunk, Document, QuizAttempt, Report, ReportInsight, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.report_repository import ReportRepository
 
@@ -840,6 +840,92 @@ def serialize_report(report: Report, db: Session | None = None) -> dict[str, Any
         "status": report.status,
         "run_id": str(report.run_id) if report.run_id else None,
         "created_at": report.created_at.isoformat() if report.created_at else None,
+    }
+
+
+def create_quiz_attempt(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    user_id: uuid.UUID,
+    answers: dict[str, str],
+) -> dict[str, Any]:
+    report = db.get(Report, report_id)
+    if not report:
+        raise ReportError("Report does not exist.", code="REPORT_NOT_FOUND", status_code=404)
+    if report.report_type != "quiz":
+        raise ReportError(
+            "Only quiz reports support attempts.",
+            code="REPORT_QUIZ_ATTEMPTS_UNSUPPORTED",
+            status_code=409,
+        )
+    payload = report.structured_payload if isinstance(report.structured_payload, dict) else {}
+    raw_questions = payload.get("questions")
+    if not isinstance(raw_questions, list) or not raw_questions:
+        raise ReportError(
+            "Quiz report does not contain questions.",
+            code="REPORT_QUIZ_QUESTIONS_MISSING",
+            status_code=409,
+        )
+
+    sanitized_answers = {
+        str(question_id): str(option_id)
+        for question_id, option_id in answers.items()
+        if question_id and option_id
+    }
+    score_total = 0
+    score_correct = 0
+    for raw_question in raw_questions:
+        if not isinstance(raw_question, dict):
+            continue
+        question_id = _coerce_string(raw_question.get("id"))
+        correct_option_id = _coerce_string(raw_question.get("correct_option_id"))
+        if not question_id or not correct_option_id:
+            continue
+        score_total += 1
+        if sanitized_answers.get(question_id) == correct_option_id:
+            score_correct += 1
+
+    score_percent = round((score_correct / score_total) * 100) if score_total else 0
+    attempt = QuizAttempt(
+        report_id=report_id,
+        user_id=user_id,
+        answers=sanitized_answers,
+        score_correct=score_correct,
+        score_total=score_total,
+        score_percent=score_percent,
+    )
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+    return serialize_quiz_attempt(attempt)
+
+
+def list_quiz_attempts(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    attempts = (
+        db.query(QuizAttempt)
+        .filter(QuizAttempt.report_id == report_id, QuizAttempt.user_id == user_id)
+        .order_by(QuizAttempt.created_at.desc())
+        .all()
+    )
+    return [serialize_quiz_attempt(attempt) for attempt in attempts]
+
+
+def serialize_quiz_attempt(attempt: QuizAttempt) -> dict[str, Any]:
+    return {
+        "attempt_id": str(attempt.id),
+        "report_id": str(attempt.report_id),
+        "user_id": str(attempt.user_id),
+        "answers": attempt.answers or {},
+        "score_correct": attempt.score_correct,
+        "score_total": attempt.score_total,
+        "score_percent": attempt.score_percent,
+        "created_at": attempt.created_at.isoformat() if attempt.created_at else None,
     }
 
 

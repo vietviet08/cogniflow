@@ -300,6 +300,19 @@ class Report(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reports.id"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(USERS_ID_FK), nullable=False)
+    answers: Mapped[dict[str, Any]] = mapped_column(JSON())
+    score_correct: Mapped[int] = mapped_column(Integer, default=0)
+    score_total: Mapped[int] = mapped_column(Integer, default=0)
+    score_percent: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Insight(Base):
     __tablename__ = "insights"
 

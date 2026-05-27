@@ -41,6 +41,8 @@ import type {
     ProviderSettingsListData,
     ProjectData,
     QueryResultData,
+    QuizAttemptData,
+    QuizAttemptListData,
     ReportLineage,
     ReportListData,
     ReportQualityData,
@@ -610,6 +612,25 @@ export function generateReport(payload: {
 
 export function getReport(reportId: string): Promise<ApiSuccess<ReportResult>> {
     return requestJson<ReportResult>(`/reports/${reportId}`);
+}
+
+export function listQuizAttempts(
+    reportId: string,
+): Promise<ApiSuccess<QuizAttemptListData>> {
+    return requestJson<QuizAttemptListData>(`/reports/${reportId}/quiz-attempts`);
+}
+
+export function createQuizAttempt(payload: {
+    reportId: string;
+    answers: Record<string, string>;
+}): Promise<ApiSuccess<QuizAttemptData>> {
+    return requestJson<QuizAttemptData>(
+        `/reports/${payload.reportId}/quiz-attempts`,
+        {
+            method: "POST",
+            body: JSON.stringify({ answers: payload.answers }),
+        },
+    );
 }
 
 export function updateActionItemStatus(payload: {
