@@ -231,12 +231,76 @@ Evidence:
 {evidence}
 """
 
-_STRUCTURED_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief", "flashcards", "quiz"}
+_STUDY_GUIDE_PROMPT_TEMPLATE = """\
+You are creating a source-grounded study guide from indexed source material.
+
+Return a JSON object with EXACTLY this shape:
+{{
+  "overview": "<short overview for this batch>",
+  "sections": [
+    {{
+      "title": "<section, chapter, or topic title>",
+      "summary": "<short summary grounded in the evidence>",
+      "key_points": ["<important point>"],
+      "citation_indexes": [1]
+    }}
+  ],
+  "key_concepts": [
+    {{
+      "term": "<concept or term>",
+      "definition": "<definition grounded in the evidence>",
+      "importance": "<why this concept matters in the source material>",
+      "citation_indexes": [1]
+    }}
+  ],
+  "timeline": [
+    {{
+      "label": "<date, period, stage, or sequence label>",
+      "description": "<what happened or why it matters>",
+      "citation_indexes": [1]
+    }}
+  ],
+  "review_questions": [
+    {{
+      "question": "<review question>",
+      "answer": "<source-grounded answer>",
+      "citation_indexes": [1]
+    }}
+  ]
+}}
+
+Rules:
+- Use only the evidence below. Do not add outside knowledge.
+- Prefer chapter structure, major topics, key concepts, timelines/stages, comparisons, and exam-worthy review questions.
+- Timeline can be empty if the evidence does not contain clear dates, periods, stages, or ordered events.
+- Every non-empty section, concept, timeline item, and review question must include at least one citation index.
+- Avoid duplicates in this batch.
+- Produce up to {section_limit} sections, {concept_limit} key concepts, {timeline_limit} timeline items, and {question_limit} review questions.
+
+User request: {query}
+
+Evidence:
+{evidence}
+"""
+
+_STRUCTURED_REPORT_TYPES = {
+    "action_items",
+    "risk_analysis",
+    "executive_brief",
+    "flashcards",
+    "quiz",
+    "study_guide",
+}
 _ACTIONABLE_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief"}
 _FLASHCARDS_MAX_CARDS = 40
 _FLASHCARDS_BATCH_SIZE = 10
 _QUIZ_MAX_QUESTIONS = 30
 _QUIZ_BATCH_SIZE = 10
+_STUDY_GUIDE_MAX_SECTIONS = 12
+_STUDY_GUIDE_MAX_CONCEPTS = 30
+_STUDY_GUIDE_MAX_TIMELINE_ITEMS = 20
+_STUDY_GUIDE_MAX_REVIEW_QUESTIONS = 20
+_STUDY_GUIDE_BATCH_SIZE = 10
 
 
 def generate_report(
@@ -265,6 +329,16 @@ def generate_report(
         )
     if report_type == "quiz":
         return _generate_quiz_report(
+            db=db,
+            project_id=project_id,
+            query=query,
+            report_type=report_type,
+            format=format,
+            provider=provider,
+            parent_run_id=parent_run_id,
+        )
+    if report_type == "study_guide":
+        return _generate_study_guide_report(
             db=db,
             project_id=project_id,
             query=query,
@@ -742,6 +816,206 @@ def _generate_quiz_report(
     }
 
 
+def _generate_study_guide_report(
+    *,
+    db: Session,
+    project_id: uuid.UUID,
+    query: str,
+    report_type: str,
+    format: str,
+    provider: str,
+    parent_run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.provider_settings_service import (
+        ProviderSettingsError,
+        normalize_provider,
+        resolve_chat_provider_config,
+    )
+
+    try:
+        answer_provider = normalize_provider(provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
+    except ProviderSettingsError as exc:
+        raise ReportError(str(exc)) from exc
+
+    indexing_result = ensure_project_sources_indexed(
+        db,
+        project_id=project_id,
+        filters=None,
+        trigger="study_guide_indexing",
+    )
+    chunks = _load_flashcard_chunks(db, project_id)
+    if not chunks:
+        raise ReportError(
+            "No indexed chunks are available for study guide generation.",
+            code="REPORT_STUDY_GUIDE_NO_CHUNKS",
+            status_code=409,
+            details={"indexing": indexing_result},
+        )
+
+    batches = _chunk_list(chunks, _STUDY_GUIDE_BATCH_SIZE)
+    section_limit = max(1, min(3, math.ceil(_STUDY_GUIDE_MAX_SECTIONS / max(len(batches), 1))))
+    concept_limit = max(2, min(6, math.ceil(_STUDY_GUIDE_MAX_CONCEPTS / max(len(batches), 1))))
+    timeline_limit = max(1, min(4, math.ceil(_STUDY_GUIDE_MAX_TIMELINE_ITEMS / max(len(batches), 1))))
+    question_limit = max(2, min(5, math.ceil(_STUDY_GUIDE_MAX_REVIEW_QUESTIONS / max(len(batches), 1))))
+
+    collected_sections: list[dict[str, Any]] = []
+    collected_concepts: list[dict[str, Any]] = []
+    collected_timeline: list[dict[str, Any]] = []
+    collected_questions: list[dict[str, Any]] = []
+    seen_sections: set[str] = set()
+    seen_concepts: set[str] = set()
+    seen_timeline: set[str] = set()
+    seen_questions: set[str] = set()
+    overview_parts: list[str] = []
+
+    for batch in batches:
+        if (
+            len(collected_sections) >= _STUDY_GUIDE_MAX_SECTIONS
+            and len(collected_concepts) >= _STUDY_GUIDE_MAX_CONCEPTS
+            and len(collected_timeline) >= _STUDY_GUIDE_MAX_TIMELINE_ITEMS
+            and len(collected_questions) >= _STUDY_GUIDE_MAX_REVIEW_QUESTIONS
+        ):
+            break
+        evidence_blocks, citations = _format_flashcard_evidence(batch)
+        prompt = _STUDY_GUIDE_PROMPT_TEMPLATE.format(
+            query=query,
+            evidence=evidence_blocks,
+            section_limit=section_limit,
+            concept_limit=concept_limit,
+            timeline_limit=timeline_limit,
+            question_limit=question_limit,
+        )
+        raw_payload = _call_llm_json(
+            prompt=prompt,
+            provider=answer_provider,
+            api_key=generation_config["api_key"],
+            base_url=generation_config.get("base_url"),
+            model=generation_config["chat_model"],
+        )
+        parsed = _load_json_object(raw_payload)
+        normalized = _normalize_study_guide_batch_payload(parsed, citations, query)
+        overview = _coerce_string(normalized.get("overview"))
+        if overview:
+            overview_parts.append(overview)
+        _append_unique_study_guide_items(
+            target=collected_sections,
+            candidates=normalized["sections"],
+            seen=seen_sections,
+            key_name="title",
+            limit=_STUDY_GUIDE_MAX_SECTIONS,
+        )
+        _append_unique_study_guide_items(
+            target=collected_concepts,
+            candidates=normalized["key_concepts"],
+            seen=seen_concepts,
+            key_name="term",
+            limit=_STUDY_GUIDE_MAX_CONCEPTS,
+        )
+        _append_unique_study_guide_items(
+            target=collected_timeline,
+            candidates=normalized["timeline"],
+            seen=seen_timeline,
+            key_name="label",
+            limit=_STUDY_GUIDE_MAX_TIMELINE_ITEMS,
+        )
+        _append_unique_study_guide_items(
+            target=collected_questions,
+            candidates=normalized["review_questions"],
+            seen=seen_questions,
+            key_name="question",
+            limit=_STUDY_GUIDE_MAX_REVIEW_QUESTIONS,
+        )
+
+    if not any((collected_sections, collected_concepts, collected_timeline, collected_questions)):
+        fallback = _fallback_study_guide(chunks, query)
+        collected_sections = fallback["sections"]
+        collected_concepts = fallback["key_concepts"]
+        collected_timeline = fallback["timeline"]
+        collected_questions = fallback["review_questions"]
+
+    payload = {
+        "overview": _build_study_guide_overview(
+            overview_parts=overview_parts,
+            section_count=len(collected_sections),
+            concept_count=len(collected_concepts),
+            review_question_count=len(collected_questions),
+            chunk_count=len(chunks),
+        ),
+        "sections": collected_sections[:_STUDY_GUIDE_MAX_SECTIONS],
+        "key_concepts": collected_concepts[:_STUDY_GUIDE_MAX_CONCEPTS],
+        "timeline": collected_timeline[:_STUDY_GUIDE_MAX_TIMELINE_ITEMS],
+        "review_questions": collected_questions[:_STUDY_GUIDE_MAX_REVIEW_QUESTIONS],
+    }
+    title = _derive_title(query, report_type)
+    report_content = _render_structured_payload_as_markdown(
+        report_type=report_type,
+        title=title,
+        payload=payload,
+    )
+    prompt_hash = hashlib.sha256(_STUDY_GUIDE_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
+    config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    all_citations = _unique_citations(citation for item in chunks for citation in [item["citation"]])
+    evidence_snapshot = _build_evidence_snapshot(all_citations)
+
+    run = ProcessingRunRepository(db).create(
+        project_id=project_id,
+        job_id=None,
+        run_type="report",
+        model_id=generation_config["chat_model"],
+        prompt_hash=prompt_hash,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata={
+            "report_type": report_type,
+            "format": format,
+            "query": query,
+            "provider": answer_provider,
+            "structured_output": True,
+            "indexed_chunk_count": len(chunks),
+            "generated_section_count": len(payload["sections"]),
+            "generated_concept_count": len(payload["key_concepts"]),
+            "generated_timeline_count": len(payload["timeline"]),
+            "generated_review_question_count": len(payload["review_questions"]),
+            "indexing": indexing_result,
+            "evidence_snapshot": evidence_snapshot,
+        },
+        parent_run_id=parent_run_id,
+    )
+    report = Report(
+        project_id=project_id,
+        query=query,
+        title=title,
+        report_type=report_type,
+        format=format,
+        content=report_content,
+        structured_payload=payload,
+        status="completed",
+        run_id=run.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    structured_payload = hydrate_report_payload_citations(db, payload)
+    citations = hydrate_citations(db, _study_guide_payload_citations(payload))
+    source_ids = list({citation["source_id"] for citation in all_citations if citation.get("source_id")})
+    return {
+        "report_id": str(report.id),
+        "query": query,
+        "title": title,
+        "type": report_type,
+        "format": format,
+        "content": report_content,
+        "structured_payload": structured_payload,
+        "status": "completed",
+        "run_id": str(run.id),
+        "source_ids": source_ids,
+        "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
+    }
+
+
 def update_action_item_status(
     db: Session,
     report_id: uuid.UUID,
@@ -1034,6 +1308,7 @@ def _derive_title(query: str, report_type: str) -> str:
         "conflict_mesh": "Conflict Mesh",
         "flashcards": "Flashcards",
         "quiz": "Quiz",
+        "study_guide": "Study Guide",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
 
@@ -1401,6 +1676,227 @@ def _fallback_quiz_questions(items: list[dict[str, Any]], query: str) -> list[di
     return questions
 
 
+def _normalize_study_guide_batch_payload(
+    parsed: dict[str, Any],
+    citations: list[dict[str, Any]],
+    query: str,
+) -> dict[str, Any]:
+    sections = _normalize_study_guide_sections(parsed.get("sections"), citations)
+    key_concepts = _normalize_study_guide_concepts(parsed.get("key_concepts"), citations)
+    timeline = _normalize_study_guide_timeline(parsed.get("timeline"), citations)
+    review_questions = _normalize_study_guide_review_questions(parsed.get("review_questions"), citations)
+    if any((sections, key_concepts, timeline, review_questions)):
+        return {
+            "overview": _coerce_string(parsed.get("overview"), f"Study guide generated for: {query}"),
+            "sections": sections,
+            "key_concepts": key_concepts,
+            "timeline": timeline,
+            "review_questions": review_questions,
+        }
+    return {
+        "overview": f"Study guide generated for: {query}",
+        **_fallback_study_guide(
+            [{"content": citation.get("quote", ""), "title": citation.get("title", ""), "citation": citation}
+             for citation in citations],
+            query,
+        ),
+    }
+
+
+def _normalize_study_guide_sections(
+    raw_sections: Any,
+    citations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    if not isinstance(raw_sections, list):
+        return sections
+    for raw_section in raw_sections:
+        if not isinstance(raw_section, dict):
+            continue
+        title = _coerce_string(raw_section.get("title"))
+        summary = _coerce_string(raw_section.get("summary"))
+        if not title or not summary:
+            continue
+        section_citations = _map_citation_indexes(raw_section.get("citation_indexes"), citations)
+        if not section_citations:
+            section_citations = citations[:1]
+        sections.append(
+            {
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "summary": summary,
+                "key_points": _coerce_string_list(raw_section.get("key_points"), max_items=8),
+                "citations": section_citations,
+            }
+        )
+    return sections
+
+
+def _normalize_study_guide_concepts(
+    raw_concepts: Any,
+    citations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    concepts: list[dict[str, Any]] = []
+    if not isinstance(raw_concepts, list):
+        return concepts
+    for raw_concept in raw_concepts:
+        if not isinstance(raw_concept, dict):
+            continue
+        term = _coerce_string(raw_concept.get("term"))
+        definition = _coerce_string(raw_concept.get("definition"))
+        if not term or not definition:
+            continue
+        concept_citations = _map_citation_indexes(raw_concept.get("citation_indexes"), citations)
+        if not concept_citations:
+            concept_citations = citations[:1]
+        concepts.append(
+            {
+                "id": str(uuid.uuid4()),
+                "term": term,
+                "definition": definition,
+                "importance": _coerce_string(raw_concept.get("importance"), definition),
+                "citations": concept_citations,
+            }
+        )
+    return concepts
+
+
+def _normalize_study_guide_timeline(
+    raw_timeline: Any,
+    citations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    timeline: list[dict[str, Any]] = []
+    if not isinstance(raw_timeline, list):
+        return timeline
+    for raw_item in raw_timeline:
+        if not isinstance(raw_item, dict):
+            continue
+        label = _coerce_string(raw_item.get("label"))
+        description = _coerce_string(raw_item.get("description"))
+        if not label or not description:
+            continue
+        item_citations = _map_citation_indexes(raw_item.get("citation_indexes"), citations)
+        if not item_citations:
+            item_citations = citations[:1]
+        timeline.append(
+            {
+                "id": str(uuid.uuid4()),
+                "label": label,
+                "description": description,
+                "citations": item_citations,
+            }
+        )
+    return timeline
+
+
+def _normalize_study_guide_review_questions(
+    raw_questions: Any,
+    citations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    questions: list[dict[str, Any]] = []
+    if not isinstance(raw_questions, list):
+        return questions
+    for raw_question in raw_questions:
+        if not isinstance(raw_question, dict):
+            continue
+        question = _coerce_string(raw_question.get("question"))
+        answer = _coerce_string(raw_question.get("answer"))
+        if not question or not answer:
+            continue
+        question_citations = _map_citation_indexes(raw_question.get("citation_indexes"), citations)
+        if not question_citations:
+            question_citations = citations[:1]
+        questions.append(
+            {
+                "id": str(uuid.uuid4()),
+                "question": question,
+                "answer": answer,
+                "citations": question_citations,
+            }
+        )
+    return questions
+
+
+def _fallback_study_guide(items: list[dict[str, Any]], query: str) -> dict[str, Any]:
+    sections: list[dict[str, Any]] = []
+    concepts: list[dict[str, Any]] = []
+    questions: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for item in items:
+        citation = item["citation"]
+        content = _coerce_string(item.get("content") or citation.get("quote"))
+        title = _coerce_string(item.get("title") or citation.get("title"), "Indexed source")
+        if not content:
+            continue
+        title_key = _flashcard_fingerprint(title)
+        if title_key not in seen_titles and len(sections) < _STUDY_GUIDE_MAX_SECTIONS:
+            seen_titles.add(title_key)
+            sections.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "title": title,
+                    "summary": _preview(content, limit=260),
+                    "key_points": [_preview(content, limit=180)],
+                    "citations": [citation],
+                }
+            )
+        if len(concepts) < _STUDY_GUIDE_MAX_CONCEPTS:
+            concepts.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "term": _preview(title, limit=80),
+                    "definition": _preview(content, limit=220),
+                    "importance": "This item is directly supported by the indexed source material.",
+                    "citations": [citation],
+                }
+            )
+        if len(questions) < _STUDY_GUIDE_MAX_REVIEW_QUESTIONS:
+            questions.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "question": f"What is a key point from {title}?",
+                    "answer": _preview(content, limit=220),
+                    "citations": [citation],
+                }
+            )
+    if not sections and items:
+        first = items[0]
+        citation = first["citation"]
+        sections.append(
+            {
+                "id": str(uuid.uuid4()),
+                "title": "Indexed source overview",
+                "summary": _preview(_coerce_string(first.get("content") or citation.get("quote")), limit=260),
+                "key_points": [],
+                "citations": [citation],
+            }
+        )
+    return {
+        "sections": sections[:_STUDY_GUIDE_MAX_SECTIONS],
+        "key_concepts": concepts[:_STUDY_GUIDE_MAX_CONCEPTS],
+        "timeline": [],
+        "review_questions": questions[:_STUDY_GUIDE_MAX_REVIEW_QUESTIONS],
+    }
+
+
+def _append_unique_study_guide_items(
+    *,
+    target: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    seen: set[str],
+    key_name: str,
+    limit: int,
+) -> None:
+    for item in candidates:
+        fingerprint = _flashcard_fingerprint(_coerce_string(item.get(key_name)))
+        if not fingerprint or fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        target.append(item)
+        if len(target) >= limit:
+            break
+
+
 def _build_flashcards_overview(overview_parts: list[str], card_count: int, chunk_count: int) -> str:
     for overview in overview_parts:
         cleaned = _coerce_string(overview)
@@ -1415,6 +1911,36 @@ def _build_quiz_overview(overview_parts: list[str], question_count: int, chunk_c
         if cleaned:
             return f"{cleaned} Generated {question_count} quiz questions from {chunk_count} indexed chunks."
     return f"Generated {question_count} quiz questions from {chunk_count} indexed chunks."
+
+
+def _build_study_guide_overview(
+    *,
+    overview_parts: list[str],
+    section_count: int,
+    concept_count: int,
+    review_question_count: int,
+    chunk_count: int,
+) -> str:
+    suffix = (
+        f" Generated a study guide from {chunk_count} indexed chunks with "
+        f"{section_count} sections, {concept_count} key concepts, and "
+        f"{review_question_count} review questions."
+    )
+    for overview in overview_parts:
+        cleaned = _coerce_string(overview)
+        if cleaned:
+            return f"{cleaned}{suffix}"
+    return suffix.strip()
+
+
+def _study_guide_payload_citations(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return _unique_citations(
+        citation
+        for collection_name in ("sections", "key_concepts", "timeline", "review_questions")
+        for item in payload.get(collection_name, [])
+        if isinstance(item, dict)
+        for citation in item.get("citations", [])
+    )
 
 
 def _flashcard_fingerprint(front: str) -> str:
@@ -1744,6 +2270,8 @@ def _render_structured_payload_as_markdown(
         return _render_flashcards_markdown(title, payload)
     if report_type == "quiz":
         return _render_quiz_markdown(title, payload)
+    if report_type == "study_guide":
+        return _render_study_guide_markdown(title, payload)
     return _render_executive_brief_markdown(title, payload)
 
 
@@ -1845,6 +2373,73 @@ def _render_quiz_markdown(title: str, payload: dict[str, Any]) -> str:
             [
                 f"- Correct Answer: {correct_option_id} {correct_text}".strip(),
                 f"- Explanation: {question.get('explanation', '')}",
+                _format_citation_line(question.get("citations", [])),
+            ]
+        )
+    return "\n".join(line for line in lines if line is not None)
+
+
+def _render_study_guide_markdown(title: str, payload: dict[str, Any]) -> str:
+    lines = [f"# {title}", "", "## Overview", payload.get("overview", "")]
+    lines.extend(["", "## Sections"])
+    for index, section in enumerate(payload.get("sections", []), start=1):
+        if not isinstance(section, dict):
+            continue
+        lines.extend(
+            [
+                "",
+                f"### {index}. {section.get('title', 'Untitled section')}",
+                section.get("summary", ""),
+            ]
+        )
+        key_points = section.get("key_points", [])
+        if isinstance(key_points, list) and key_points:
+            lines.append("")
+            lines.append("Key Points:")
+            for point in key_points:
+                lines.append(f"- {point}")
+        lines.append(_format_citation_line(section.get("citations", [])))
+
+    lines.extend(["", "## Key Concepts"])
+    for index, concept in enumerate(payload.get("key_concepts", []), start=1):
+        if not isinstance(concept, dict):
+            continue
+        lines.extend(
+            [
+                "",
+                f"### {index}. {concept.get('term', 'Untitled concept')}",
+                f"- Definition: {concept.get('definition', '')}",
+                f"- Importance: {concept.get('importance', '')}",
+                _format_citation_line(concept.get("citations", [])),
+            ]
+        )
+
+    lines.extend(["", "## Timeline"])
+    timeline = payload.get("timeline", [])
+    if isinstance(timeline, list) and timeline:
+        for index, item in enumerate(timeline, start=1):
+            if not isinstance(item, dict):
+                continue
+            lines.extend(
+                [
+                    "",
+                    f"### {index}. {item.get('label', 'Untitled timeline item')}",
+                    item.get("description", ""),
+                    _format_citation_line(item.get("citations", [])),
+                ]
+            )
+    else:
+        lines.append("No timeline items were found in the indexed evidence.")
+
+    lines.extend(["", "## Review Questions"])
+    for index, question in enumerate(payload.get("review_questions", []), start=1):
+        if not isinstance(question, dict):
+            continue
+        lines.extend(
+            [
+                "",
+                f"### {index}. {question.get('question', 'Untitled question')}",
+                f"- Answer: {question.get('answer', '')}",
                 _format_citation_line(question.get("citations", [])),
             ]
         )
