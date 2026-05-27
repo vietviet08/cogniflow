@@ -38,6 +38,51 @@ def test_upload_file_source_persists_metadata(client, db_session, monkeypatch, t
     assert source.source_metadata["retrieval_filters"]["tags"] == ["upload", "pdf"]
 
 
+def test_upload_pptx_source_persists_supported_metadata(client, db_session, monkeypatch, tmp_path):
+    project = _create_project(client)
+
+    def fake_save_uploaded_file(source_id, upload):
+        target = tmp_path / f"{source_id}.pptx"
+        target.write_bytes(upload.file.read())
+        return str(target), "checksum-pptx"
+
+    monkeypatch.setattr(sources_route_module, "save_uploaded_file", fake_save_uploaded_file)
+
+    response = client.post(
+        "/api/v1/sources/files",
+        data={"project_id": project["id"]},
+        files={
+            "file": (
+                "slides.pptx",
+                io.BytesIO(b"pptx placeholder"),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    source = db_session.get(Source, uuid.UUID(body["data"]["source_id"]))
+    assert source.source_metadata["source_quality"]["parser"] == "pptx_text"
+    assert source.source_metadata["retrieval_filters"]["tags"] == ["upload", "pptx"]
+
+
+def test_upload_unsupported_file_source_is_rejected(client, db_session):
+    project = _create_project(client)
+
+    response = client.post(
+        "/api/v1/sources/files",
+        data={"project_id": project["id"]},
+        files={"file": ("archive.zip", io.BytesIO(b"zip"), "application/zip")},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] == "UNSUPPORTED_FILE_FORMAT"
+    assert ".pptx" in body["error"]["details"]["supported_extensions"]
+    assert db_session.query(Source).filter(Source.original_uri == "archive.zip").count() == 0
+
+
 def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
     project = _create_project(client)
 

@@ -69,6 +69,31 @@ import { WebSourceDiscovery } from "@/components/web-source-discovery";
 
 export function SourceManager() {
     const GOOGLE_DRIVE_FOLDER_PREFIX = "folder:";
+    const SUPPORTED_FILE_EXTENSIONS = [
+        ".pdf",
+        ".txt",
+        ".md",
+        ".csv",
+        ".json",
+        ".html",
+        ".htm",
+        ".xml",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+    ];
+    const SUPPORTED_FILE_ACCEPT = [
+        ...SUPPORTED_FILE_EXTENSIONS,
+        "application/pdf",
+        "text/plain",
+        "text/csv",
+        "application/json",
+        "text/html",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ].join(",");
+    const SUPPORTED_FILE_LABEL = "PDF, DOCX, PPTX, XLSX, TXT, MD, CSV, JSON, HTML, XML";
 
     const queryClient = useQueryClient();
     const [activeProjectId, setActiveProjectId] = useState("");
@@ -382,11 +407,14 @@ export function SourceManager() {
         }
     }
 
-    function getSupportedPdfFiles(files: FileList | File[]) {
+    function getSupportedDocumentFiles(files: FileList | File[]) {
         return Array.from(files).filter(
-            (item) =>
-                item.type === "application/pdf" ||
-                item.name.toLowerCase().endsWith(".pdf"),
+            (item) => {
+                const name = item.name.toLowerCase();
+                return SUPPORTED_FILE_EXTENSIONS.some((extension) =>
+                    name.endsWith(extension),
+                );
+            },
         );
     }
 
@@ -403,11 +431,11 @@ export function SourceManager() {
             setSelectedFiles([]);
             return;
         }
-        const pdfFiles = getSupportedPdfFiles(inputFiles);
-        if (pdfFiles.length !== inputFiles.length) {
-            toast.error("Only PDF files can be uploaded.");
+        const supportedFiles = getSupportedDocumentFiles(inputFiles);
+        if (supportedFiles.length !== inputFiles.length) {
+            toast.error(`Unsupported files skipped. Supported: ${SUPPORTED_FILE_LABEL}.`);
         }
-        setSelectedFiles(pdfFiles);
+        setSelectedFiles(supportedFiles);
         event.target.value = "";
     }
 
@@ -421,7 +449,7 @@ export function SourceManager() {
             return;
         }
         if (filesToUpload.length === 0) {
-            toast.error("Select at least one PDF file first.");
+            toast.error("Select at least one supported document first.");
             return;
         }
         setBusy(true);
@@ -497,9 +525,9 @@ export function SourceManager() {
             return;
         }
 
-        const droppedFiles = getSupportedPdfFiles(event.dataTransfer.files);
+        const droppedFiles = getSupportedDocumentFiles(event.dataTransfer.files);
         if (droppedFiles.length !== event.dataTransfer.files.length) {
-            toast.error("Only PDF files can be uploaded.");
+            toast.error(`Unsupported files skipped. Supported: ${SUPPORTED_FILE_LABEL}.`);
         }
         if (droppedFiles.length === 0) {
             return;
@@ -855,7 +883,7 @@ export function SourceManager() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-base flex items-center gap-2">
-                                <Upload className="h-4 w-4" /> Upload PDF
+                                <Upload className="h-4 w-4" /> Upload Documents
                             </CardTitle>
                             <CardDescription>
                                 Upload local files for processing.
@@ -886,17 +914,17 @@ export function SourceManager() {
                                             htmlFor="file-upload"
                                             className="cursor-pointer text-sm font-medium"
                                         >
-                                            Drop PDFs here or choose files
+                                            Drop documents here or choose files
                                         </Label>
                                         <p className="text-xs text-muted-foreground">
-                                            Multiple files upload together.
+                                            {SUPPORTED_FILE_LABEL}
                                         </p>
                                     </div>
                                     <Input
                                         id="file-upload"
                                         type="file"
                                         multiple
-                                        accept=".pdf,application/pdf"
+                                        accept={SUPPORTED_FILE_ACCEPT}
                                         onChange={handleFileSelection}
                                         disabled={busy || !canMutateProject}
                                         className="max-w-xs cursor-pointer"
@@ -1317,8 +1345,8 @@ export function SourceManager() {
                                                     />
                                                     <p className="text-xs text-muted-foreground">
                                                         Supports Google Docs,
-                                                        PDF files, and plain
-                                                        text files from Drive.
+                                                        Sheets, Slides, Office,
+                                                        PDF, and text files.
                                                         Selecting a folder
                                                         imports supported files
                                                         inside that folder tree.

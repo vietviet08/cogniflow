@@ -1,3 +1,6 @@
+from openpyxl import Workbook
+from pptx import Presentation
+
 from app.services import processing_service
 from app.storage.models import Chunk, Document, Job, ProcessingRun, Project, Source
 
@@ -226,6 +229,38 @@ def test_extract_pdf_pages_uses_vision_for_slide_pdf(monkeypatch, tmp_path):
     assert len(page_texts) == 1
     assert "CHƯƠNG 1" in page_texts[0]
     assert "phương pháp nghiên cứu" in page_texts[0]
+
+
+def test_extract_pptx_content_reads_slide_text(tmp_path):
+    source_path = tmp_path / "lecture.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Lecture 1"
+    slide.placeholders[1].text = "Research question\nMethod summary"
+    presentation.save(source_path)
+
+    extracted = processing_service._extract_file_content(source_path)
+
+    assert "Lecture 1" in extracted.text
+    assert "Research question" in extracted.text
+    assert extracted.page_texts is not None
+    assert extracted.page_texts[0].startswith("Slide 1")
+
+
+def test_extract_xlsx_content_reads_sheet_rows(tmp_path):
+    source_path = tmp_path / "dataset.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Metrics"
+    worksheet.append(["Name", "Score"])
+    worksheet.append(["Alpha", 42])
+    workbook.save(source_path)
+
+    extracted = processing_service._extract_file_content(source_path)
+
+    assert "Sheet: Metrics" in extracted.text
+    assert "Name | Score" in extracted.text
+    assert "Alpha | 42" in extracted.text
 
 
 def test_choose_pdf_text_pages_prefers_better_spacing():
