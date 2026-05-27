@@ -17,6 +17,20 @@ from app.core.config import get_settings
 
 ARXIV_ID_PATTERN = re.compile(r"(?P<id>\d{4}\.\d{4,5}(?:v\d+)?)")
 ARXIV_ATOM_NAMESPACE = {"atom": "http://www.w3.org/2005/Atom"}
+DOCUMENT_PARSER_BY_SUFFIX = {
+    ".pdf": "pdf_text",
+    ".txt": "plain_text",
+    ".md": "markdown_text",
+    ".csv": "csv_text",
+    ".json": "json_text",
+    ".html": "html_text",
+    ".htm": "html_text",
+    ".xml": "xml_text",
+    ".docx": "docx_text",
+    ".pptx": "pptx_text",
+    ".xlsx": "xlsx_text",
+}
+SUPPORTED_DOCUMENT_SUFFIXES = frozenset(DOCUMENT_PARSER_BY_SUFFIX)
 
 
 class IngestionError(Exception):
@@ -37,6 +51,14 @@ def _source_directory(source_id: uuid.UUID) -> Path:
 
 def _sanitize_filename(filename: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._") or "upload.bin"
+
+
+def supported_document_extensions() -> list[str]:
+    return sorted(SUPPORTED_DOCUMENT_SUFFIXES)
+
+
+def is_supported_document_filename(filename: str) -> bool:
+    return Path(filename).suffix.lower() in SUPPORTED_DOCUMENT_SUFFIXES
 
 
 def save_uploaded_file(source_id: uuid.UUID, upload: UploadFile) -> tuple[str, str]:

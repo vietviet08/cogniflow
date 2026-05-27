@@ -11,8 +11,12 @@ from typing import Any
 import fitz
 import google.genai as genai
 import pdfplumber
+from bs4 import BeautifulSoup
+from docx import Document as DocxDocument
 from google.genai import types as genai_types
 from openai import OpenAI
+from openpyxl import load_workbook
+from pptx import Presentation
 from sqlalchemy.orm import Session
 
 from app.services.chroma_service import get_retrieval_collection
@@ -23,6 +27,7 @@ from app.services.embedding_service import (
     count_tokens,
     embed_texts_with_local_model,
 )
+from app.services.ingestion_service import SUPPORTED_DOCUMENT_SUFFIXES
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     resolve_chat_provider_config,
@@ -37,6 +42,7 @@ class ProcessingError(Exception):
 
 PDF_VISION_MAX_PAGES = 80
 PDF_VISION_TIMEOUT_SECONDS = 45
+TEXT_DOCUMENT_SUFFIXES = frozenset({".txt", ".md", ".csv", ".json", ".html", ".htm", ".xml"})
 
 
 @dataclass
@@ -209,25 +215,157 @@ def _extract_file_content(
     vision_config: VisionExtractionConfig | None = None,
 ) -> ExtractedSourceContent:
     suffix = path.suffix.lower()
-    if suffix == ".pdf":
-        page_texts = _extract_pdf_pages(path, vision_config=vision_config)
-        text = "\n".join(page.strip() for page in page_texts if page.strip())
-        if not text.strip():
-            raise ProcessingError(f"No readable text found in '{path.name}'.")
-        return ExtractedSourceContent(
-            title=path.name,
-            text=text.strip(),
-            source_url="",
-            page_texts=page_texts,
-        )
-    else:
-        text = path.read_text(encoding="utf-8")
+    if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
+        raise ProcessingError(f"Unsupported document format '{suffix or path.name}'.")
+
+    try:
+        if suffix == ".pdf":
+            page_texts = _extract_pdf_pages(path, vision_config=vision_config)
+            text = "\n".join(page.strip() for page in page_texts if page.strip())
+            if not text.strip():
+                raise ProcessingError(f"No readable text found in '{path.name}'.")
+            return ExtractedSourceContent(
+                title=path.name,
+                text=text.strip(),
+                source_url="",
+                page_texts=page_texts,
+            )
+        if suffix == ".docx":
+            text = _extract_docx_text(path)
+        elif suffix == ".pptx":
+            slide_texts = _extract_pptx_slides(path)
+            text = "\n\n".join(slide.strip() for slide in slide_texts if slide.strip())
+            if not text.strip():
+                raise ProcessingError(f"No readable text found in '{path.name}'.")
+            return ExtractedSourceContent(
+                title=path.name,
+                text=text.strip(),
+                source_url="",
+                page_texts=slide_texts,
+            )
+        elif suffix == ".xlsx":
+            text = _extract_xlsx_text(path)
+        elif suffix in TEXT_DOCUMENT_SUFFIXES:
+            text = _extract_text_document(path, suffix=suffix)
+        else:
+            raise ProcessingError(f"Unsupported document format '{suffix}'.")
+    except ProcessingError:
+        raise
+    except Exception as exc:
+        raise ProcessingError(f"Failed to extract readable text from '{path.name}'.") from exc
 
     clean_text = text.strip()
     if not clean_text:
         raise ProcessingError(f"No readable text found in '{path.name}'.")
 
     return ExtractedSourceContent(title=path.name, text=clean_text, source_url="")
+
+
+def _extract_text_document(path: Path, *, suffix: str) -> str:
+    text = _decode_text_bytes(path.read_bytes())
+    if suffix == ".json":
+        try:
+            return json.dumps(json.loads(text), ensure_ascii=False, indent=2)
+        except json.JSONDecodeError:
+            return text
+    if suffix in {".html", ".htm"}:
+        return _extract_html_text(text)
+    return text
+
+
+def _decode_text_bytes(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "utf-16", "cp1258", "cp1252"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
+def _extract_html_text(raw_html: str) -> str:
+    soup = BeautifulSoup(raw_html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    body_text = soup.get_text("\n", strip=True)
+    return "\n".join(part for part in [title, body_text] if part).strip()
+
+
+def _extract_docx_text(path: Path) -> str:
+    document = DocxDocument(path)
+    parts: list[str] = []
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if text:
+            parts.append(text)
+
+    for table in document.tables:
+        for row in table.rows:
+            values = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if values:
+                parts.append(" | ".join(values))
+
+    return "\n".join(parts)
+
+
+def _extract_pptx_slides(path: Path) -> list[str]:
+    presentation = Presentation(path)
+    slide_texts: list[str] = []
+
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        parts = [f"Slide {slide_number}"]
+        for shape in slide.shapes:
+            parts.extend(_extract_pptx_shape_text(shape))
+        if slide.has_notes_slide:
+            notes = slide.notes_slide.notes_text_frame.text.strip()
+            if notes:
+                parts.append(f"Notes: {notes}")
+        slide_texts.append("\n".join(part for part in parts if part.strip()))
+
+    return slide_texts
+
+
+def _extract_pptx_shape_text(shape: Any) -> list[str]:
+    parts: list[str] = []
+    if getattr(shape, "has_text_frame", False):
+        text = shape.text_frame.text.strip()
+        if text:
+            parts.append(text)
+    if getattr(shape, "has_table", False):
+        table = shape.table
+        for row in table.rows:
+            values = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if values:
+                parts.append(" | ".join(values))
+    if hasattr(shape, "shapes"):
+        for child_shape in shape.shapes:
+            parts.extend(_extract_pptx_shape_text(child_shape))
+    return parts
+
+
+def _extract_xlsx_text(path: Path) -> str:
+    workbook = load_workbook(path, data_only=True, read_only=True)
+    try:
+        parts: list[str] = []
+        for sheet in workbook.worksheets:
+            parts.append(f"Sheet: {sheet.title}")
+            for row in sheet.iter_rows(values_only=True):
+                values = [_format_spreadsheet_value(value) for value in row]
+                values = [value for value in values if value]
+                if values:
+                    parts.append(" | ".join(values))
+        return "\n".join(parts)
+    finally:
+        workbook.close()
+
+
+def _format_spreadsheet_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
 
 
 def _extract_pdf_pages(

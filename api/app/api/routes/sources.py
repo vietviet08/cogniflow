@@ -15,10 +15,13 @@ from app.services.audit_service import log_audit_event
 from app.services.chroma_service import get_retrieval_collection
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.ingestion_service import (
+    DOCUMENT_PARSER_BY_SUFFIX,
     IngestionError,
     build_source_metadata,
     ingest_remote_source,
+    is_supported_document_filename,
     save_uploaded_file,
+    supported_document_extensions,
 )
 from app.storage.models import Chunk, Document, Job, Source, User
 from app.storage.repositories.job_repository import JobRepository
@@ -61,11 +64,21 @@ async def upload_file_source(
         )
     require_project_role(db, project_id=project_uuid, user=current_user, minimum_role="editor")
 
+    filename = file.filename or "upload.bin"
+    if not is_supported_document_filename(filename):
+        return error_response(
+            request,
+            code="UNSUPPORTED_FILE_FORMAT",
+            message="This file format is not supported for document analysis.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            details={"supported_extensions": supported_document_extensions()},
+        )
+
     source_repo = SourceRepository(db)
     source = source_repo.create(
         project_id=project_uuid,
         source_type="file",
-        original_uri=file.filename,
+        original_uri=filename,
     )
 
     try:
@@ -112,7 +125,7 @@ async def upload_file_source(
             "job_id": str(job.id),
             "status": job.status,
             "source_type": source.type,
-            "filename": file.filename,
+            "filename": filename,
             "source_version": source_metadata.get("version", 1),
             "duplicate_of_source_id": str(duplicate_of_source.id) if duplicate_of_source else None,
         },
@@ -365,9 +378,8 @@ def _apply_source_versioning_and_dedup(
 
 
 def _build_uploaded_file_metadata(filename: str) -> dict[str, object]:
-    suffix = Path(filename).suffix.lower().lstrip(".")
-    parser = "pdf_text" if suffix == "pdf" else "plain_text"
-    warnings = [] if suffix in {"pdf", "txt", "md", "csv", "json"} else ["unknown_file_type"]
+    suffix = Path(filename).suffix.lower()
+    parser = DOCUMENT_PARSER_BY_SUFFIX.get(suffix, "unsupported")
     trust_score = 0.7
     return build_source_metadata(
         {
@@ -375,13 +387,13 @@ def _build_uploaded_file_metadata(filename: str) -> dict[str, object]:
             "source": "upload",
             "url": None,
             "language": "unknown",
-            "tags": [tag for tag in ["upload", suffix] if tag],
+            "tags": [tag for tag in ["upload", suffix.lstrip(".")] if tag],
         },
         source_type="file",
     ) | {
         "source_quality": {
             "parser": parser,
-            "parser_warnings": warnings,
+            "parser_warnings": [],
             "ocr_confidence": None,
             "freshness_score": 1.0,
             "trust_score": trust_score,

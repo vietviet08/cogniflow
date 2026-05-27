@@ -18,7 +18,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
-from app.services.ingestion_service import save_source_bytes, save_source_snapshot
+from app.services.ingestion_service import (
+    SUPPORTED_DOCUMENT_SUFFIXES,
+    save_source_bytes,
+    save_source_snapshot,
+)
 from app.storage.models import IntegrationConnection
 from app.storage.repositories.integration_connection_repository import (
     IntegrationConnectionRepository,
@@ -37,13 +41,16 @@ INTEGRATION_PROVIDERS: dict[str, dict[str, Any]] = {
         "supports_base_url": False,
         "supports_oauth": True,
         "reference_label": "File URL or ID",
-        "description": "Import a Drive PDF, Google Doc, or text file into this project.",
+        "description": "Import supported Drive documents into this project.",
     },
 }
 
 GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 GOOGLE_PDF_MIME = "application/pdf"
+GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet"
+GOOGLE_SLIDES_MIME = "application/vnd.google-apps.presentation"
+GOOGLE_SHEET_EXPORT_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_OAUTH_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
@@ -493,17 +500,17 @@ def _import_google_drive_source(
         "imported_at": _utc_iso_now(),
     }
 
-    if mime_type == GOOGLE_DOC_MIME:
+    if mime_type in {GOOGLE_DOC_MIME, GOOGLE_SLIDES_MIME}:
         export_response = requests.get(
             f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}/export",
             params={"mimeType": "text/plain"},
             headers=headers,
             timeout=20,
         )
-        _raise_for_status(export_response, "Google Doc export failed.")
+        _raise_for_status(export_response, "Google Drive text export failed.")
         text = export_response.text.strip()
         if not text:
-            raise IntegrationError("Google Doc returned empty content.")
+            raise IntegrationError("Google Drive export returned empty content.")
         return ImportedSourcePayload(
             source_type="google_drive",
             original_uri=f"{name}.txt" if not name.lower().endswith(".txt") else name,
@@ -519,7 +526,25 @@ def _import_google_drive_source(
             source_metadata=source_metadata,
         )
 
-    if mime_type == GOOGLE_PDF_MIME or name.lower().endswith(".pdf"):
+    if mime_type == GOOGLE_SHEET_MIME:
+        export_response = requests.get(
+            f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}/export",
+            params={"mimeType": GOOGLE_SHEET_EXPORT_MIME},
+            headers=headers,
+            timeout=30,
+        )
+        _raise_for_status(export_response, "Google Sheet export failed.")
+        filename = name if name.lower().endswith(".xlsx") else f"{name}.xlsx"
+        return ImportedSourcePayload(
+            source_type="file",
+            original_uri=filename,
+            storage_kind="file",
+            file_bytes=export_response.content,
+            snapshot_payload=None,
+            source_metadata=source_metadata,
+        )
+
+    if _is_supported_google_drive_file(name, mime_type):
         file_response = requests.get(
             f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}",
             params={"alt": "media", "supportsAllDrives": "true"},
@@ -527,24 +552,6 @@ def _import_google_drive_source(
             timeout=30,
         )
         _raise_for_status(file_response, "Google Drive file download failed.")
-        filename = name if name.lower().endswith(".pdf") else f"{name}.pdf"
-        return ImportedSourcePayload(
-            source_type="file",
-            original_uri=filename,
-            storage_kind="file",
-            file_bytes=file_response.content,
-            snapshot_payload=None,
-            source_metadata=source_metadata,
-        )
-
-    if name.lower().endswith((".txt", ".md")) or mime_type.startswith("text/"):
-        file_response = requests.get(
-            f"{GOOGLE_DRIVE_API_BASE}/files/{file_id}",
-            params={"alt": "media", "supportsAllDrives": "true"},
-            headers=headers,
-            timeout=30,
-        )
-        _raise_for_status(file_response, "Google Drive text file download failed.")
         return ImportedSourcePayload(
             source_type="file",
             original_uri=name,
@@ -555,18 +562,21 @@ def _import_google_drive_source(
         )
 
     raise IntegrationError(
-        "Google Drive MVP currently supports Google Docs, PDF files, and plain text files.",
+        "Google Drive import does not support this file format.",
         code="INTEGRATION_IMPORT_UNSUPPORTED",
     )
 
 
 def _is_supported_google_drive_file(name: str, mime_type: str) -> bool:
     lowered_name = name.lower()
+    supported_by_extension = any(
+        lowered_name.endswith(suffix) for suffix in SUPPORTED_DOCUMENT_SUFFIXES
+    )
     return (
-        mime_type == GOOGLE_DOC_MIME
+        mime_type in {GOOGLE_DOC_MIME, GOOGLE_SLIDES_MIME, GOOGLE_SHEET_MIME}
         or mime_type == GOOGLE_PDF_MIME
         or mime_type.startswith("text/")
-        or lowered_name.endswith((".pdf", ".txt", ".md"))
+        or supported_by_extension
     )
 
 

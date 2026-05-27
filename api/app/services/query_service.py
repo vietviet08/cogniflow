@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -16,12 +17,14 @@ from app.services.embedding_service import (
     LOCAL_EMBEDDING_PROVIDER,
     embed_texts_with_local_model,
 )
+from app.services.processing_service import process_sources
 from app.services.provider_settings_service import (
     ProviderSettingsError,
     normalize_provider,
     resolve_chat_provider_config,
 )
 from app.storage.models import Chunk, Document, QueryRun, Source
+from app.storage.repositories.job_repository import JobRepository
 
 
 @dataclass
@@ -141,6 +144,7 @@ def retrieve_hybrid_evidence(
     query: str,
     top_k: int,
     filters: dict[str, Any] | None = None,
+    _allow_lazy_indexing: bool = True,
 ) -> RetrievalResult:
     effective_top_k = max(top_k, 1)
     semantic_limit = min(max(effective_top_k * 3, effective_top_k), 50)
@@ -217,6 +221,24 @@ def retrieve_hybrid_evidence(
         if fallback_records:
             fallback_used = True
             records = fallback_records
+
+    if not records and retrieval_error is None and _allow_lazy_indexing:
+        lazy_indexing = _process_unindexed_sources_for_query(
+            db,
+            project_id=project_id,
+            filters=filters,
+        )
+        if lazy_indexing["sources_processed"] > 0:
+            retry = retrieve_hybrid_evidence(
+                db,
+                project_id=project_id,
+                query=query,
+                top_k=top_k,
+                filters=filters,
+                _allow_lazy_indexing=False,
+            )
+            retry.diagnostics["lazy_indexing"] = lazy_indexing
+            return retry
 
     if not records and retrieval_error is not None:
         raise QueryError(
@@ -605,7 +627,14 @@ def _load_document_fallback_records(
         if not clean_text:
             continue
         lowered = clean_text.lower()
-        score = sum(1 for term in terms if term in lowered)
+        title_haystack = " ".join(
+            [
+                document.title or "",
+                source.original_uri or "",
+                source.type or "",
+            ]
+        ).lower()
+        score = _score_lexical_match(terms, lowered) + _score_title_match(terms, title_haystack)
         ranked.append((score, document, source, clean_text[:2400]))
 
     if not ranked:
@@ -671,7 +700,15 @@ def _load_chunk_lexical_records(
                 source.type or "",
             ]
         ).lower()
-        score = _score_lexical_match(terms, haystack)
+        title_haystack = " ".join(
+            [
+                str(chunk.chunk_metadata.get("title") or "") if isinstance(chunk.chunk_metadata, dict) else "",
+                str(chunk.chunk_metadata.get("source_title") or "") if isinstance(chunk.chunk_metadata, dict) else "",
+                document.title or "",
+                source.original_uri or "",
+            ]
+        ).lower()
+        score = _score_lexical_match(terms, haystack) + _score_title_match(terms, title_haystack)
         if score > 0:
             ranked.append((score, chunk, document, source))
 
@@ -712,15 +749,145 @@ def _load_chunk_lexical_records(
 def _score_lexical_match(terms: list[str], haystack: str) -> float:
     if not terms:
         return 0.0
+    normalized_haystack = _normalize_lexical_text(haystack)
     score = 0.0
     for term in terms:
-        occurrences = haystack.count(term)
+        normalized_term = _normalize_lexical_text(term).strip()
+        occurrences = max(
+            haystack.count(term),
+            normalized_haystack.count(normalized_term) if normalized_term else 0,
+        )
         if occurrences:
             score += 1.0 + min(occurrences, 5) * 0.2
     phrase = " ".join(terms)
-    if len(terms) > 1 and phrase in haystack:
+    normalized_phrase = _normalize_lexical_text(phrase).strip()
+    if len(terms) > 1 and (phrase in haystack or normalized_phrase in normalized_haystack):
         score += 2.0
     return score
+
+
+def _score_title_match(terms: list[str], title_haystack: str) -> float:
+    if not terms or not title_haystack:
+        return 0.0
+
+    normalized_title = _normalize_lexical_text(title_haystack)
+    normalized_terms = [
+        normalized_term
+        for term in terms
+        if (normalized_term := _normalize_lexical_text(term).strip())
+    ]
+    score = 0.0
+    for term in normalized_terms:
+        if term in normalized_title:
+            score += 2.0
+
+    for left, right in zip(normalized_terms, normalized_terms[1:], strict=False):
+        if f"{left} {right}" in normalized_title:
+            score += 8.0
+    return score
+
+
+def _normalize_lexical_text(value: str) -> str:
+    without_marks = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value.replace("đ", "d").replace("Đ", "D"))
+        if not unicodedata.combining(character)
+    )
+    return re.sub(r"[\W_]+", " ", without_marks.lower(), flags=re.UNICODE)
+
+
+def _process_unindexed_sources_for_query(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    filters: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if db is None:
+        return {"attempted": False, "sources_processed": 0}
+
+    sources = (
+        db.query(Source)
+        .outerjoin(Document, Document.source_id == Source.id)
+        .filter(
+            Source.project_id == project_id,
+            Document.id.is_(None),
+            Source.storage_path.isnot(None),
+            Source.status.in_(["completed", "queued"]),
+        )
+        .order_by(Source.created_at.asc())
+        .all()
+    )
+    sources = [source for source in sources if _source_matches_filters(source, filters)]
+    if not sources:
+        return {"attempted": False, "sources_processed": 0}
+
+    job_repo = JobRepository(db)
+    source_ids = [str(source.id) for source in sources]
+    job = job_repo.create(
+        project_id=project_id,
+        job_type="processing",
+        status="queued",
+        progress=0,
+        queue_name="processing",
+        max_retries=0,
+        job_payload={
+            "project_id": str(project_id),
+            "source_ids": source_ids,
+            "chunk_size": 800,
+            "chunk_overlap": 120,
+            "trigger": "lazy_query_indexing",
+        },
+    )
+    job = job_repo.mark_running(job)
+
+    try:
+        for source in sources:
+            source.status = "processing"
+            db.add(source)
+        db.commit()
+
+        result = process_sources(
+            db=db,
+            project_id=project_id,
+            job_id=job.id,
+            sources=sources,
+            chunk_size=800,
+            chunk_overlap=120,
+        )
+
+        for source in sources:
+            source.status = "completed"
+            db.add(source)
+        db.commit()
+        job_repo.mark_completed(
+            job,
+            result_payload={
+                **result,
+                "trigger": "lazy_query_indexing",
+            },
+        )
+        return {
+            "attempted": True,
+            "sources_processed": len(sources),
+            "job_id": str(job.id),
+            "source_ids": source_ids,
+        }
+    except Exception as exc:
+        db.rollback()
+        for source in sources:
+            source.status = "failed"
+            db.add(source)
+        db.commit()
+        job_repo.mark_failed(job, code=type(exc).__name__.upper(), message=str(exc))
+        raise QueryError(
+            "Uploaded sources could not be indexed for retrieval.",
+            code="SOURCE_INDEXING_FAILED",
+            status_code=422,
+            details={
+                "source_ids": source_ids,
+                "reason": _sanitize_exception_reason(exc) or "Source processing failed.",
+            },
+        ) from exc
 
 
 def _filter_source_rows(
@@ -767,4 +934,8 @@ def _source_matches_filters(source: Source, filters: dict[str, Any] | None) -> b
 
 
 def _tokenize_query(query: str) -> list[str]:
-    return [token for token in re.findall(r"[a-z0-9]+", query.lower()) if len(token) > 1]
+    return [
+        token
+        for token in re.findall(r"[^\W_]+", query.lower(), flags=re.UNICODE)
+        if len(token) > 1 or token.isdigit()
+    ]

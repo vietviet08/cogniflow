@@ -216,3 +216,114 @@ def test_hybrid_retrieval_fuses_semantic_and_lexical_candidates(db_session, monk
     assert result.diagnostics["reranker"] == "reciprocal_rank_fusion"
     assert result.diagnostics["semantic_candidates"] == 1
     assert result.diagnostics["lexical_candidates"] >= 1
+
+
+def test_retrieval_lazy_indexes_uploaded_sources_and_matches_vietnamese(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from app.storage.models import Chunk, Document, Project, Source
+
+    project = Project(name="Lazy indexing", description="query")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source_path = tmp_path / "chuong-1.txt"
+    source_path.write_text("placeholder", encoding="utf-8")
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="chuong-1.txt",
+        storage_path=str(source_path),
+        checksum="lazy-source",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    class EmptyCollection:
+        def query(self, query_embeddings, n_results, where):
+            return {"documents": [[]], "metadatas": [[]], "ids": [[]]}
+
+    def fake_process_sources(
+        db,
+        project_id,
+        job_id,
+        sources,
+        chunk_size,
+        chunk_overlap,
+        parent_run_id=None,
+    ):
+        document = Document(
+            source_id=sources[0].id,
+            title="chuong-1.txt",
+            raw_path=sources[0].storage_path,
+            clean_text="Chương 1 trình bày nội dung tổng quan của học phần.",
+            token_count=10,
+        )
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+
+        chunk = Chunk(
+            document_id=document.id,
+            chunk_index=0,
+            content="Chương 1 trình bày nội dung tổng quan của học phần.",
+            chroma_id="lazy-chunk",
+            embedding_model=LOCAL_EMBEDDING_MODEL,
+            chunk_metadata={
+                "source_id": str(sources[0].id),
+                "document_id": str(document.id),
+                "chunk_id": "lazy-chunk",
+                "title": "chuong-1.txt",
+            },
+        )
+        db.add(chunk)
+        db.commit()
+        return {
+            "run_id": "lazy-run",
+            "documents_created": 1,
+            "chunks_created": 1,
+        }
+
+    monkeypatch.setattr(
+        query_service,
+        "embed_texts_with_local_model",
+        lambda texts, model_name=LOCAL_EMBEDDING_MODEL: [[0.1, 0.2, 0.3]],
+    )
+    monkeypatch.setattr(
+        query_service,
+        "get_retrieval_collection",
+        lambda embedding_model: EmptyCollection(),
+    )
+    monkeypatch.setattr(query_service, "process_sources", fake_process_sources)
+
+    result = query_service.retrieve_hybrid_evidence(
+        db_session,
+        project_id=project.id,
+        query="tóm tắt nội dung chương 1",
+        top_k=3,
+    )
+
+    assert result.records
+    assert result.records[0].metadata["chunk_id"] == "lazy-chunk"
+    assert result.diagnostics["lazy_indexing"]["sources_processed"] == 1
+    assert result.diagnostics["lexical_candidates"] == 1
+    assert "chương" in query_service._tokenize_query("tóm tắt nội dung chương 1")
+    assert query_service._score_lexical_match(
+        ["chương", "1"],
+        "chuong_1.pptx Slide 1",
+    ) > query_service._score_lexical_match(
+        ["chương", "1"],
+        "chuong_2.pptx Slide 1",
+    )
+    assert query_service._score_title_match(
+        ["chương", "1"],
+        "chuong_1.pptx",
+    ) > query_service._score_title_match(
+        ["chương", "1"],
+        "chuong_2.pptx",
+    )

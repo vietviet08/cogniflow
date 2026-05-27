@@ -246,6 +246,11 @@ export interface MeshNodeData {
     id: string;
     label: string;
     type: string;
+    description?: string;
+    summary?: string;
+    citations?: CitationData[];
+    citation_indexes?: number[];
+    metadata?: Record<string, unknown>;
 }
 
 export interface MeshEdgeData {
