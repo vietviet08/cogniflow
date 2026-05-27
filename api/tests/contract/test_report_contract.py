@@ -174,6 +174,57 @@ def test_generate_quiz_report_returns_structured_payload(client, monkeypatch):
     assert body["data"]["structured_payload"]["questions"][0]["question"] == "What is the main concept?"
 
 
+def test_generate_study_guide_report_returns_structured_payload(client, monkeypatch):
+    project = _create_project(client)
+
+    monkeypatch.setattr(
+        report_route_module,
+        "generate_report",
+        lambda **kwargs: {
+            "report_id": "report-study-guide",
+            "query": "Create study guide",
+            "title": "Study Guide: Create study guide",
+            "type": "study_guide",
+            "format": "markdown",
+            "content": "# Study Guide\n\n## Sections",
+            "structured_payload": {
+                "overview": "One study guide was generated.",
+                "sections": [
+                    {
+                        "id": "section-1",
+                        "title": "Main topic",
+                        "summary": "The source-grounded topic.",
+                        "key_points": ["The topic is important."],
+                        "citations": [],
+                    }
+                ],
+                "key_concepts": [],
+                "timeline": [],
+                "review_questions": [],
+            },
+            "status": "completed",
+            "run_id": "run-1",
+            "source_ids": [],
+            "citations": [],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/reports/generate",
+        json={
+            "project_id": project["id"],
+            "query": "Create study guide",
+            "type": "study_guide",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["type"] == "study_guide"
+    assert body["data"]["structured_payload"]["sections"][0]["title"] == "Main topic"
+
+
 def test_get_report_returns_structured_payload(client, db_session):
     project = _create_project(client)
 
@@ -372,6 +423,107 @@ def test_get_quiz_report_hydrates_question_citations(client, db_session):
     assert question["citations"][0]["chunk_id"] == str(chunk.id)
     assert question["citations"][0]["title"] == "Quiz Deck"
     assert question["citations"][0]["page_number"] == 5
+
+
+def test_get_study_guide_report_hydrates_nested_citations(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+
+    source = Source(
+        project_id=project_id,
+        type="file",
+        original_uri="study-guide-deck.pdf",
+        storage_path="data/uploads/study-guide-deck.pdf",
+        checksum="study-guide-contract",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Study Guide Deck",
+        raw_path=source.storage_path,
+        clean_text="The indexed study guide fact.",
+        token_count=8,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="The indexed study guide fact supports each guide item.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model="local-test-model",
+        chunk_metadata={"page_number": 6},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+    db_session.refresh(chunk)
+
+    citation = {"chunk_id": str(chunk.id)}
+    report = Report(
+        project_id=project_id,
+        query="Create study guide",
+        title="Study Guide: Create study guide",
+        report_type="study_guide",
+        format="markdown",
+        content="# Study Guide",
+        structured_payload={
+            "overview": "One guide.",
+            "sections": [
+                {
+                    "id": "section-1",
+                    "title": "Section",
+                    "summary": "A supported section.",
+                    "key_points": ["A supported point."],
+                    "citations": [citation],
+                }
+            ],
+            "key_concepts": [
+                {
+                    "id": "concept-1",
+                    "term": "Concept",
+                    "definition": "A supported definition.",
+                    "importance": "A supported importance.",
+                    "citations": [citation],
+                }
+            ],
+            "timeline": [
+                {
+                    "id": "timeline-1",
+                    "label": "Stage",
+                    "description": "A supported stage.",
+                    "citations": [citation],
+                }
+            ],
+            "review_questions": [
+                {
+                    "id": "review-1",
+                    "question": "What is supported?",
+                    "answer": "The indexed fact.",
+                    "citations": [citation],
+                }
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    response = client.get(f"/api/v1/reports/{report.id}")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]["structured_payload"]
+    assert payload["sections"][0]["citations"][0]["title"] == "Study Guide Deck"
+    assert payload["key_concepts"][0]["citations"][0]["chunk_id"] == str(chunk.id)
+    assert payload["timeline"][0]["citations"][0]["page_number"] == 6
+    assert payload["review_questions"][0]["citations"][0]["title"] == "Study Guide Deck"
 
 
 def test_create_and_list_quiz_attempts_scores_answers(client, db_session):

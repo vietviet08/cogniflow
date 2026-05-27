@@ -120,6 +120,19 @@ def hydrate_report_payload_citations(
             normalized_questions.append(normalized_question)
         hydrated_payload["questions"] = normalized_questions
 
+    for collection_name in ("sections", "key_concepts", "timeline", "review_questions"):
+        if not isinstance(hydrated_payload.get(collection_name), list):
+            continue
+        normalized_items: list[dict[str, Any]] = []
+        for item in hydrated_payload[collection_name]:
+            if not isinstance(item, dict):
+                continue
+            normalized_item = dict(item)
+            if isinstance(normalized_item.get("citations"), list):
+                normalized_item["citations"] = hydrate_citations(db, normalized_item["citations"])
+            normalized_items.append(normalized_item)
+        hydrated_payload[collection_name] = normalized_items
+
     return hydrated_payload
 
 

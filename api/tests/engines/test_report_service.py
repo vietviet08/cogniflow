@@ -562,6 +562,220 @@ def test_generate_quiz_report_falls_back_on_malformed_json(db_session, monkeypat
     assert question["citations"][0]["chunk_id"] == str(chunk.id)
 
 
+def test_generate_study_guide_report_uses_all_indexed_chunks(db_session, monkeypatch):
+    project = Project(name="Study Guide Project", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="study-guide-chapter.pptx",
+        storage_path="data/uploads/study-guide-chapter.pptx",
+        checksum="study-guide-1",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Study Guide Chapter",
+        raw_path=source.storage_path,
+        clean_text="Concept content. Timeline content. Review content.",
+        token_count=42,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunks = []
+    for index, content in enumerate(
+        [
+            "Slide 1 introduces the chapter concept.",
+            "Slide 2 explains a historical stage.",
+            "Slide 3 gives a review-worthy conclusion.",
+        ]
+    ):
+        chunk = Chunk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            chunk_index=index,
+            content=content,
+            chroma_id=str(uuid.uuid4()),
+            embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+            chunk_metadata={
+                "source_id": str(source.id),
+                "document_id": str(document.id),
+                "page_number": index + 1,
+            },
+        )
+        chunks.append(chunk)
+    db_session.add_all(chunks)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        report_service,
+        "generate_insight",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("study guide must not use insight top-k")),
+    )
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    prompts: list[str] = []
+
+    def fake_study_guide_json(**kwargs):
+        prompts.append(kwargs["prompt"])
+        return """
+        {
+          "overview": "A source-grounded study guide.",
+          "sections": [
+            {
+              "title": "Chapter concept",
+              "summary": "Slide 1 introduces the chapter concept.",
+              "key_points": ["The chapter concept is introduced."],
+              "citation_indexes": [1]
+            }
+          ],
+          "key_concepts": [
+            {
+              "term": "Historical stage",
+              "definition": "Slide 2 explains a historical stage.",
+              "importance": "It organizes the chapter in sequence.",
+              "citation_indexes": [2]
+            }
+          ],
+          "timeline": [
+            {
+              "label": "Historical stage",
+              "description": "Slide 2 explains this stage.",
+              "citation_indexes": [2]
+            }
+          ],
+          "review_questions": [
+            {
+              "question": "What conclusion should learners review?",
+              "answer": "Slide 3 gives a review-worthy conclusion.",
+              "citation_indexes": [3]
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(report_service, "_call_llm_json", fake_study_guide_json)
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create a study guide from all documents",
+        report_type="study_guide",
+        format="markdown",
+        provider="openai",
+    )
+
+    assert result["type"] == "study_guide"
+    payload = result["structured_payload"]
+    assert payload["sections"][0]["citations"][0]["chunk_id"] == str(chunks[0].id)
+    assert payload["key_concepts"][0]["citations"][0]["chunk_id"] == str(chunks[1].id)
+    assert payload["timeline"][0]["citations"][0]["chunk_id"] == str(chunks[1].id)
+    assert payload["review_questions"][0]["citations"][0]["chunk_id"] == str(chunks[2].id)
+    assert "## Sections" in result["content"]
+    assert "## Key Concepts" in result["content"]
+    assert "## Timeline" in result["content"]
+    assert "## Review Questions" in result["content"]
+    assert prompts
+    assert "Slide 1 introduces" in prompts[0]
+    assert "Slide 2 explains" in prompts[0]
+    assert "Slide 3 gives" in prompts[0]
+
+    persisted = db_session.get(Report, uuid.UUID(result["report_id"]))
+    assert persisted is not None
+    assert persisted.structured_payload["sections"][0]["title"] == "Chapter concept"
+
+    run = db_session.get(ProcessingRun, uuid.UUID(result["run_id"]))
+    assert run is not None
+    assert run.run_metadata["indexed_chunk_count"] == 3
+    assert run.run_metadata["generated_section_count"] == 1
+    assert run.run_metadata["generated_concept_count"] == 1
+    assert run.run_metadata["generated_timeline_count"] == 1
+    assert run.run_metadata["generated_review_question_count"] == 1
+
+
+def test_generate_study_guide_report_falls_back_on_malformed_json(db_session, monkeypatch):
+    project = Project(name="Fallback Study Guide", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="study-guide-fallback.pdf",
+        storage_path="data/uploads/study-guide-fallback.pdf",
+        checksum="study-guide-2",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Study Guide Fallback Source",
+        raw_path=source.storage_path,
+        clean_text="Fallback study guide content.",
+        token_count=12,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        id=uuid.uuid4(),
+        document_id=document.id,
+        chunk_index=0,
+        content="Fallback study guide content should still become a guide.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    monkeypatch.setattr(report_service, "_call_llm_json", lambda **kwargs: "not json")
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create study guide",
+        report_type="study_guide",
+        format="markdown",
+        provider="openai",
+    )
+
+    payload = result["structured_payload"]
+    assert payload["sections"][0]["title"] == "Study Guide Fallback Source"
+    assert payload["review_questions"][0]["question"].startswith("What is a key point")
+    assert payload["sections"][0]["citations"][0]["chunk_id"] == str(chunk.id)
+
+
 def test_update_action_item_status_updates_payload_and_markdown(db_session):
     project = Project(name="Action item status", description="test")
     db_session.add(project)

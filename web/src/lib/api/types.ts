@@ -218,7 +218,8 @@ export type ReportType =
     | "executive_brief"
     | "conflict_mesh"
     | "flashcards"
-    | "quiz";
+    | "quiz"
+    | "study_guide";
 
 export interface ActionItemData {
     id: string;
@@ -273,6 +274,36 @@ export interface QuizQuestionData {
     explanation: string;
     difficulty: "easy" | "medium" | "hard";
     tags: string[];
+    citations: CitationData[];
+}
+
+export interface StudyGuideSectionData {
+    id: string;
+    title: string;
+    summary: string;
+    key_points: string[];
+    citations: CitationData[];
+}
+
+export interface StudyGuideConceptData {
+    id: string;
+    term: string;
+    definition: string;
+    importance: string;
+    citations: CitationData[];
+}
+
+export interface StudyGuideTimelineData {
+    id: string;
+    label: string;
+    description: string;
+    citations: CitationData[];
+}
+
+export interface StudyGuideReviewQuestionData {
+    id: string;
+    question: string;
+    answer: string;
     citations: CitationData[];
 }
 
@@ -331,6 +362,14 @@ export interface QuizPayload {
     questions: QuizQuestionData[];
 }
 
+export interface StudyGuidePayload {
+    overview: string;
+    sections: StudyGuideSectionData[];
+    key_concepts: StudyGuideConceptData[];
+    timeline: StudyGuideTimelineData[];
+    review_questions: StudyGuideReviewQuestionData[];
+}
+
 export interface QuizAttemptData {
     attempt_id: string;
     report_id: string;
@@ -354,6 +393,7 @@ export type StructuredReportPayload =
     | ConflictMeshPayload
     | FlashcardsPayload
     | QuizPayload
+    | StudyGuidePayload
     | Record<string, unknown>;
 
 export interface QueryResultData {
