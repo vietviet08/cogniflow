@@ -140,6 +140,11 @@ def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
     item = list_response.json()["data"]["items"][0]
     assert item["quality"]["trust_score"] == 0.9
     assert item["retrieval_filters"]["author"] == "Ada Lovelace"
+    assert item["indexing"] == {
+        "document_count": 0,
+        "chunk_count": 0,
+        "is_indexed": False,
+    }
 
 
 def test_upload_file_source_tracks_version_and_duplicate(client, monkeypatch, tmp_path):

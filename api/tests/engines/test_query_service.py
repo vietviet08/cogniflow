@@ -39,7 +39,7 @@ def test_search_knowledge_base_surfaces_local_embedding_failure(monkeypatch):
         assert exc.details["model"] == LOCAL_EMBEDDING_MODEL
 
 
-def test_search_knowledge_base_requires_reindex_for_old_embedding_chunks(
+def test_search_knowledge_base_attempts_reindex_for_old_embedding_chunks(
     db_session,
     monkeypatch,
 ):
@@ -118,10 +118,9 @@ def test_search_knowledge_base_requires_reindex_for_old_embedding_chunks(
         )
         raise AssertionError("Expected QueryError")
     except query_service.QueryError as exc:
-        assert exc.code == "QUERY_REINDEX_REQUIRED"
-        assert exc.status_code == 409
-        assert exc.details["provider"] == LOCAL_EMBEDDING_PROVIDER
-        assert exc.details["model"] == LOCAL_EMBEDDING_MODEL
+        assert exc.code == "SOURCE_INDEXING_FAILED"
+        assert exc.status_code == 422
+        assert "Stored artifact" in exc.details["reason"]
 
 
 def test_hybrid_retrieval_fuses_semantic_and_lexical_candidates(db_session, monkeypatch):
@@ -310,7 +309,7 @@ def test_retrieval_lazy_indexes_uploaded_sources_and_matches_vietnamese(
 
     assert result.records
     assert result.records[0].metadata["chunk_id"] == "lazy-chunk"
-    assert result.diagnostics["lazy_indexing"]["sources_processed"] == 1
+    assert result.diagnostics["indexing"]["sources_processed"] == 1
     assert result.diagnostics["lexical_candidates"] == 1
     assert "chương" in query_service._tokenize_query("tóm tắt nội dung chương 1")
     assert query_service._score_lexical_match(
@@ -327,3 +326,116 @@ def test_retrieval_lazy_indexes_uploaded_sources_and_matches_vietnamese(
         ["chương", "1"],
         "chuong_2.pptx",
     )
+
+
+def test_retrieval_expands_context_for_requested_chapter(db_session, monkeypatch):
+    from app.storage.models import Chunk, Document, Project, Source
+
+    project = Project(name="Chapter context", description="query")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source_one = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="chuong 1.pptx",
+        storage_path="/tmp/chuong-1.pptx",
+        checksum="chapter-1",
+        status="completed",
+    )
+    source_two = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="chuong 2.pptx",
+        storage_path="/tmp/chuong-2.pptx",
+        checksum="chapter-2",
+        status="completed",
+    )
+    db_session.add_all([source_one, source_two])
+    db_session.commit()
+    db_session.refresh(source_one)
+    db_session.refresh(source_two)
+
+    document_one = Document(
+        source_id=source_one.id,
+        title="chuong_1.pptx",
+        raw_path="/tmp/chuong-1.pptx",
+        clean_text="chapter one",
+        token_count=2,
+    )
+    document_two = Document(
+        source_id=source_two.id,
+        title="chuong_2.pptx",
+        raw_path="/tmp/chuong-2.pptx",
+        clean_text="chapter two",
+        token_count=2,
+    )
+    db_session.add_all([document_one, document_two])
+    db_session.commit()
+    db_session.refresh(document_one)
+    db_session.refresh(document_two)
+
+    for index in range(3):
+        db_session.add(
+            Chunk(
+                document_id=document_two.id,
+                chunk_index=index,
+                content=f"Slide {index + 1} chương 2 content",
+                chroma_id=f"chapter-two-{index}",
+                embedding_model=LOCAL_EMBEDDING_MODEL,
+                chunk_metadata={
+                    "source_id": str(source_two.id),
+                    "document_id": str(document_two.id),
+                    "chunk_id": f"chapter-two-{index}",
+                    "title": "chuong_2.pptx",
+                    "page_number": index + 1,
+                },
+            )
+        )
+    db_session.add(
+        Chunk(
+            document_id=document_one.id,
+            chunk_index=0,
+            content="Slide 1 chương 1 content",
+            chroma_id="chapter-one-0",
+            embedding_model=LOCAL_EMBEDDING_MODEL,
+            chunk_metadata={
+                "source_id": str(source_one.id),
+                "document_id": str(document_one.id),
+                "chunk_id": "chapter-one-0",
+                "title": "chuong_1.pptx",
+                "page_number": 1,
+            },
+        )
+    )
+    db_session.commit()
+
+    class EmptyCollection:
+        def query(self, query_embeddings, n_results, where):
+            return {"documents": [[]], "metadatas": [[]], "ids": [[]]}
+
+    monkeypatch.setattr(
+        query_service,
+        "embed_texts_with_local_model",
+        lambda texts, model_name=LOCAL_EMBEDDING_MODEL: [[0.1, 0.2, 0.3]],
+    )
+    monkeypatch.setattr(
+        query_service,
+        "get_retrieval_collection",
+        lambda embedding_model: EmptyCollection(),
+    )
+
+    result = query_service.retrieve_hybrid_evidence(
+        db_session,
+        project_id=project.id,
+        query="phân tích chương 2",
+        top_k=1,
+    )
+
+    assert [record.metadata["chunk_id"] for record in result.records[:3]] == [
+        "chapter-two-0",
+        "chapter-two-1",
+        "chapter-two-2",
+    ]
+    assert all(record.metadata["title"] == "chuong_2.pptx" for record in result.records[:3])

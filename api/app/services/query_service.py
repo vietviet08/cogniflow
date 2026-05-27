@@ -8,6 +8,7 @@ from typing import Any
 
 import google.genai as genai
 from openai import OpenAI
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.services.chroma_service import get_retrieval_collection
@@ -146,6 +147,16 @@ def retrieve_hybrid_evidence(
     filters: dict[str, Any] | None = None,
     _allow_lazy_indexing: bool = True,
 ) -> RetrievalResult:
+    indexing_result = (
+        ensure_project_sources_indexed(
+            db,
+            project_id=project_id,
+            filters=filters,
+            trigger="retrieval_preflight",
+        )
+        if _allow_lazy_indexing
+        else {"attempted": False, "sources_processed": 0}
+    )
     effective_top_k = max(top_k, 1)
     semantic_limit = min(max(effective_top_k * 3, effective_top_k), 50)
     lexical_limit = min(max(effective_top_k * 3, effective_top_k), 50)
@@ -208,6 +219,14 @@ def retrieve_hybrid_evidence(
         lexical_records=lexical_records,
         top_k=effective_top_k,
     )
+    chapter_scope_records = _load_chapter_scope_records(
+        db,
+        project_id=project_id,
+        query=query,
+        filters=filters,
+    )
+    if chapter_scope_records:
+        records = _merge_prioritized_records(chapter_scope_records, records)
 
     fallback_used = False
     if not records:
@@ -221,24 +240,6 @@ def retrieve_hybrid_evidence(
         if fallback_records:
             fallback_used = True
             records = fallback_records
-
-    if not records and retrieval_error is None and _allow_lazy_indexing:
-        lazy_indexing = _process_unindexed_sources_for_query(
-            db,
-            project_id=project_id,
-            filters=filters,
-        )
-        if lazy_indexing["sources_processed"] > 0:
-            retry = retrieve_hybrid_evidence(
-                db,
-                project_id=project_id,
-                query=query,
-                top_k=top_k,
-                filters=filters,
-                _allow_lazy_indexing=False,
-            )
-            retry.diagnostics["lazy_indexing"] = lazy_indexing
-            return retry
 
     if not records and retrieval_error is not None:
         raise QueryError(
@@ -278,6 +279,8 @@ def retrieve_hybrid_evidence(
         if retrieval_error is not None
         else None,
     }
+    if indexing_result.get("attempted"):
+        diagnostics["indexing"] = indexing_result
     return RetrievalResult(records=records, diagnostics=diagnostics)
 
 
@@ -352,6 +355,21 @@ def _fuse_evidence_records(
         ),
         reverse=True,
     )[:top_k]
+
+
+def _merge_prioritized_records(
+    primary_records: list[EvidenceRecord],
+    secondary_records: list[EvidenceRecord],
+) -> list[EvidenceRecord]:
+    merged: list[EvidenceRecord] = []
+    seen: set[str] = set()
+    for record in [*primary_records, *secondary_records]:
+        key = str(record.metadata.get("chunk_id") or record.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(record)
+    return merged
 
 
 def _generate_answer(
@@ -746,6 +764,99 @@ def _load_chunk_lexical_records(
     return records
 
 
+def _load_chapter_scope_records(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    query: str,
+    filters: dict[str, Any] | None = None,
+    limit_per_source: int = 120,
+) -> list[EvidenceRecord]:
+    chapter_numbers = _extract_requested_chapter_numbers(query)
+    if not chapter_numbers:
+        return []
+
+    rows = (
+        db.query(Chunk, Document, Source)
+        .join(Document, Chunk.document_id == Document.id)
+        .join(Source, Document.source_id == Source.id)
+        .filter(Source.project_id == project_id)
+        .order_by(Source.created_at.asc(), Chunk.chunk_index.asc())
+        .all()
+    )
+
+    records: list[EvidenceRecord] = []
+    counts_by_source: dict[uuid.UUID, int] = {}
+    for chunk, document, source in rows:
+        if not _source_matches_filters(source, filters):
+            continue
+        if not _source_matches_chapter_numbers(source, document, chapter_numbers):
+            continue
+        current_count = counts_by_source.get(source.id, 0)
+        if current_count >= limit_per_source:
+            continue
+        counts_by_source[source.id] = current_count + 1
+
+        source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+        chunk_metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else {}
+        records.append(
+            EvidenceRecord(
+                id=str(chunk.id),
+                document=chunk.content[:2400],
+                metadata={
+                    "project_id": str(project_id),
+                    "source_id": str(chunk_metadata.get("source_id") or source.id),
+                    "source_type": str(chunk_metadata.get("source_type") or source.type),
+                    "document_id": str(chunk_metadata.get("document_id") or document.id),
+                    "chunk_id": str(chunk_metadata.get("chunk_id") or chunk.id),
+                    "chunk_index": chunk.chunk_index,
+                    "title": str(
+                        chunk_metadata.get("title")
+                        or document.title
+                        or source.original_uri
+                        or "Imported source"
+                    ),
+                    "url": str(chunk_metadata.get("url") or source_metadata.get("external_url") or ""),
+                    "page_number": chunk_metadata.get("page_number"),
+                    "retrieval_scope": "chapter",
+                },
+                lexical_rank=current_count + 1,
+                lexical_score=1000.0 - current_count,
+            )
+        )
+    return records
+
+
+def _extract_requested_chapter_numbers(query: str) -> set[int]:
+    normalized = _normalize_lexical_text(query)
+    numbers: set[int] = set()
+    for pattern in (r"\bchuong\s+(\d{1,3})\b", r"\bchapter\s+(\d{1,3})\b"):
+        for match in re.finditer(pattern, normalized):
+            numbers.add(int(match.group(1)))
+    return numbers
+
+
+def _source_matches_chapter_numbers(
+    source: Source,
+    document: Document,
+    chapter_numbers: set[int],
+) -> bool:
+    source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+    haystack = _normalize_lexical_text(
+        " ".join(
+            [
+                str(source.original_uri or ""),
+                str(source_metadata.get("title") or ""),
+                str(document.title or ""),
+            ]
+        )
+    )
+    return any(
+        f"chuong {number}" in haystack or f"chapter {number}" in haystack
+        for number in chapter_numbers
+    )
+
+
 def _score_lexical_match(terms: list[str], haystack: str) -> float:
     if not terms:
         return 0.0
@@ -796,11 +907,12 @@ def _normalize_lexical_text(value: str) -> str:
     return re.sub(r"[\W_]+", " ", without_marks.lower(), flags=re.UNICODE)
 
 
-def _process_unindexed_sources_for_query(
+def ensure_project_sources_indexed(
     db: Session,
     *,
     project_id: uuid.UUID,
     filters: dict[str, Any] | None,
+    trigger: str = "query_indexing",
 ) -> dict[str, Any]:
     if db is None:
         return {"attempted": False, "sources_processed": 0}
@@ -808,11 +920,17 @@ def _process_unindexed_sources_for_query(
     sources = (
         db.query(Source)
         .outerjoin(Document, Document.source_id == Source.id)
+        .outerjoin(Chunk, Chunk.document_id == Document.id)
         .filter(
             Source.project_id == project_id,
-            Document.id.is_(None),
             Source.storage_path.isnot(None),
             Source.status.in_(["completed", "queued"]),
+        )
+        .group_by(Source.id)
+        .having(
+            (func.count(Document.id) == 0)
+            | (func.count(Chunk.id) == 0)
+            | (func.sum(case((Chunk.embedding_model != LOCAL_EMBEDDING_MODEL, 1), else_=0)) > 0)
         )
         .order_by(Source.created_at.asc())
         .all()
@@ -835,7 +953,7 @@ def _process_unindexed_sources_for_query(
             "source_ids": source_ids,
             "chunk_size": 800,
             "chunk_overlap": 120,
-            "trigger": "lazy_query_indexing",
+            "trigger": trigger,
         },
     )
     job = job_repo.mark_running(job)
@@ -863,7 +981,7 @@ def _process_unindexed_sources_for_query(
             job,
             result_payload={
                 **result,
-                "trigger": "lazy_query_indexing",
+                "trigger": trigger,
             },
         )
         return {
