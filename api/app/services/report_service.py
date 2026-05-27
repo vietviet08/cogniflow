@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
+import unicodedata
 import uuid
-from typing import Any
+from typing import Any, Iterable
 
 import google.genai as genai
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.services.citation_service import hydrate_citations, hydrate_report_payload_citations
+from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.insight_service import InsightError, generate_insight
-from app.storage.models import Chunk, Report, ReportInsight
+from app.services.query_service import ensure_project_sources_indexed
+from app.storage.models import Chunk, Document, Report, ReportInsight, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.report_repository import ReportRepository
 
@@ -155,7 +160,42 @@ Evidence:
 {evidence}
 """
 
+_FLASHCARDS_PROMPT_TEMPLATE = """\
+You are creating study flashcards from indexed source material.
+
+Return a JSON object with EXACTLY this shape:
+{{
+  "overview": "<short overview for this batch>",
+  "cards": [
+    {{
+      "front": "<question, concept, or term prompt>",
+      "back": "<short answer>",
+      "explanation": "<why this answer is correct, grounded in the evidence>",
+      "difficulty": "easy|medium|hard",
+      "tags": ["<short topic tag>"],
+      "citation_indexes": [1]
+    }}
+  ]
+}}
+
+Rules:
+- Use only the evidence below. Do not add outside knowledge.
+- Make cards useful for study, not generic reading comprehension.
+- Prefer key concepts, definitions, processes, timelines, comparisons, and exam-worthy facts.
+- Each card must include at least one citation index from the evidence list.
+- Avoid duplicate cards in this batch.
+- Produce up to {card_limit} cards.
+
+User request: {query}
+
+Evidence:
+{evidence}
+"""
+
+_STRUCTURED_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief", "flashcards"}
 _ACTIONABLE_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief"}
+_FLASHCARDS_MAX_CARDS = 40
+_FLASHCARDS_BATCH_SIZE = 10
 
 
 def generate_report(
@@ -172,6 +212,16 @@ def generate_report(
         from app.engines.report.mesh_pipeline import generate_conflict_mesh
 
         return generate_conflict_mesh(db, project_id, query, provider, parent_run_id=parent_run_id)
+    if report_type == "flashcards":
+        return _generate_flashcards_report(
+            db=db,
+            project_id=project_id,
+            query=query,
+            report_type=report_type,
+            format=format,
+            provider=provider,
+            parent_run_id=parent_run_id,
+        )
 
     # Step 1: Run insight synthesis
     try:
@@ -282,7 +332,7 @@ def generate_report(
             "query": query,
             "provider": answer_provider,
             "insight_id": insight_result["insight_id"],
-            "structured_output": report_type in _ACTIONABLE_REPORT_TYPES,
+            "structured_output": report_type in _STRUCTURED_REPORT_TYPES,
             "evidence_snapshot": evidence_snapshot,
         },
         parent_run_id=parent_run_id,
@@ -328,6 +378,160 @@ def generate_report(
         "status": "completed",
         "run_id": str(run.id),
         "insight_id": insight_result["insight_id"],
+        "source_ids": source_ids,
+        "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
+    }
+
+
+def _generate_flashcards_report(
+    *,
+    db: Session,
+    project_id: uuid.UUID,
+    query: str,
+    report_type: str,
+    format: str,
+    provider: str,
+    parent_run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.provider_settings_service import (
+        ProviderSettingsError,
+        normalize_provider,
+        resolve_chat_provider_config,
+    )
+
+    try:
+        answer_provider = normalize_provider(provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
+    except ProviderSettingsError as exc:
+        raise ReportError(str(exc)) from exc
+
+    indexing_result = ensure_project_sources_indexed(
+        db,
+        project_id=project_id,
+        filters=None,
+        trigger="flashcards_indexing",
+    )
+    chunks = _load_flashcard_chunks(db, project_id)
+    if not chunks:
+        raise ReportError(
+            "No indexed chunks are available for flashcard generation.",
+            code="REPORT_FLASHCARDS_NO_CHUNKS",
+            status_code=409,
+            details={"indexing": indexing_result},
+        )
+
+    batches = _chunk_list(chunks, _FLASHCARDS_BATCH_SIZE)
+    cards_per_batch = max(2, min(6, math.ceil(_FLASHCARDS_MAX_CARDS / max(len(batches), 1))))
+    collected_cards: list[dict[str, Any]] = []
+    seen_fronts: set[str] = set()
+    overview_parts: list[str] = []
+
+    for batch in batches:
+        if len(collected_cards) >= _FLASHCARDS_MAX_CARDS:
+            break
+        evidence_blocks, citations = _format_flashcard_evidence(batch)
+        prompt = _FLASHCARDS_PROMPT_TEMPLATE.format(
+            query=query,
+            evidence=evidence_blocks,
+            card_limit=cards_per_batch,
+        )
+        raw_payload = _call_llm_json(
+            prompt=prompt,
+            provider=answer_provider,
+            api_key=generation_config["api_key"],
+            base_url=generation_config.get("base_url"),
+            model=generation_config["chat_model"],
+        )
+        parsed = _load_json_object(raw_payload)
+        normalized = _normalize_flashcards_batch_payload(parsed, citations, query)
+        overview = _coerce_string(normalized.get("overview"))
+        if overview:
+            overview_parts.append(overview)
+        for card in normalized["cards"]:
+            fingerprint = _flashcard_fingerprint(card.get("front", ""))
+            if not fingerprint or fingerprint in seen_fronts:
+                continue
+            seen_fronts.add(fingerprint)
+            collected_cards.append(card)
+            if len(collected_cards) >= _FLASHCARDS_MAX_CARDS:
+                break
+
+    if not collected_cards:
+        collected_cards = _fallback_flashcards(chunks[:_FLASHCARDS_MAX_CARDS], query)
+
+    payload = {
+        "overview": _build_flashcards_overview(overview_parts, len(collected_cards), len(chunks)),
+        "cards": collected_cards[:_FLASHCARDS_MAX_CARDS],
+    }
+    title = _derive_title(query, report_type)
+    report_content = _render_structured_payload_as_markdown(
+        report_type=report_type,
+        title=title,
+        payload=payload,
+    )
+    prompt_hash = hashlib.sha256(_FLASHCARDS_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
+    config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    all_citations = _unique_citations(
+        citation
+        for item in chunks
+        for citation in [item["citation"]]
+    )
+    evidence_snapshot = _build_evidence_snapshot(all_citations)
+
+    run = ProcessingRunRepository(db).create(
+        project_id=project_id,
+        job_id=None,
+        run_type="report",
+        model_id=generation_config["chat_model"],
+        prompt_hash=prompt_hash,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata={
+            "report_type": report_type,
+            "format": format,
+            "query": query,
+            "provider": answer_provider,
+            "structured_output": True,
+            "indexed_chunk_count": len(chunks),
+            "generated_card_count": len(payload["cards"]),
+            "indexing": indexing_result,
+            "evidence_snapshot": evidence_snapshot,
+        },
+        parent_run_id=parent_run_id,
+    )
+    report = Report(
+        project_id=project_id,
+        query=query,
+        title=title,
+        report_type=report_type,
+        format=format,
+        content=report_content,
+        structured_payload=payload,
+        status="completed",
+        run_id=run.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    structured_payload = hydrate_report_payload_citations(db, payload)
+    citations = hydrate_citations(db, _unique_citations(
+        citation
+        for card in payload["cards"]
+        for citation in card.get("citations", [])
+    ))
+    source_ids = list({citation["source_id"] for citation in all_citations if citation.get("source_id")})
+    return {
+        "report_id": str(report.id),
+        "query": query,
+        "title": title,
+        "type": report_type,
+        "format": format,
+        "content": report_content,
+        "structured_payload": structured_payload,
+        "status": "completed",
+        "run_id": str(run.id),
         "source_ids": source_ids,
         "citations": citations,
         "evidence_snapshot": evidence_snapshot,
@@ -538,6 +742,7 @@ def _derive_title(query: str, report_type: str) -> str:
         "risk_analysis": "Risk Analysis",
         "executive_brief": "Executive Brief",
         "conflict_mesh": "Conflict Mesh",
+        "flashcards": "Flashcards",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
 
@@ -615,6 +820,178 @@ def _build_evidence_blocks(db: Session, citations: list[dict[str, Any]]) -> tupl
     if not evidence_entries:
         return "No evidence snippets available.", citations
     return "\n\n".join(evidence_entries), evidence_citations
+
+
+def _load_flashcard_chunks(db: Session, project_id: uuid.UUID) -> list[dict[str, Any]]:
+    rows = (
+        db.query(Chunk, Document, Source)
+        .join(Document, Chunk.document_id == Document.id)
+        .join(Source, Document.source_id == Source.id)
+        .filter(
+            Source.project_id == project_id,
+            Chunk.embedding_model == LOCAL_EMBEDDING_MODEL,
+        )
+        .order_by(Source.created_at.asc(), Document.created_at.asc(), Chunk.chunk_index.asc())
+        .all()
+    )
+    evidence: list[dict[str, Any]] = []
+    for chunk, document, source in rows:
+        content = _coerce_string(chunk.content)
+        if not content:
+            continue
+        source_metadata = source.source_metadata if isinstance(source.source_metadata, dict) else {}
+        chunk_metadata = chunk.chunk_metadata if isinstance(chunk.chunk_metadata, dict) else {}
+        title = _coerce_string(
+            chunk_metadata.get("title") or document.title or source.original_uri,
+            "Imported source",
+        )
+        citation = {
+            "citation_id": str(chunk.id),
+            "source_id": str(source.id),
+            "source_type": source.type,
+            "document_id": str(document.id),
+            "chunk_id": str(chunk.id),
+            "title": title,
+            "url": str(chunk_metadata.get("url") or source_metadata.get("external_url") or ""),
+            "page_number": chunk_metadata.get("page_number"),
+            "quote": content,
+        }
+        evidence.append(
+            {
+                "content": content,
+                "chunk_index": chunk.chunk_index,
+                "title": title,
+                "citation": citation,
+            }
+        )
+    return evidence
+
+
+def _chunk_list(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
+    return [items[index : index + batch_size] for index in range(0, len(items), batch_size)]
+
+
+def _format_flashcard_evidence(batch: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    blocks: list[str] = []
+    citations: list[dict[str, Any]] = []
+    for index, item in enumerate(batch, start=1):
+        citation = item["citation"]
+        citations.append(citation)
+        page = citation.get("page_number")
+        page_label = f" p.{page}" if page else ""
+        content = _preview(item["content"], limit=1800)
+        blocks.append(f"[{index}] {item['title']}{page_label}\n{content}")
+    return "\n\n".join(blocks), citations
+
+
+def _normalize_flashcards_batch_payload(
+    parsed: dict[str, Any],
+    citations: list[dict[str, Any]],
+    query: str,
+) -> dict[str, Any]:
+    cards: list[dict[str, Any]] = []
+    raw_cards = parsed.get("cards")
+    if isinstance(raw_cards, list):
+        for raw_card in raw_cards:
+            if not isinstance(raw_card, dict):
+                continue
+            front = _coerce_string(raw_card.get("front") or raw_card.get("question"))
+            back = _coerce_string(raw_card.get("back") or raw_card.get("answer"))
+            if not front or not back:
+                continue
+            card_citations = _map_citation_indexes(raw_card.get("citation_indexes"), citations)
+            if not card_citations:
+                card_citations = citations[:1]
+            cards.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "front": front,
+                    "back": back,
+                    "explanation": _coerce_string(raw_card.get("explanation"), back),
+                    "difficulty": _coerce_enum(
+                        raw_card.get("difficulty"),
+                        {"easy", "medium", "hard"},
+                        "medium",
+                    ),
+                    "tags": _coerce_string_list(raw_card.get("tags"), max_items=5),
+                    "citations": card_citations,
+                }
+            )
+    if cards:
+        return {
+            "overview": _coerce_string(parsed.get("overview"), f"Flashcards generated for: {query}"),
+            "cards": cards,
+        }
+    return {
+        "overview": f"Flashcards generated for: {query}",
+        "cards": _fallback_flashcards(
+            [{"content": citation.get("quote", ""), "title": citation.get("title", ""), "citation": citation}
+             for citation in citations],
+            query,
+        ),
+    }
+
+
+def _fallback_flashcards(items: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for item in items:
+        citation = item["citation"]
+        content = _coerce_string(item.get("content") or citation.get("quote"))
+        title = _coerce_string(item.get("title") or citation.get("title"), "this source")
+        if not content:
+            continue
+        cards.append(
+            {
+                "id": str(uuid.uuid4()),
+                "front": f"What is the key point from {title}?",
+                "back": _preview(content, limit=180),
+                "explanation": _preview(content, limit=360),
+                "difficulty": "medium",
+                "tags": _fallback_flashcard_tags(query, title),
+                "citations": [citation],
+            }
+        )
+        if len(cards) >= _FLASHCARDS_MAX_CARDS:
+            break
+    return cards
+
+
+def _fallback_flashcard_tags(query: str, title: str) -> list[str]:
+    tags = []
+    for value in (query, title):
+        cleaned = _coerce_string(value)
+        if cleaned:
+            tags.append(_preview(cleaned, limit=32))
+    return tags[:3]
+
+
+def _build_flashcards_overview(overview_parts: list[str], card_count: int, chunk_count: int) -> str:
+    for overview in overview_parts:
+        cleaned = _coerce_string(overview)
+        if cleaned:
+            return f"{cleaned} Generated {card_count} flashcards from {chunk_count} indexed chunks."
+    return f"Generated {card_count} flashcards from {chunk_count} indexed chunks."
+
+
+def _flashcard_fingerprint(front: str) -> str:
+    normalized = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", front)
+        if not unicodedata.combining(character)
+    )
+    return re.sub(r"[^a-z0-9]+", " ", normalized.lower()).strip()
+
+
+def _unique_citations(citations: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for citation in citations:
+        key = str(citation.get("citation_id") or citation.get("chunk_id") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(citation)
+    return unique
 
 
 def _parse_actionable_payload(
@@ -919,6 +1296,8 @@ def _render_structured_payload_as_markdown(
         return _render_action_items_markdown(title, payload)
     if report_type == "risk_analysis":
         return _render_risk_analysis_markdown(title, payload)
+    if report_type == "flashcards":
+        return _render_flashcards_markdown(title, payload)
     return _render_executive_brief_markdown(title, payload)
 
 
@@ -968,6 +1347,25 @@ def _render_executive_brief_markdown(title: str, payload: dict[str, Any]) -> str
     for point in payload.get("next_steps", []):
         lines.append(f"- {point}")
     lines.extend(["", _format_citation_line(payload.get("citations", []))])
+    return "\n".join(line for line in lines if line is not None)
+
+
+def _render_flashcards_markdown(title: str, payload: dict[str, Any]) -> str:
+    lines = [f"# {title}", "", "## Overview", payload.get("overview", ""), "", "## Cards"]
+    for index, card in enumerate(payload.get("cards", []), start=1):
+        tags = ", ".join(card.get("tags", [])) if isinstance(card.get("tags"), list) else ""
+        lines.extend(
+            [
+                "",
+                f"### {index}. {card.get('front', 'Untitled card')}",
+                f"- Front: {card.get('front', '')}",
+                f"- Back: {card.get('back', '')}",
+                f"- Explanation: {card.get('explanation', '')}",
+                f"- Difficulty: {card.get('difficulty', 'medium')}",
+                f"- Tags: {tags or 'none'}",
+                _format_citation_line(card.get("citations", [])),
+            ]
+        )
     return "\n".join(line for line in lines if line is not None)
 
 

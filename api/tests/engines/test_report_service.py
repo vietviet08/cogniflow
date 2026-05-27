@@ -136,6 +136,209 @@ def test_generate_action_items_report_persists_structured_payload(db_session, mo
     assert run.run_metadata["evidence_snapshot"][0]["quote_preview"] == chunk.content
 
 
+def test_generate_flashcards_report_uses_all_indexed_chunks(db_session, monkeypatch):
+    project = Project(name="Flashcard Project", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="chapter.pptx",
+        storage_path="data/uploads/chapter.pptx",
+        checksum="flashcards-1",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Chapter Deck",
+        raw_path=source.storage_path,
+        clean_text="Definition content. Method content. Meaning content.",
+        token_count=42,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunks = []
+    for index, content in enumerate(
+        [
+            "Slide 1 defines the main concept.",
+            "Slide 2 explains the research method.",
+            "Slide 3 states the learning meaning.",
+        ]
+    ):
+        chunk = Chunk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            chunk_index=index,
+            content=content,
+            chroma_id=str(uuid.uuid4()),
+            embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+            chunk_metadata={
+                "source_id": str(source.id),
+                "document_id": str(document.id),
+                "page_number": index + 1,
+            },
+        )
+        chunks.append(chunk)
+    db_session.add_all(chunks)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        report_service,
+        "generate_insight",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("flashcards must not use insight top-k")),
+    )
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.normalize_provider",
+        lambda provider: provider,
+    )
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    prompts: list[str] = []
+
+    def fake_flashcards_json(**kwargs):
+        prompts.append(kwargs["prompt"])
+        return """
+        {
+          "overview": "A study deck for the chapter.",
+          "cards": [
+            {
+              "front": "What does slide 1 define?",
+              "back": "The main concept.",
+              "explanation": "Slide 1 defines the main concept.",
+              "difficulty": "easy",
+              "tags": ["concept"],
+              "citation_indexes": [1]
+            },
+            {
+              "front": "What does slide 2 explain?",
+              "back": "The research method.",
+              "explanation": "Slide 2 explains the research method.",
+              "difficulty": "medium",
+              "tags": ["method"],
+              "citation_indexes": [2]
+            },
+            {
+              "front": "What does slide 3 state?",
+              "back": "The learning meaning.",
+              "explanation": "Slide 3 states the learning meaning.",
+              "difficulty": "medium",
+              "tags": ["meaning"],
+              "citation_indexes": [3]
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(report_service, "_call_llm_json", fake_flashcards_json)
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create flashcards from all documents",
+        report_type="flashcards",
+        format="markdown",
+        provider="openai",
+    )
+
+    assert result["type"] == "flashcards"
+    assert len(result["structured_payload"]["cards"]) == 3
+    assert result["structured_payload"]["cards"][0]["citations"][0]["chunk_id"] == str(chunks[0].id)
+    assert "## Cards" in result["content"]
+    assert prompts
+    assert "Slide 1 defines" in prompts[0]
+    assert "Slide 2 explains" in prompts[0]
+    assert "Slide 3 states" in prompts[0]
+
+    persisted = db_session.get(Report, uuid.UUID(result["report_id"]))
+    assert persisted is not None
+    assert persisted.structured_payload["cards"][1]["front"] == "What does slide 2 explain?"
+
+    run = db_session.get(ProcessingRun, uuid.UUID(result["run_id"]))
+    assert run is not None
+    assert run.run_metadata["indexed_chunk_count"] == 3
+    assert run.run_metadata["generated_card_count"] == 3
+
+
+def test_generate_flashcards_report_falls_back_on_malformed_json(db_session, monkeypatch):
+    project = Project(name="Fallback Flashcards", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="fallback.pdf",
+        storage_path="data/uploads/fallback.pdf",
+        checksum="flashcards-2",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Fallback Source",
+        raw_path=source.storage_path,
+        clean_text="Fallback content.",
+        token_count=12,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        id=uuid.uuid4(),
+        document_id=document.id,
+        chunk_index=0,
+        content="Fallback content should still become a flashcard.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    monkeypatch.setattr(report_service, "_call_llm_json", lambda **kwargs: "not json")
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create flashcards",
+        report_type="flashcards",
+        format="markdown",
+        provider="openai",
+    )
+
+    card = result["structured_payload"]["cards"][0]
+    assert card["front"].startswith("What is the key point")
+    assert card["citations"][0]["chunk_id"] == str(chunk.id)
+
+
 def test_update_action_item_status_updates_payload_and_markdown(db_session):
     project = Project(name="Action item status", description="test")
     db_session.add(project)
