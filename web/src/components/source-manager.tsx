@@ -1521,6 +1521,9 @@ export function SourceManager() {
                                                 <TableHead className="w-28 hidden lg:table-cell">
                                                     Quality
                                                 </TableHead>
+                                                <TableHead className="w-32 hidden xl:table-cell">
+                                                    Index
+                                                </TableHead>
                                                 <TableHead className="w-32">
                                                     Status
                                                 </TableHead>
@@ -1606,6 +1609,38 @@ export function SourceManager() {
                                                                     .retrieval_filters
                                                                     ?.language ||
                                                                     "unknown"}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="hidden xl:table-cell">
+                                                        <div className="flex flex-col gap-1">
+                                                            <Badge
+                                                                variant={
+                                                                    source
+                                                                        .indexing
+                                                                        ?.is_indexed
+                                                                        ? "success"
+                                                                        : "outline"
+                                                                }
+                                                                className="w-fit font-normal"
+                                                            >
+                                                                {source
+                                                                    .indexing
+                                                                    ?.is_indexed
+                                                                    ? "Indexed"
+                                                                    : "Not indexed"}
+                                                            </Badge>
+                                                            <span className="text-[11px] text-muted-foreground">
+                                                                {source
+                                                                    .indexing
+                                                                    ?.document_count ??
+                                                                    0}{" "}
+                                                                doc /{" "}
+                                                                {source
+                                                                    .indexing
+                                                                    ?.chunk_count ??
+                                                                    0}{" "}
+                                                                chunks
                                                             </span>
                                                         </div>
                                                     </TableCell>

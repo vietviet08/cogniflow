@@ -292,12 +292,24 @@ def list_sources(
         )
         status = latest_job.status if latest_job else s.status
         source_metadata = s.source_metadata if isinstance(s.source_metadata, dict) else {}
+        document_count = db.query(Document).filter(Document.source_id == s.id).count()
+        chunk_count = (
+            db.query(Chunk)
+            .join(Document, Chunk.document_id == Document.id)
+            .filter(Document.source_id == s.id)
+            .count()
+        )
         items.append({
             "id": str(s.id),
             "file_name": s.original_uri,
             "type": s.type,
             "provider": source_metadata.get("provider"),
             "status": status,
+            "indexing": {
+                "document_count": document_count,
+                "chunk_count": chunk_count,
+                "is_indexed": document_count > 0 and chunk_count > 0,
+            },
             "quality": source_metadata.get("source_quality") or {},
             "retrieval_filters": source_metadata.get("retrieval_filters") or {},
             "created_at": s.created_at.isoformat() if s.created_at else None,

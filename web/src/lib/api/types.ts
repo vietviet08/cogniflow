@@ -158,6 +158,11 @@ export interface SourceListItemData {
     type: string;
     provider?: string | null;
     status: string;
+    indexing?: {
+        document_count: number;
+        chunk_count: number;
+        is_indexed: boolean;
+    };
     quality?: {
         parser?: string;
         parser_warnings?: string[];
