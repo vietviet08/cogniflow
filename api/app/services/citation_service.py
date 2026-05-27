@@ -109,6 +109,17 @@ def hydrate_report_payload_citations(
             normalized_cards.append(normalized_card)
         hydrated_payload["cards"] = normalized_cards
 
+    if isinstance(hydrated_payload.get("questions"), list):
+        normalized_questions: list[dict[str, Any]] = []
+        for question in hydrated_payload["questions"]:
+            if not isinstance(question, dict):
+                continue
+            normalized_question = dict(question)
+            if isinstance(normalized_question.get("citations"), list):
+                normalized_question["citations"] = hydrate_citations(db, normalized_question["citations"])
+            normalized_questions.append(normalized_question)
+        hydrated_payload["questions"] = normalized_questions
+
     return hydrated_payload
 
 

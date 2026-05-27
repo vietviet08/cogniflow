@@ -217,7 +217,8 @@ export type ReportType =
     | "risk_analysis"
     | "executive_brief"
     | "conflict_mesh"
-    | "flashcards";
+    | "flashcards"
+    | "quiz";
 
 export interface ActionItemData {
     id: string;
@@ -252,6 +253,23 @@ export interface FlashcardData {
     id: string;
     front: string;
     back: string;
+    explanation: string;
+    difficulty: "easy" | "medium" | "hard";
+    tags: string[];
+    citations: CitationData[];
+}
+
+export interface QuizOptionData {
+    id: string;
+    text: string;
+}
+
+export interface QuizQuestionData {
+    id: string;
+    type: "multiple_choice" | "true_false";
+    question: string;
+    options: QuizOptionData[];
+    correct_option_id: string;
     explanation: string;
     difficulty: "easy" | "medium" | "hard";
     tags: string[];
@@ -308,12 +326,18 @@ export interface FlashcardsPayload {
     cards: FlashcardData[];
 }
 
+export interface QuizPayload {
+    overview: string;
+    questions: QuizQuestionData[];
+}
+
 export type StructuredReportPayload =
     | ActionItemsPayload
     | RiskAnalysisPayload
     | ExecutiveBriefPayload
     | ConflictMeshPayload
     | FlashcardsPayload
+    | QuizPayload
     | Record<string, unknown>;
 
 export interface QueryResultData {
