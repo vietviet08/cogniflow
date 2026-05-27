@@ -216,7 +216,8 @@ export type ReportType =
     | "action_items"
     | "risk_analysis"
     | "executive_brief"
-    | "conflict_mesh";
+    | "conflict_mesh"
+    | "flashcards";
 
 export interface ActionItemData {
     id: string;
@@ -244,6 +245,16 @@ export interface ExecutiveBriefData {
     key_points: string[];
     decisions_needed: string[];
     next_steps: string[];
+    citations: CitationData[];
+}
+
+export interface FlashcardData {
+    id: string;
+    front: string;
+    back: string;
+    explanation: string;
+    difficulty: "easy" | "medium" | "hard";
+    tags: string[];
     citations: CitationData[];
 }
 
@@ -292,11 +303,17 @@ export interface ConflictMeshPayload {
     edges: MeshEdgeData[];
 }
 
+export interface FlashcardsPayload {
+    overview: string;
+    cards: FlashcardData[];
+}
+
 export type StructuredReportPayload =
     | ActionItemsPayload
     | RiskAnalysisPayload
     | ExecutiveBriefPayload
     | ConflictMeshPayload
+    | FlashcardsPayload
     | Record<string, unknown>;
 
 export interface QueryResultData {

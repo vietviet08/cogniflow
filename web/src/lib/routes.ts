@@ -7,5 +7,6 @@ export const appRoutes = [
     { href: "/settings", label: "Settings" },
     { href: "/insights", label: "Insights" },
     { href: "/reports", label: "Reports" },
+    { href: "/flashcards", label: "Flashcards" },
     { href: "/mesh", label: "Mesh Graph" },
 ] as const;

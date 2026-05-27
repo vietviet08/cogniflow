@@ -13,6 +13,7 @@ import {
     Share2,
     Lightbulb,
     FileText,
+    Layers,
     KeyRound,
     Moon,
     Sun,
@@ -37,6 +38,7 @@ const navItems = [
     { href: "/query", label: "Query", icon: Search },
     { href: "/insights", label: "Insights", icon: Lightbulb },
     { href: "/reports", label: "Reports", icon: FileText },
+    { href: "/flashcards", label: "Flashcards", icon: Layers },
     { href: "/settings", label: "Settings", icon: KeyRound },
 ];
 
