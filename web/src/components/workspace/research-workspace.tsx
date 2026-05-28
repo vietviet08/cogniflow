@@ -161,6 +161,15 @@ function getReportIcon(type: ReportType) {
   return REPORT_TYPES.find((item) => item.value === type)?.icon ?? FileText;
 }
 
+function getArtifactFullViewerRoute(type: ReportType) {
+  if (type === "flashcards") return "/flashcards";
+  if (type === "quiz") return "/quiz";
+  if (type === "study_guide") return "/study-guide";
+  if (type === "mind_map") return "/mind-map";
+  if (type === "conflict_mesh") return "/mesh";
+  return "/reports";
+}
+
 function describeStructuredPayload(payload: StructuredReportPayload | null | undefined) {
   if (!payload || typeof payload !== "object") {
     return "No structured payload.";
@@ -232,6 +241,7 @@ export function ResearchWorkspace() {
   const [activeProject, setActiveProjectState] = useState<StoredProject | null>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("research");
   const [studioRequest, setStudioRequest] = useState<StudioRequest | null>(null);
+  const [selectedArtifact, setSelectedArtifact] = useState<ReportResult | null>(null);
 
   useEffect(() => {
     setActiveProjectState(getActiveProject());
@@ -246,6 +256,11 @@ export function ResearchWorkspace() {
   function requestArtifact(query: string, type: ReportType) {
     setStudioRequest({ query, type, nonce: Date.now() });
     setActiveTab("studio");
+  }
+
+  function openArtifact(artifact: ReportResult) {
+    setSelectedArtifact(artifact);
+    setActiveTab("research");
   }
 
   return (
@@ -295,6 +310,8 @@ export function ResearchWorkspace() {
             <ResearchCanvasPanel
               activeProject={activeProject}
               canMutate={canMutate}
+              selectedArtifact={selectedArtifact}
+              onCloseArtifact={() => setSelectedArtifact(null)}
               onRequestArtifact={requestArtifact}
             />
           </ResizablePanel>
@@ -309,6 +326,8 @@ export function ResearchWorkspace() {
               activeProject={activeProject}
               canMutate={canMutate}
               request={studioRequest}
+              selectedArtifactId={selectedArtifact?.report_id ?? null}
+              onOpenArtifact={openArtifact}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -322,6 +341,8 @@ export function ResearchWorkspace() {
           <ResearchCanvasPanel
             activeProject={activeProject}
             canMutate={canMutate}
+            selectedArtifact={selectedArtifact}
+            onCloseArtifact={() => setSelectedArtifact(null)}
             onRequestArtifact={requestArtifact}
           />
         ) : null}
@@ -330,6 +351,8 @@ export function ResearchWorkspace() {
             activeProject={activeProject}
             canMutate={canMutate}
             request={studioRequest}
+            selectedArtifactId={selectedArtifact?.report_id ?? null}
+            onOpenArtifact={openArtifact}
           />
         ) : null}
       </div>
@@ -721,10 +744,14 @@ function SourceRow({
 function ResearchCanvasPanel({
   activeProject,
   canMutate,
+  selectedArtifact,
+  onCloseArtifact,
   onRequestArtifact,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
+  selectedArtifact: ReportResult | null;
+  onCloseArtifact: () => void;
   onRequestArtifact: (query: string, type: ReportType) => void;
 }) {
   const queryClient = useQueryClient();
@@ -811,18 +838,28 @@ function ResearchCanvasPanel({
       description="Ask, verify citations, and branch answers into artifacts"
       icon={MessageSquare}
       action={
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setActiveSessionId(null)}
-          disabled={!canMutate}
-        >
-          <Plus className="h-4 w-4" />
-          New
-        </Button>
+        selectedArtifact ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onCloseArtifact}>
+            <MessageSquare className="h-4 w-4" />
+            Chat
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveSessionId(null)}
+            disabled={!canMutate}
+          >
+            <Plus className="h-4 w-4" />
+            New
+          </Button>
+        )
       }
     >
+      {selectedArtifact ? (
+        <ArtifactCanvas report={selectedArtifact} onRequestArtifact={onRequestArtifact} />
+      ) : (
       <div className="flex h-full min-h-0 flex-col">
         <div className="border-b border-border bg-card/30 px-4 py-2">
           <div className="flex gap-2 overflow-x-auto">
@@ -898,6 +935,7 @@ function ResearchCanvasPanel({
           </div>
         </form>
       </div>
+      )}
     </PanelFrame>
   );
 }
@@ -1001,20 +1039,331 @@ function ChatMessageCard({
   );
 }
 
+function ArtifactCanvas({
+  report,
+  onRequestArtifact,
+}: {
+  report: ReportResult;
+  onRequestArtifact: (query: string, type: ReportType) => void;
+}) {
+  const Icon = getReportIcon(report.type);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-border bg-card/30 px-5 py-4">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-start justify-between gap-4"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Icon className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-lg font-semibold text-foreground">
+                  {report.title}
+                </h3>
+                <Badge variant="outline" className="text-[10px]">
+                  {REPORT_LABELS[report.type] ?? report.type}
+                </Badge>
+                <Badge
+                  variant={report.status === "completed" ? "success" : "secondary"}
+                  className="text-[10px]"
+                >
+                  {report.status}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {formatDate(report.created_at)} · Run {report.run_id?.slice(0, 8) ?? "n/a"}
+              </p>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+                {report.query}
+              </p>
+            </div>
+          </div>
+          <Link
+            href={getArtifactFullViewerRoute(report.type)}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Full viewer
+          </Link>
+        </motion.div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <motion.div
+          key={report.report_id}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-auto max-w-5xl space-y-5"
+        >
+          <ArtifactStructuredView report={report} />
+          <CitationChips citations={report.citations ?? []} />
+
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Branch from this artifact</p>
+                <p className="text-xs text-muted-foreground">
+                  Reuse the artifact query to create another study output.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onRequestArtifact(report.query, "summary")}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Summary
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onRequestArtifact(report.query, "quiz")}
+              >
+                <CircleHelp className="h-3.5 w-3.5" />
+                Quiz
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onRequestArtifact(report.query, "study_guide")}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Study guide
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onRequestArtifact(report.query, "conflict_mesh")}
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Mesh
+              </Button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+function ArtifactStructuredView({ report }: { report: ReportResult }) {
+  const payload = report.structured_payload;
+
+  if (report.content) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="prose prose-sm max-w-none dark:prose-invert">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.content}</ReactMarkdown>
+        </div>
+      </div>
+    );
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-8 text-center">
+        <FileText className="mx-auto h-9 w-9 text-muted-foreground" />
+        <p className="mt-3 text-sm font-medium text-foreground">Artifact has no preview payload</p>
+      </div>
+    );
+  }
+
+  if ("cards" in payload && Array.isArray(payload.cards)) {
+    return (
+      <ArtifactSection title="Flashcards" description={describeStructuredPayload(payload)}>
+        <div className="grid gap-3 md:grid-cols-2">
+          {payload.cards.map((card, index) => {
+            const item = card as Record<string, unknown>;
+            return (
+              <ArtifactItemCard key={String(item.id ?? index)}>
+                <p className="text-xs font-semibold text-primary">
+                  {String(item.front ?? `Card ${index + 1}`)}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-foreground">
+                  {String(item.back ?? "")}
+                </p>
+                {item.explanation ? (
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    {String(item.explanation)}
+                  </p>
+                ) : null}
+              </ArtifactItemCard>
+            );
+          })}
+        </div>
+      </ArtifactSection>
+    );
+  }
+
+  if ("questions" in payload && Array.isArray(payload.questions)) {
+    return (
+      <ArtifactSection title="Quiz" description={describeStructuredPayload(payload)}>
+        <div className="space-y-3">
+          {payload.questions.map((question, index) => {
+            const item = question as Record<string, unknown>;
+            const options = Array.isArray(item.options) ? item.options : [];
+            return (
+              <ArtifactItemCard key={String(item.id ?? index)}>
+                <p className="text-sm font-semibold text-foreground">
+                  {index + 1}. {String(item.question ?? "Untitled question")}
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {options.map((option, optionIndex) => {
+                    const optionItem = option as Record<string, unknown>;
+                    return (
+                      <div
+                        key={String(optionItem.id ?? optionIndex)}
+                        className="rounded-md border border-border bg-background px-3 py-2 text-xs"
+                      >
+                        <span className="font-semibold">
+                          {String(optionItem.id ?? optionIndex + 1)}.
+                        </span>{" "}
+                        {String(optionItem.text ?? "")}
+                      </div>
+                    );
+                  })}
+                </div>
+                {item.explanation ? (
+                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                    {String(item.explanation)}
+                  </p>
+                ) : null}
+              </ArtifactItemCard>
+            );
+          })}
+        </div>
+      </ArtifactSection>
+    );
+  }
+
+  if ("sections" in payload && Array.isArray(payload.sections)) {
+    return (
+      <ArtifactSection title="Study Guide" description={describeStructuredPayload(payload)}>
+        <div className="space-y-3">
+          {payload.sections.map((section, index) => {
+            const item = section as Record<string, unknown>;
+            const points = Array.isArray(item.key_points) ? item.key_points : [];
+            return (
+              <ArtifactItemCard key={String(item.id ?? index)}>
+                <p className="text-sm font-semibold text-foreground">
+                  {String(item.title ?? `Section ${index + 1}`)}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {String(item.summary ?? "")}
+                </p>
+                {points.length ? (
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
+                    {points.map((point, pointIndex) => (
+                      <li key={pointIndex}>{String(point)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </ArtifactItemCard>
+            );
+          })}
+        </div>
+      </ArtifactSection>
+    );
+  }
+
+  if ("nodes" in payload && Array.isArray(payload.nodes)) {
+    const nodes = payload.nodes as Array<Record<string, unknown>>;
+    const edges = "edges" in payload && Array.isArray(payload.edges) ? payload.edges : [];
+    return (
+      <ArtifactSection title={report.type === "mind_map" ? "Mind Map" : "Mesh"} description={describeStructuredPayload(payload)}>
+        <div className="grid gap-3 md:grid-cols-[1fr_0.85fr]">
+          <div className="rounded-lg border border-border bg-muted/30 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Nodes</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {nodes.slice(0, 18).map((node, index) => (
+                <div key={String(node.id ?? index)} className="rounded-md border border-border bg-card p-3">
+                  <p className="truncate text-xs font-semibold text-foreground">
+                    {String(node.label ?? `Node ${index + 1}`)}
+                  </p>
+                  <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-muted-foreground">
+                    {String(node.summary ?? node.description ?? "")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Relationships</p>
+            <p className="mt-2 text-3xl font-semibold text-foreground">{edges.length}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Open the full viewer for interactive 2D/3D exploration.
+            </p>
+          </div>
+        </div>
+      </ArtifactSection>
+    );
+  }
+
+  return (
+    <ArtifactSection title={REPORT_LABELS[report.type] ?? "Artifact"} description={describeStructuredPayload(payload)}>
+      <pre className="max-h-[520px] overflow-auto rounded-lg bg-muted p-4 text-xs text-muted-foreground">
+        {JSON.stringify(payload, null, 2)}
+      </pre>
+    </ArtifactSection>
+  );
+}
+
+function ArtifactSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-5">
+      <div className="mb-4">
+        <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ArtifactItemCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
+      {children}
+    </div>
+  );
+}
+
 function StudioOutputsPanel({
   activeProject,
   canMutate,
   request,
+  selectedArtifactId,
+  onOpenArtifact,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
   request: StudioRequest | null;
+  selectedArtifactId: string | null;
+  onOpenArtifact: (artifact: ReportResult) => void;
 }) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [type, setType] = useState<ReportType>("research_brief");
   const [generating, setGenerating] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<ReportResult | null>(null);
   const [loadingReportId, setLoadingReportId] = useState<string | null>(null);
   const lastRequestNonce = useRef<number | null>(null);
 
@@ -1048,7 +1397,7 @@ function StudioOutputsPanel({
         type: nextType,
         provider: "openai",
       });
-      setSelectedReport(result.data);
+      onOpenArtifact(result.data);
       toast.success("Artifact generated.", { id: toastId });
       await queryClient.invalidateQueries({ queryKey: ["workspace-reports", activeProject.id] });
     } catch (error) {
@@ -1062,7 +1411,7 @@ function StudioOutputsPanel({
     setLoadingReportId(report.report_id);
     try {
       const response = await getReport(report.report_id);
-      setSelectedReport(response.data);
+      onOpenArtifact(response.data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not open report.");
     } finally {
@@ -1144,7 +1493,7 @@ function StudioOutputsPanel({
               <ArtifactCard
                 key={report.report_id}
                 report={report}
-                selected={selectedReport?.report_id === report.report_id}
+                selected={selectedArtifactId === report.report_id}
                 loading={loadingReportId === report.report_id}
                 onOpen={() => void openReport(report)}
               />
@@ -1160,7 +1509,6 @@ function StudioOutputsPanel({
           )}
         </div>
 
-        {selectedReport ? <ArtifactPreview report={selectedReport} /> : null}
       </div>
     </PanelFrame>
   );
@@ -1208,47 +1556,5 @@ function ArtifactCard({
         </div>
       </div>
     </motion.button>
-  );
-}
-
-function ArtifactPreview({ report }: { report: ReportResult }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-lg border border-border bg-card p-3"
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{report.title}</p>
-          <p className="text-xs text-muted-foreground">
-            {REPORT_LABELS[report.type] ?? report.type} · {formatDate(report.created_at)}
-          </p>
-        </div>
-        <Link
-          href="/reports"
-          className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-8 w-8 shrink-0")}
-          title="Open full reports"
-        >
-          <ExternalLink className="h-4 w-4" />
-        </Link>
-      </div>
-
-      {report.content ? (
-        <div className="prose prose-xs max-h-96 max-w-none overflow-y-auto dark:prose-invert">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.content}</ReactMarkdown>
-        </div>
-      ) : (
-        <p className="text-sm leading-6 text-muted-foreground">
-          {describeStructuredPayload(report.structured_payload)}
-        </p>
-      )}
-      {!report.content && report.structured_payload ? (
-        <div className="mt-3 rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
-          {describeStructuredPayload(report.structured_payload)}
-        </div>
-      ) : null}
-      <CitationChips citations={report.citations ?? []} />
-    </motion.div>
   );
 }
