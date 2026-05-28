@@ -15,7 +15,7 @@ import Link from "next/link";
 import { Command as CmdkCommand } from "cmdk";
 import { useTheme } from "next-themes";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -37,6 +37,7 @@ import {
   LogOut,
   MessageSquare,
   Moon,
+  PanelBottomOpen,
   Plus,
   RefreshCcw,
   Search,
@@ -134,6 +135,18 @@ const REPORT_TYPES: Array<{
 const REPORT_LABELS = Object.fromEntries(
   REPORT_TYPES.map((type) => [type.value, type.label]),
 ) as Record<ReportType, string>;
+
+const fadeUp = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 8 },
+};
+
+const noMotion = {
+  initial: { opacity: 1, y: 0, scale: 1, x: 0 },
+  animate: { opacity: 1, y: 0, scale: 1, x: 0 },
+  exit: { opacity: 1, y: 0, scale: 1, x: 0 },
+};
 
 const SUPPORTED_FILE_ACCEPT = [
   ".pdf",
@@ -273,6 +286,7 @@ export function ResearchWorkspace() {
   const [highlightedSourceId, setHighlightedSourceId] = useState<string | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const workspaceActionsRef = useRef<WorkspaceActions>({});
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     setActiveProjectState(getActiveProject());
@@ -329,26 +343,6 @@ export function ResearchWorkspace() {
         actionsRef={workspaceActionsRef}
       />
 
-      <div className="border-b border-border bg-card/60 px-3 py-2 lg:hidden">
-        <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
-          {(["sources", "research", "studio"] as WorkspaceTab[]).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={cn(
-                "rounded-md px-2 py-1.5 text-xs font-medium capitalize transition-colors",
-                activeTab === tab
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div className="hidden min-h-0 flex-1 lg:block">
         <ResizablePanelGroup orientation="horizontal" className="h-full">
           <ResizablePanel
@@ -404,8 +398,37 @@ export function ResearchWorkspace() {
         </ResizablePanelGroup>
       </div>
 
-      <div className="min-h-0 flex-1 lg:hidden">
-        {activeTab === "sources" ? (
+      <div className="relative min-h-0 flex-1 overflow-hidden pb-16 lg:hidden">
+        <AnimatePresence mode="wait">
+          {activeTab === "research" ? (
+            <motion.div
+              key="mobile-research"
+              {...(reduceMotion ? noMotion : fadeUp)}
+              className="h-full"
+            >
+              <ResearchCanvasPanel
+                activeProject={activeProject}
+                canMutate={canMutate}
+                selectedArtifact={selectedArtifact}
+                selectedSourceIds={selectedSourceIds}
+                onClearSourceScope={clearSourceScope}
+                onCloseArtifact={() => setSelectedArtifact(null)}
+                onRequestArtifact={requestArtifact}
+                onCitationHover={setHighlightedSourceId}
+                registerActions={registerWorkspaceActions}
+              />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {activeTab === "sources" ? (
+            <MobileWorkspaceDrawer
+              key="mobile-sources"
+              title="Sources"
+              reduceMotion={reduceMotion}
+              onClose={() => setActiveTab("research")}
+            >
           <KnowledgeSourcesPanel
             activeProject={activeProject}
             canMutate={canMutate}
@@ -414,21 +437,15 @@ export function ResearchWorkspace() {
             highlightedSourceId={highlightedSourceId}
             registerActions={registerWorkspaceActions}
           />
-        ) : null}
-        {activeTab === "research" ? (
-          <ResearchCanvasPanel
-            activeProject={activeProject}
-            canMutate={canMutate}
-            selectedArtifact={selectedArtifact}
-            selectedSourceIds={selectedSourceIds}
-            onClearSourceScope={clearSourceScope}
-            onCloseArtifact={() => setSelectedArtifact(null)}
-            onRequestArtifact={requestArtifact}
-            onCitationHover={setHighlightedSourceId}
-            registerActions={registerWorkspaceActions}
-          />
-        ) : null}
-        {activeTab === "studio" ? (
+            </MobileWorkspaceDrawer>
+          ) : null}
+          {activeTab === "studio" ? (
+            <MobileWorkspaceDrawer
+              key="mobile-studio"
+              title="Studio"
+              reduceMotion={reduceMotion}
+              onClose={() => setActiveTab("research")}
+            >
           <StudioOutputsPanel
             activeProject={activeProject}
             canMutate={canMutate}
@@ -437,7 +454,15 @@ export function ResearchWorkspace() {
             onOpenArtifact={openArtifact}
             registerActions={registerWorkspaceActions}
           />
-        ) : null}
+            </MobileWorkspaceDrawer>
+          ) : null}
+        </AnimatePresence>
+
+        <MobileWorkspaceTabs
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onCommand={() => setCommandOpen(true)}
+        />
       </div>
     </div>
   );
@@ -448,6 +473,86 @@ function WorkspaceResizeHandle() {
     <ResizableHandle className="group flex w-3 cursor-col-resize items-center justify-center bg-background transition-colors hover:bg-primary/5">
       <div className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60" />
     </ResizableHandle>
+  );
+}
+
+function MobileWorkspaceDrawer({
+  title,
+  reduceMotion,
+  onClose,
+  children,
+}: {
+  title: string;
+  reduceMotion: boolean | null;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <motion.div
+      className="absolute inset-0 z-30 flex flex-col bg-background/95 backdrop-blur-md"
+      initial={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 32 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 32 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+    >
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card/70 px-4">
+        <div className="flex items-center gap-2">
+          <PanelBottomOpen className="h-4 w-4 text-primary" />
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+        </div>
+        <Button type="button" variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden pb-14">{children}</div>
+    </motion.div>
+  );
+}
+
+function MobileWorkspaceTabs({
+  activeTab,
+  setActiveTab,
+  onCommand,
+}: {
+  activeTab: WorkspaceTab;
+  setActiveTab: (tab: WorkspaceTab) => void;
+  onCommand: () => void;
+}) {
+  const tabs: Array<{ value: WorkspaceTab; label: string; icon: typeof Layers }> = [
+    { value: "sources", label: "Sources", icon: Layers },
+    { value: "research", label: "Research", icon: MessageSquare },
+    { value: "studio", label: "Studio", icon: Sparkles },
+  ];
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-2 backdrop-blur lg:hidden">
+      <div className="grid grid-cols-4 gap-1">
+        {tabs.map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setActiveTab(value)}
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors",
+              activeTab === value
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={onCommand}
+          className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Search className="h-4 w-4" />
+          Commands
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -468,6 +573,7 @@ function WorkspaceCommandPalette({
   selectedSourceCount: number;
   actionsRef: RefObject<WorkspaceActions>;
 }) {
+  const reduceMotion = useReducedMotion();
   if (!open) return null;
 
   function run(action: () => void, disabled = false) {
@@ -546,8 +652,20 @@ function WorkspaceCommandPalette({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/60 p-4 backdrop-blur-sm" onClick={() => onOpenChange(false)}>
-      <div className="mx-auto mt-20 max-w-xl" onClick={(event) => event.stopPropagation()}>
+    <motion.div
+      className="fixed inset-0 z-50 bg-background/70 p-4 backdrop-blur-sm"
+      onClick={() => onOpenChange(false)}
+      initial={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+    >
+      <motion.div
+        className="mx-auto mt-20 max-w-xl"
+        onClick={(event) => event.stopPropagation()}
+        initial={reduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.16 }}
+      >
         <CmdkCommand className="overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl">
           <div className="flex items-center gap-2 border-b border-border px-3">
             <Search className="h-4 w-4 text-muted-foreground" />
@@ -578,16 +696,16 @@ function WorkspaceCommandPalette({
             ))}
           </CmdkCommand.List>
         </CmdkCommand>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
 function WorkspaceEmptyState() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md rounded-lg border border-dashed border-border bg-card p-8 text-center shadow-sm">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="w-full max-w-lg rounded-lg border border-dashed border-border bg-card/80 p-8 text-center shadow-sm">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <BrainCircuit className="h-6 w-6" />
         </div>
         <h1 className="text-xl font-semibold text-foreground">Select a project first</h1>
@@ -595,10 +713,15 @@ function WorkspaceEmptyState() {
           The research workspace is scoped to one active project so sources,
           chat, and studio artifacts stay connected.
         </p>
-        <Link href="/projects" className={cn(buttonVariants(), "mt-6")}>
-          <FolderOpen className="h-4 w-4" />
-          Open projects
-        </Link>
+        <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+          <Link href="/projects" className={buttonVariants()}>
+            <FolderOpen className="h-4 w-4" />
+            Create/select project
+          </Link>
+          <Link href="/projects" className={buttonVariants({ variant: "outline" })}>
+            Open projects
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -678,9 +801,9 @@ function PanelFrame({
 }) {
   return (
     <section className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-card/60 px-4 py-3">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-card/70 px-4 py-3 backdrop-blur">
         <div className="flex min-w-0 items-start gap-2.5">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-primary/15">
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
@@ -920,6 +1043,27 @@ function KnowledgeSourcesPanel({
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Add a file or URL to build the project knowledge base.
             </p>
+            <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canMutate || busy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload file
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!canMutate || busy}
+                onClick={() => setUrl("https://")}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Add URL
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -988,8 +1132,8 @@ function SourceRow({
       whileHover={{ y: -1 }}
       className={cn(
         "rounded-lg border bg-card p-3 transition-colors",
-        selected ? "border-primary/50 bg-primary/5" : "border-border hover:border-primary/25",
-        highlighted && "border-warning bg-warning/10 shadow-sm",
+        selected ? "border-primary/50 bg-primary/5 dark:bg-primary/10" : "border-border hover:border-primary/25",
+        highlighted && "border-warning bg-warning/10 shadow-sm dark:bg-warning/15",
       )}
     >
       <div className="flex items-start gap-3">
@@ -1060,6 +1204,11 @@ function ResearchCanvasPanel({
   const [assistantStage, setAssistantStage] = useState("Retrieving evidence");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const askInputRef = useRef<HTMLTextAreaElement>(null);
+  const suggestedPrompts = [
+    "Summarize the strongest evidence in this project.",
+    "What are the open risks or contradictions?",
+    "Create a study plan from the indexed sources.",
+  ];
 
   const { data: sessionsData, isLoading: loadingSessions } = useQuery({
     queryKey: ["workspace-chat-sessions", activeProject.id],
@@ -1259,12 +1408,24 @@ function ResearchCanvasPanel({
                   Ask across indexed sources, then turn strong answers into reports,
                   flashcards, or a mind map without leaving the workspace.
                 </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  {suggestedPrompts.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => setInputValue(prompt)}
+                      className="rounded-full border border-border bg-card/70 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="shrink-0 border-t border-border bg-card/80 p-3">
+        <form onSubmit={handleSubmit} className="shrink-0 border-t border-border bg-card/80 p-3 pb-20 lg:pb-3">
           <div className="flex gap-2">
             <Textarea
               ref={askInputRef}
@@ -1310,8 +1471,8 @@ function ChatMessageCard({
       className={cn(
         "rounded-lg border p-4",
         isAssistant
-          ? "border-primary/15 bg-card shadow-sm"
-          : "ml-auto max-w-[88%] border-border bg-muted/60",
+          ? "border-primary/15 bg-card/90 shadow-sm dark:bg-card/80"
+          : "ml-auto max-w-[88%] border-border bg-muted/60 dark:bg-muted/40",
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -1931,6 +2092,25 @@ function StudioOutputsPanel({
               <p className="mt-1 text-xs text-muted-foreground">
                 Generate a report, quiz, study guide, or map from the canvas.
               </p>
+              <div className="mt-4 grid gap-2">
+                {(["research_brief", "flashcards", "mind_map"] as ReportType[]).map((templateType) => {
+                  const Icon = getReportIcon(templateType);
+                  return (
+                    <button
+                      key={templateType}
+                      type="button"
+                      onClick={() => {
+                        setType(templateType);
+                        setQuery("Create a source-grounded artifact from this project.");
+                      }}
+                      className="flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-left text-xs transition-colors hover:border-primary/30 hover:bg-primary/5"
+                    >
+                      <Icon className="h-4 w-4 text-primary" />
+                      {REPORT_LABELS[templateType]}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -1960,8 +2140,8 @@ function ArtifactCard({
       animate={{ opacity: 1, y: 0 }}
       onClick={onOpen}
       className={cn(
-        "w-full rounded-lg border bg-card p-3 text-left transition-colors hover:border-primary/30",
-        selected ? "border-primary/50 bg-primary/5" : "border-border",
+        "w-full rounded-lg border bg-card/90 p-3 text-left transition-colors hover:border-primary/30 dark:bg-card/75",
+        selected ? "border-primary/50 bg-primary/5 dark:bg-primary/10" : "border-border",
       )}
     >
       <div className="flex items-start gap-3">
