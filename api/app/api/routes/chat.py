@@ -151,6 +151,7 @@ class SendChatMessageRequest(BaseModel):
     content: str
     provider: str = "openai"
     top_k: int = 5
+    filters: dict | None = None
 
 
 @router.post("/chat/sessions/{session_id}/messages")
@@ -195,6 +196,7 @@ def send_chat_message(
             query=contextual_query,
             provider=payload.provider,
             top_k=payload.top_k,
+            filters=payload.filters,
             conversation_context=[
                 *history_context,
                 {"role": "user", "content": payload.content},

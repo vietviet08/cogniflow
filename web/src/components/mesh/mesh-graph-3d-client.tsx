@@ -5,7 +5,7 @@ import ForceGraph3D from "react-force-graph-3d";
 import SpriteText from "three-spritetext";
 import { useTheme } from "next-themes";
 import * as THREE from "three";
-import { Info, ChevronDown, ChevronUp } from "lucide-react";
+import { Info, ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react";
 
 import { NodeDetailPanel } from "./node-detail-panel";
 import type { ConflictMeshPayload, MeshNodeData, MeshEdgeData } from "@/lib/api/types";
@@ -40,6 +40,8 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
     const [isInfoExpanded, setIsInfoExpanded] = useState(true);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [detailOpen, setDetailOpen] = useState(true);
 
     // Resize observer to keep the graph filling the container
     useEffect(() => {
@@ -91,8 +93,12 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
         setSelectedElement(null);
     }, []);
 
+    const graphShellClass = isFullscreen
+        ? "fixed inset-0 z-50 flex h-screen w-screen bg-background"
+        : "flex h-[100%] w-full min-h-[500px]";
+
     return (
-        <div className="flex h-[100%] w-full min-h-[500px]">
+        <div className={graphShellClass}>
             <div ref={containerRef} className="flex-1 relative h-full border-r border-border min-w-0 bg-background overflow-hidden">
                 <ForceGraph3D
                     ref={graphRef}
@@ -147,6 +153,27 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
                     enableNodeDrag={true}
                 />
 
+                <button
+                    type="button"
+                    onClick={() => setIsFullscreen((current) => !current)}
+                    className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background/85 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
+                    aria-label={isFullscreen ? "Exit fullscreen mesh" : "Open fullscreen mesh"}
+                    title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                >
+                    {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </button>
+
+                {isFullscreen && (
+                    <button
+                        type="button"
+                        onClick={() => setDetailOpen((current) => !current)}
+                        className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-background/90 px-4 py-2 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent lg:hidden"
+                    >
+                        <Info className="h-4 w-4" />
+                        {detailOpen ? "Hide details" : "Show details"}
+                    </button>
+                )}
+
                 {/* Floating Info Panel */}
                 <div className="absolute top-4 left-4 pointer-events-auto">
                     <div className="bg-background/80 backdrop-blur-md rounded-lg border shadow-sm max-w-sm overflow-hidden transition-all duration-300">
@@ -182,7 +209,13 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
             </div>
 
             {/* Detail Panel */}
-            <div className="w-[350px] shrink-0 h-full overflow-hidden bg-background">
+            <div
+                className={
+                    isFullscreen
+                        ? `${detailOpen ? "translate-y-0" : "translate-y-full lg:translate-y-0"} fixed inset-x-0 bottom-0 z-30 h-[42vh] overflow-hidden border-t border-border bg-background transition-transform lg:static lg:h-full lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0`
+                        : "w-[350px] shrink-0 h-full overflow-hidden bg-background"
+                }
+            >
                 <NodeDetailPanel element={selectedElement} payload={payload} />
             </div>
         </div>

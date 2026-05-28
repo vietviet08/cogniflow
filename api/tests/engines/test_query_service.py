@@ -439,3 +439,83 @@ def test_retrieval_expands_context_for_requested_chapter(db_session, monkeypatch
         "chapter-two-2",
     ]
     assert all(record.metadata["title"] == "chuong_2.pptx" for record in result.records[:3])
+
+
+def test_retrieval_filters_by_source_ids(db_session, monkeypatch):
+    from app.storage.models import Chunk, Document, Project, Source
+
+    project = Project(name="Scoped retrieval", description="query")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source_one = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="alpha.pdf",
+        storage_path="/tmp/alpha.pdf",
+        checksum="alpha",
+        status="completed",
+    )
+    source_two = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="beta.pdf",
+        storage_path="/tmp/beta.pdf",
+        checksum="beta",
+        status="completed",
+    )
+    db_session.add_all([source_one, source_two])
+    db_session.commit()
+    db_session.refresh(source_one)
+    db_session.refresh(source_two)
+
+    document_one = Document(source_id=source_one.id, title="alpha.pdf", clean_text="shared topic alpha", token_count=3)
+    document_two = Document(source_id=source_two.id, title="beta.pdf", clean_text="shared topic beta", token_count=3)
+    db_session.add_all([document_one, document_two])
+    db_session.commit()
+    db_session.refresh(document_one)
+    db_session.refresh(document_two)
+
+    db_session.add_all(
+        [
+            Chunk(
+                document_id=document_one.id,
+                chunk_index=0,
+                content="shared topic alpha evidence",
+                chroma_id="alpha-0",
+                embedding_model=LOCAL_EMBEDDING_MODEL,
+                chunk_metadata={"source_id": str(source_one.id), "document_id": str(document_one.id), "chunk_id": "alpha-0", "title": "alpha.pdf"},
+            ),
+            Chunk(
+                document_id=document_two.id,
+                chunk_index=0,
+                content="shared topic beta evidence",
+                chroma_id="beta-0",
+                embedding_model=LOCAL_EMBEDDING_MODEL,
+                chunk_metadata={"source_id": str(source_two.id), "document_id": str(document_two.id), "chunk_id": "beta-0", "title": "beta.pdf"},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    seen_where = {}
+
+    class EmptyCollection:
+        def query(self, query_embeddings, n_results, where):
+            seen_where.update(where)
+            return {"documents": [[]], "metadatas": [[]], "ids": [[]]}
+
+    monkeypatch.setattr(query_service, "embed_texts_with_local_model", lambda texts, model_name=LOCAL_EMBEDDING_MODEL: [[0.1, 0.2, 0.3]])
+    monkeypatch.setattr(query_service, "get_retrieval_collection", lambda embedding_model: EmptyCollection())
+
+    result = query_service.retrieve_hybrid_evidence(
+        db_session,
+        project_id=project.id,
+        query="shared topic",
+        top_k=3,
+        filters={"source_ids": [str(source_two.id)]},
+    )
+
+    assert seen_where["source_id"] == {"$in": [str(source_two.id)]}
+    assert [record.metadata["chunk_id"] for record in result.records] == ["beta-0"]

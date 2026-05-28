@@ -396,6 +396,7 @@ export function queryKnowledge(payload: {
     query: string;
     provider?: string;
     topK?: number;
+    filters?: Record<string, unknown>;
 }): Promise<ApiSuccess<QueryResultData>> {
     return requestJson<QueryResultData>("/query/search", {
         method: "POST",
@@ -404,6 +405,7 @@ export function queryKnowledge(payload: {
             query: payload.query,
             provider: payload.provider ?? "openai",
             top_k: payload.topK ?? 5,
+            filters: payload.filters,
         }),
     });
 }
@@ -1270,6 +1272,7 @@ export function sendChatMessage(payload: {
     content: string;
     provider?: string;
     topK?: number;
+    filters?: Record<string, unknown>;
 }): Promise<ApiSuccess<ChatSendResponse>> {
     return requestJson<ChatSendResponse>(
         `/chat/sessions/${payload.sessionId}/messages`,
@@ -1279,6 +1282,7 @@ export function sendChatMessage(payload: {
                 content: payload.content,
                 provider: payload.provider ?? "openai",
                 top_k: payload.topK ?? 5,
+                filters: payload.filters,
             }),
         },
     );
