@@ -1,4 +1,5 @@
 export const appRoutes = [
+    { href: "/workspace", label: "Workspace" },
     { href: "/projects", label: "Projects" },
     { href: "/sources", label: "Sources" },
     { href: "/jobs", label: "Jobs" },

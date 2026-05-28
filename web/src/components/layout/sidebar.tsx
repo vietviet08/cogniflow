@@ -25,6 +25,7 @@ import {
     PanelLeftClose,
     PanelLeftOpen,
     Telescope,
+    LayoutDashboard,
 } from "lucide-react";
 
 import { useAuth } from "@/components/auth-provider";
@@ -33,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { OrganizationSwitcher } from "./organization-switcher";
 
 const navItems = [
+    { href: "/workspace", label: "Workspace", icon: LayoutDashboard },
     { href: "/projects", label: "Projects", icon: FolderOpen },
     { href: "/sources", label: "Sources", icon: Database },
     { href: "/jobs", label: "Jobs", icon: ListChecks },
