@@ -225,6 +225,58 @@ def test_generate_study_guide_report_returns_structured_payload(client, monkeypa
     assert body["data"]["structured_payload"]["sections"][0]["title"] == "Main topic"
 
 
+def test_generate_mind_map_report_returns_structured_payload(client, monkeypatch):
+    project = _create_project(client)
+
+    monkeypatch.setattr(
+        report_route_module,
+        "generate_report",
+        lambda **kwargs: {
+            "report_id": "report-mind-map",
+            "query": "Create mind map",
+            "title": "Mind Map: Create mind map",
+            "type": "mind_map",
+            "format": "markdown",
+            "content": "# Mind Map\n\n## Nodes",
+            "structured_payload": {
+                "overview": "One mind map was generated.",
+                "central_topic": "Main topic",
+                "nodes": [
+                    {
+                        "id": "central",
+                        "label": "Main topic",
+                        "type": "central",
+                        "summary": "The source-grounded topic.",
+                        "level": 0,
+                        "parent_id": None,
+                        "citations": [],
+                    }
+                ],
+                "edges": [],
+            },
+            "status": "completed",
+            "run_id": "run-1",
+            "source_ids": [],
+            "citations": [],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/reports/generate",
+        json={
+            "project_id": project["id"],
+            "query": "Create mind map",
+            "type": "mind_map",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["type"] == "mind_map"
+    assert body["data"]["structured_payload"]["nodes"][0]["label"] == "Main topic"
+
+
 def test_get_report_returns_structured_payload(client, db_session):
     project = _create_project(client)
 
@@ -524,6 +576,103 @@ def test_get_study_guide_report_hydrates_nested_citations(client, db_session):
     assert payload["key_concepts"][0]["citations"][0]["chunk_id"] == str(chunk.id)
     assert payload["timeline"][0]["citations"][0]["page_number"] == 6
     assert payload["review_questions"][0]["citations"][0]["title"] == "Study Guide Deck"
+
+
+def test_get_mind_map_report_hydrates_node_and_edge_citations(client, db_session):
+    project = _create_project(client)
+    project_id = uuid.UUID(project["id"])
+
+    source = Source(
+        project_id=project_id,
+        type="file",
+        original_uri="mind-map-deck.pdf",
+        storage_path="data/uploads/mind-map-deck.pdf",
+        checksum="mind-map-contract",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Mind Map Deck",
+        raw_path=source.storage_path,
+        clean_text="The indexed mind map fact.",
+        token_count=8,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        document_id=document.id,
+        chunk_index=0,
+        content="The indexed mind map fact supports each map item.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model="local-test-model",
+        chunk_metadata={"page_number": 7},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+    db_session.refresh(chunk)
+
+    citation = {"chunk_id": str(chunk.id)}
+    report = Report(
+        project_id=project_id,
+        query="Create mind map",
+        title="Mind Map: Create mind map",
+        report_type="mind_map",
+        format="markdown",
+        content="# Mind Map",
+        structured_payload={
+            "overview": "One map.",
+            "central_topic": "Main topic",
+            "nodes": [
+                {
+                    "id": "central",
+                    "label": "Main topic",
+                    "type": "central",
+                    "summary": "A supported node.",
+                    "level": 0,
+                    "parent_id": None,
+                    "citations": [citation],
+                },
+                {
+                    "id": "branch",
+                    "label": "Branch",
+                    "type": "topic",
+                    "summary": "A supported branch.",
+                    "level": 1,
+                    "parent_id": "central",
+                    "citations": [citation],
+                },
+            ],
+            "edges": [
+                {
+                    "id": "edge-1",
+                    "source": "central",
+                    "target": "branch",
+                    "type": "parent_child",
+                    "description": "A supported relationship.",
+                    "citations": [citation],
+                }
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    response = client.get(f"/api/v1/reports/{report.id}")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]["structured_payload"]
+    assert payload["nodes"][0]["citations"][0]["title"] == "Mind Map Deck"
+    assert payload["nodes"][1]["citations"][0]["chunk_id"] == str(chunk.id)
+    assert payload["edges"][0]["citations"][0]["page_number"] == 7
 
 
 def test_create_and_list_quiz_attempts_scores_answers(client, db_session):
