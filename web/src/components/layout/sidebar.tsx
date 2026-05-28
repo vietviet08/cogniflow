@@ -16,6 +16,7 @@ import {
     Layers,
     CircleHelp,
     BookOpen,
+    Workflow,
     KeyRound,
     Moon,
     Sun,
@@ -43,6 +44,7 @@ const navItems = [
     { href: "/flashcards", label: "Flashcards", icon: Layers },
     { href: "/quiz", label: "Quiz", icon: CircleHelp },
     { href: "/study-guide", label: "Study Guide", icon: BookOpen },
+    { href: "/mind-map", label: "Mind Map", icon: Workflow },
     { href: "/settings", label: "Settings", icon: KeyRound },
 ];
 

@@ -776,6 +776,227 @@ def test_generate_study_guide_report_falls_back_on_malformed_json(db_session, mo
     assert payload["sections"][0]["citations"][0]["chunk_id"] == str(chunk.id)
 
 
+def test_generate_mind_map_report_uses_all_indexed_chunks_and_dedupes_nodes(db_session, monkeypatch):
+    project = Project(name="Mind Map Project", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="mind-map-chapter.pptx",
+        storage_path="data/uploads/mind-map-chapter.pptx",
+        checksum="mind-map-1",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Mind Map Chapter",
+        raw_path=source.storage_path,
+        clean_text="Central content. Branch content. Detail content.",
+        token_count=42,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunks = []
+    for index, content in enumerate(
+        [
+            "Slide 1 introduces the central topic.",
+            "Slide 2 explains the first branch.",
+            "Slide 3 adds a supporting detail.",
+        ]
+    ):
+        chunk = Chunk(
+            id=uuid.uuid4(),
+            document_id=document.id,
+            chunk_index=index,
+            content=content,
+            chroma_id=str(uuid.uuid4()),
+            embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+            chunk_metadata={
+                "source_id": str(source.id),
+                "document_id": str(document.id),
+                "page_number": index + 1,
+            },
+        )
+        chunks.append(chunk)
+    db_session.add_all(chunks)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        report_service,
+        "generate_insight",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("mind map must not use insight top-k")),
+    )
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    prompts: list[str] = []
+
+    def fake_mind_map_json(**kwargs):
+        prompts.append(kwargs["prompt"])
+        return """
+        {
+          "overview": "A source-grounded mind map.",
+          "central_topic": "Central Topic",
+          "nodes": [
+            {
+              "id": "central",
+              "label": "Central Topic",
+              "type": "central",
+              "summary": "Slide 1 introduces the central topic.",
+              "level": 0,
+              "parent_id": null,
+              "citation_indexes": [1]
+            },
+            {
+              "id": "branch",
+              "label": "First Branch",
+              "type": "topic",
+              "summary": "Slide 2 explains the first branch.",
+              "level": 1,
+              "parent_id": "central",
+              "citation_indexes": [2]
+            },
+            {
+              "id": "branch-duplicate",
+              "label": "First Branch",
+              "type": "topic",
+              "summary": "Duplicate branch should merge.",
+              "level": 1,
+              "parent_id": "central",
+              "citation_indexes": [3]
+            }
+          ],
+          "edges": [
+            {
+              "id": "edge-1",
+              "source": "central",
+              "target": "branch",
+              "type": "parent_child",
+              "description": "The branch belongs to the central topic.",
+              "citation_indexes": [1, 2]
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(report_service, "_call_llm_json", fake_mind_map_json)
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create a 2D mind map from all documents",
+        report_type="mind_map",
+        format="markdown",
+        provider="openai",
+    )
+
+    assert result["type"] == "mind_map"
+    payload = result["structured_payload"]
+    labels = [node["label"] for node in payload["nodes"]]
+    assert labels.count("First Branch") == 1
+    assert payload["nodes"][0]["citations"][0]["chunk_id"] == str(chunks[0].id)
+    assert payload["edges"][0]["citations"][0]["chunk_id"] == str(chunks[0].id)
+    assert "## Nodes" in result["content"]
+    assert "## Relationships" in result["content"]
+    assert prompts
+    assert "Slide 1 introduces" in prompts[0]
+    assert "Slide 2 explains" in prompts[0]
+    assert "Slide 3 adds" in prompts[0]
+
+    persisted = db_session.get(Report, uuid.UUID(result["report_id"]))
+    assert persisted is not None
+    assert persisted.structured_payload["central_topic"] == "Central Topic"
+
+    run = db_session.get(ProcessingRun, uuid.UUID(result["run_id"]))
+    assert run is not None
+    assert run.run_metadata["indexed_chunk_count"] == 3
+    assert run.run_metadata["generated_node_count"] == 2
+    assert run.run_metadata["generated_edge_count"] == 1
+
+
+def test_generate_mind_map_report_falls_back_on_malformed_json(db_session, monkeypatch):
+    project = Project(name="Fallback Mind Map", description="test")
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+
+    source = Source(
+        project_id=project.id,
+        type="file",
+        original_uri="mind-map-fallback.pdf",
+        storage_path="data/uploads/mind-map-fallback.pdf",
+        checksum="mind-map-2",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    document = Document(
+        source_id=source.id,
+        title="Mind Map Fallback Source",
+        raw_path=source.storage_path,
+        clean_text="Fallback mind map content.",
+        token_count=12,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+
+    chunk = Chunk(
+        id=uuid.uuid4(),
+        document_id=document.id,
+        chunk_index=0,
+        content="Fallback mind map content should still become a map.",
+        chroma_id=str(uuid.uuid4()),
+        embedding_model=report_service.LOCAL_EMBEDDING_MODEL,
+        chunk_metadata={"source_id": str(source.id), "document_id": str(document.id)},
+    )
+    db_session.add(chunk)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.provider_settings_service.normalize_provider", lambda provider: provider)
+    monkeypatch.setattr(
+        "app.services.provider_settings_service.resolve_chat_provider_config",
+        lambda db, project_id, provider: {
+            "api_key": "test-key",
+            "base_url": None,
+            "chat_model": "gpt-test",
+        },
+    )
+    monkeypatch.setattr(report_service, "_call_llm_json", lambda **kwargs: "not json")
+
+    result = report_service.generate_report(
+        db=db_session,
+        project_id=project.id,
+        query="Create mind map",
+        report_type="mind_map",
+        format="markdown",
+        provider="openai",
+    )
+
+    payload = result["structured_payload"]
+    assert payload["nodes"][0]["type"] == "central"
+    assert payload["nodes"][1]["label"] == "Mind Map Fallback Source"
+    assert payload["edges"][0]["source"] == "central-topic"
+    assert payload["nodes"][1]["citations"][0]["chunk_id"] == str(chunk.id)
+
+
 def test_update_action_item_status_updates_payload_and_markdown(db_session):
     project = Project(name="Action item status", description="test")
     db_session.add(project)

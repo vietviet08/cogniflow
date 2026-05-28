@@ -219,7 +219,8 @@ export type ReportType =
     | "conflict_mesh"
     | "flashcards"
     | "quiz"
-    | "study_guide";
+    | "study_guide"
+    | "mind_map";
 
 export interface ActionItemData {
     id: string;
@@ -307,6 +308,25 @@ export interface StudyGuideReviewQuestionData {
     citations: CitationData[];
 }
 
+export interface MindMapNodeData {
+    id: string;
+    label: string;
+    type: "central" | "topic" | "subtopic" | "concept" | "source";
+    summary: string;
+    level: number;
+    parent_id?: string | null;
+    citations: CitationData[];
+}
+
+export interface MindMapEdgeData {
+    id: string;
+    source: string;
+    target: string;
+    type: "parent_child" | "relates_to" | "supports";
+    description: string;
+    citations: CitationData[];
+}
+
 export interface MeshNodeData {
     id: string;
     label: string;
@@ -370,6 +390,13 @@ export interface StudyGuidePayload {
     review_questions: StudyGuideReviewQuestionData[];
 }
 
+export interface MindMapPayload {
+    overview: string;
+    central_topic: string;
+    nodes: MindMapNodeData[];
+    edges: MindMapEdgeData[];
+}
+
 export interface QuizAttemptData {
     attempt_id: string;
     report_id: string;
@@ -394,6 +421,7 @@ export type StructuredReportPayload =
     | FlashcardsPayload
     | QuizPayload
     | StudyGuidePayload
+    | MindMapPayload
     | Record<string, unknown>;
 
 export interface QueryResultData {

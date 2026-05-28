@@ -283,6 +283,52 @@ Evidence:
 {evidence}
 """
 
+_MIND_MAP_PROMPT_TEMPLATE = """\
+You are creating a source-grounded 2D mind map from indexed source material.
+
+Return a JSON object with EXACTLY this shape:
+{{
+  "overview": "<short overview for this batch>",
+  "central_topic": "<main topic>",
+  "nodes": [
+    {{
+      "id": "<unique_string_id>",
+      "label": "<short node label>",
+      "type": "central|topic|subtopic|concept|source",
+      "summary": "<short detail grounded in the evidence>",
+      "level": 0,
+      "parent_id": null,
+      "citation_indexes": [1]
+    }}
+  ],
+  "edges": [
+    {{
+      "id": "<unique_string_id>",
+      "source": "<node_id>",
+      "target": "<node_id>",
+      "type": "parent_child|relates_to|supports",
+      "description": "<why these nodes relate>",
+      "citation_indexes": [1]
+    }}
+  ]
+}}
+
+Rules:
+- Use only the evidence below. Do not add outside knowledge.
+- Build a study-friendly mind map, not a generic network.
+- Keep node labels concise, usually 1-5 words.
+- Include one central node at level 0 and branch nodes up to level {max_depth}.
+- Use parent_child edges for hierarchy and relates_to/supports only when evidence supports cross-links.
+- Every non-empty node and edge should include at least one citation index from the evidence list.
+- Avoid duplicate nodes in this batch.
+- Produce up to {node_limit} nodes and {edge_limit} edges.
+
+User request: {query}
+
+Evidence:
+{evidence}
+"""
+
 _STRUCTURED_REPORT_TYPES = {
     "action_items",
     "risk_analysis",
@@ -290,6 +336,7 @@ _STRUCTURED_REPORT_TYPES = {
     "flashcards",
     "quiz",
     "study_guide",
+    "mind_map",
 }
 _ACTIONABLE_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief"}
 _FLASHCARDS_MAX_CARDS = 40
@@ -301,6 +348,10 @@ _STUDY_GUIDE_MAX_CONCEPTS = 30
 _STUDY_GUIDE_MAX_TIMELINE_ITEMS = 20
 _STUDY_GUIDE_MAX_REVIEW_QUESTIONS = 20
 _STUDY_GUIDE_BATCH_SIZE = 10
+_MIND_MAP_MAX_NODES = 60
+_MIND_MAP_MAX_EDGES = 90
+_MIND_MAP_MAX_DEPTH = 4
+_MIND_MAP_BATCH_SIZE = 10
 
 
 def generate_report(
@@ -339,6 +390,16 @@ def generate_report(
         )
     if report_type == "study_guide":
         return _generate_study_guide_report(
+            db=db,
+            project_id=project_id,
+            query=query,
+            report_type=report_type,
+            format=format,
+            provider=provider,
+            parent_run_id=parent_run_id,
+        )
+    if report_type == "mind_map":
+        return _generate_mind_map_report(
             db=db,
             project_id=project_id,
             query=query,
@@ -1016,6 +1077,172 @@ def _generate_study_guide_report(
     }
 
 
+def _generate_mind_map_report(
+    *,
+    db: Session,
+    project_id: uuid.UUID,
+    query: str,
+    report_type: str,
+    format: str,
+    provider: str,
+    parent_run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.provider_settings_service import (
+        ProviderSettingsError,
+        normalize_provider,
+        resolve_chat_provider_config,
+    )
+
+    try:
+        answer_provider = normalize_provider(provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
+    except ProviderSettingsError as exc:
+        raise ReportError(str(exc)) from exc
+
+    indexing_result = ensure_project_sources_indexed(
+        db,
+        project_id=project_id,
+        filters=None,
+        trigger="mind_map_indexing",
+    )
+    chunks = _load_flashcard_chunks(db, project_id)
+    if not chunks:
+        raise ReportError(
+            "No indexed chunks are available for mind map generation.",
+            code="REPORT_MIND_MAP_NO_CHUNKS",
+            status_code=409,
+            details={"indexing": indexing_result},
+        )
+
+    batches = _chunk_list(chunks, _MIND_MAP_BATCH_SIZE)
+    nodes_per_batch = max(4, min(12, math.ceil(_MIND_MAP_MAX_NODES / max(len(batches), 1))))
+    edges_per_batch = max(4, min(16, math.ceil(_MIND_MAP_MAX_EDGES / max(len(batches), 1))))
+    collected_nodes: list[dict[str, Any]] = []
+    collected_edges: list[dict[str, Any]] = []
+    node_id_by_label: dict[str, str] = {}
+    used_node_ids: set[str] = set()
+    seen_edges: set[str] = set()
+    overview_parts: list[str] = []
+    central_topic = _preview(query, limit=80) or "Mind Map"
+
+    for batch in batches:
+        if len(collected_nodes) >= _MIND_MAP_MAX_NODES and len(collected_edges) >= _MIND_MAP_MAX_EDGES:
+            break
+        evidence_blocks, citations = _format_flashcard_evidence(batch)
+        prompt = _MIND_MAP_PROMPT_TEMPLATE.format(
+            query=query,
+            evidence=evidence_blocks,
+            node_limit=nodes_per_batch,
+            edge_limit=edges_per_batch,
+            max_depth=_MIND_MAP_MAX_DEPTH,
+        )
+        raw_payload = _call_llm_json(
+            prompt=prompt,
+            provider=answer_provider,
+            api_key=generation_config["api_key"],
+            base_url=generation_config.get("base_url"),
+            model=generation_config["chat_model"],
+        )
+        parsed = _load_json_object(raw_payload)
+        normalized = _normalize_mind_map_batch_payload(parsed, citations, query)
+        overview = _coerce_string(normalized.get("overview"))
+        if overview:
+            overview_parts.append(overview)
+        central_topic = _coerce_string(normalized.get("central_topic"), central_topic)
+        local_to_global = _merge_mind_map_nodes(
+            target=collected_nodes,
+            candidates=normalized["nodes"],
+            node_id_by_label=node_id_by_label,
+            used_node_ids=used_node_ids,
+            limit=_MIND_MAP_MAX_NODES,
+        )
+        _merge_mind_map_edges(
+            target=collected_edges,
+            candidates=normalized["edges"],
+            local_to_global=local_to_global,
+            seen_edges=seen_edges,
+            limit=_MIND_MAP_MAX_EDGES,
+        )
+
+    if not collected_nodes:
+        fallback = _fallback_mind_map(chunks, query)
+        central_topic = fallback["central_topic"]
+        collected_nodes = fallback["nodes"]
+        collected_edges = fallback["edges"]
+
+    payload = _finalize_mind_map_payload(
+        overview=_build_mind_map_overview(overview_parts, len(collected_nodes), len(collected_edges), len(chunks)),
+        central_topic=central_topic,
+        nodes=collected_nodes[:_MIND_MAP_MAX_NODES],
+        edges=collected_edges[:_MIND_MAP_MAX_EDGES],
+    )
+    title = _derive_title(query, report_type)
+    report_content = _render_structured_payload_as_markdown(
+        report_type=report_type,
+        title=title,
+        payload=payload,
+    )
+    prompt_hash = hashlib.sha256(_MIND_MAP_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
+    config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    all_citations = _unique_citations(citation for item in chunks for citation in [item["citation"]])
+    evidence_snapshot = _build_evidence_snapshot(all_citations)
+
+    run = ProcessingRunRepository(db).create(
+        project_id=project_id,
+        job_id=None,
+        run_type="report",
+        model_id=generation_config["chat_model"],
+        prompt_hash=prompt_hash,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata={
+            "report_type": report_type,
+            "format": format,
+            "query": query,
+            "provider": answer_provider,
+            "structured_output": True,
+            "indexed_chunk_count": len(chunks),
+            "generated_node_count": len(payload["nodes"]),
+            "generated_edge_count": len(payload["edges"]),
+            "indexing": indexing_result,
+            "evidence_snapshot": evidence_snapshot,
+        },
+        parent_run_id=parent_run_id,
+    )
+    report = Report(
+        project_id=project_id,
+        query=query,
+        title=title,
+        report_type=report_type,
+        format=format,
+        content=report_content,
+        structured_payload=payload,
+        status="completed",
+        run_id=run.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    structured_payload = hydrate_report_payload_citations(db, payload)
+    citations = hydrate_citations(db, _mind_map_payload_citations(payload))
+    source_ids = list({citation["source_id"] for citation in all_citations if citation.get("source_id")})
+    return {
+        "report_id": str(report.id),
+        "query": query,
+        "title": title,
+        "type": report_type,
+        "format": format,
+        "content": report_content,
+        "structured_payload": structured_payload,
+        "status": "completed",
+        "run_id": str(run.id),
+        "source_ids": source_ids,
+        "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
+    }
+
+
 def update_action_item_status(
     db: Session,
     report_id: uuid.UUID,
@@ -1309,6 +1536,7 @@ def _derive_title(query: str, report_type: str) -> str:
         "flashcards": "Flashcards",
         "quiz": "Quiz",
         "study_guide": "Study Guide",
+        "mind_map": "Mind Map",
     }.get(report_type, "Report")
     return f"{label}: {truncated}"
 
@@ -1943,6 +2171,398 @@ def _study_guide_payload_citations(payload: dict[str, Any]) -> list[dict[str, An
     )
 
 
+def _normalize_mind_map_batch_payload(
+    parsed: dict[str, Any],
+    citations: list[dict[str, Any]],
+    query: str,
+) -> dict[str, Any]:
+    central_topic = _coerce_string(parsed.get("central_topic"), _preview(query, limit=80) or "Mind Map")
+    nodes = _normalize_mind_map_nodes(parsed.get("nodes"), citations, central_topic)
+    edges = _normalize_mind_map_edges(parsed.get("edges"), nodes, citations)
+    if nodes:
+        return {
+            "overview": _coerce_string(parsed.get("overview"), f"Mind map generated for: {query}"),
+            "central_topic": central_topic,
+            "nodes": nodes,
+            "edges": edges,
+        }
+    fallback = _fallback_mind_map(
+        [{"content": citation.get("quote", ""), "title": citation.get("title", ""), "citation": citation}
+         for citation in citations],
+        query,
+    )
+    return {"overview": f"Mind map generated for: {query}", **fallback}
+
+
+def _normalize_mind_map_nodes(
+    raw_nodes: Any,
+    citations: list[dict[str, Any]],
+    central_topic: str,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    raw_to_node_id: dict[str, str] = {}
+    if isinstance(raw_nodes, list):
+        for index, raw_node in enumerate(raw_nodes[:_MIND_MAP_MAX_NODES], start=1):
+            if not isinstance(raw_node, dict):
+                continue
+            label = _coerce_string(raw_node.get("label") or raw_node.get("name"))
+            if not label:
+                continue
+            raw_id = _coerce_string(raw_node.get("id"), label)
+            node_id = _mind_map_node_id(raw_id or label, index)
+            raw_to_node_id[raw_id] = node_id
+            raw_to_node_id[_flashcard_fingerprint(raw_id)] = node_id
+            raw_to_node_id[_flashcard_fingerprint(label)] = node_id
+            node_citations = _map_citation_indexes(raw_node.get("citation_indexes"), citations)
+            if not node_citations:
+                node_citations = citations[:1]
+            nodes.append(
+                {
+                    "id": node_id,
+                    "label": _preview(label, limit=80),
+                    "type": _coerce_mind_map_node_type(raw_node.get("type")),
+                    "summary": _coerce_string(raw_node.get("summary") or raw_node.get("description")),
+                    "level": _coerce_mind_map_level(raw_node.get("level")),
+                    "parent_id": _coerce_string(raw_node.get("parent_id")) or None,
+                    "citations": node_citations,
+                }
+            )
+
+    if nodes and not any(node.get("type") == "central" or node.get("level") == 0 for node in nodes):
+        nodes.insert(
+            0,
+            {
+                "id": "central-topic",
+                "label": _preview(central_topic, limit=80),
+                "type": "central",
+                "summary": f"Central topic for this mind map: {central_topic}",
+                "level": 0,
+                "parent_id": None,
+                "citations": citations[:1],
+            },
+        )
+        raw_to_node_id[_flashcard_fingerprint(central_topic)] = "central-topic"
+
+    for node in nodes:
+        parent_id = node.get("parent_id")
+        if not parent_id:
+            continue
+        mapped_parent_id = raw_to_node_id.get(str(parent_id)) or raw_to_node_id.get(_flashcard_fingerprint(str(parent_id)))
+        node["parent_id"] = mapped_parent_id if mapped_parent_id != node["id"] else None
+    return nodes
+
+
+def _normalize_mind_map_edges(
+    raw_edges: Any,
+    nodes: list[dict[str, Any]],
+    citations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    node_ids = {node["id"] for node in nodes}
+    endpoint_by_label = {_flashcard_fingerprint(node.get("label", "")): node["id"] for node in nodes}
+    edges: list[dict[str, Any]] = []
+    if isinstance(raw_edges, list):
+        for index, raw_edge in enumerate(raw_edges[:_MIND_MAP_MAX_EDGES], start=1):
+            if not isinstance(raw_edge, dict):
+                continue
+            source = _resolve_mind_map_endpoint(raw_edge.get("source"), node_ids, endpoint_by_label)
+            target = _resolve_mind_map_endpoint(raw_edge.get("target"), node_ids, endpoint_by_label)
+            if not source or not target or source == target:
+                continue
+            edge_citations = _map_citation_indexes(raw_edge.get("citation_indexes"), citations)
+            if not edge_citations:
+                edge_citations = citations[:1]
+            edges.append(
+                {
+                    "id": _mind_map_edge_id(raw_edge.get("id"), source, target, index),
+                    "source": source,
+                    "target": target,
+                    "type": _coerce_mind_map_edge_type(raw_edge.get("type")),
+                    "description": _coerce_string(
+                        raw_edge.get("description"),
+                        "Related based on indexed project evidence.",
+                    ),
+                    "citations": edge_citations,
+                }
+            )
+
+    seen_parent_edges = {
+        (edge["source"], edge["target"])
+        for edge in edges
+        if edge.get("type") == "parent_child"
+    }
+    for node in nodes:
+        parent_id = node.get("parent_id")
+        if not parent_id or parent_id not in node_ids or parent_id == node["id"]:
+            continue
+        if (parent_id, node["id"]) in seen_parent_edges:
+            continue
+        edges.append(
+            {
+                "id": f"parent-{parent_id}-{node['id']}"[:80],
+                "source": parent_id,
+                "target": node["id"],
+                "type": "parent_child",
+                "description": f"{node['label']} belongs under {parent_id} in the mind map hierarchy.",
+                "citations": node.get("citations", [])[:2],
+            }
+        )
+        seen_parent_edges.add((parent_id, node["id"]))
+    return edges[:_MIND_MAP_MAX_EDGES]
+
+
+def _merge_mind_map_nodes(
+    *,
+    target: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    node_id_by_label: dict[str, str],
+    used_node_ids: set[str],
+    limit: int,
+) -> dict[str, str]:
+    local_to_global: dict[str, str] = {}
+    node_by_id = {node["id"]: node for node in target}
+    pending_parent_updates: list[tuple[str, str]] = []
+    for candidate in candidates:
+        local_id = str(candidate.get("id") or "")
+        fingerprint = _flashcard_fingerprint(candidate.get("label", ""))
+        if not fingerprint:
+            continue
+        existing_id = node_id_by_label.get(fingerprint)
+        if existing_id:
+            local_to_global[local_id] = existing_id
+            existing = node_by_id.get(existing_id)
+            if existing:
+                existing["citations"] = _unique_citations(
+                    [*existing.get("citations", []), *candidate.get("citations", [])]
+                )
+                if not existing.get("summary") and candidate.get("summary"):
+                    existing["summary"] = candidate["summary"]
+                existing["level"] = min(int(existing.get("level", _MIND_MAP_MAX_DEPTH)), int(candidate.get("level", 1)))
+                if candidate.get("type") == "central":
+                    existing["type"] = "central"
+            continue
+        if len(target) >= limit:
+            continue
+        global_id = _unique_mind_map_node_id(candidate.get("id") or candidate.get("label"), used_node_ids)
+        node = {**candidate, "id": global_id}
+        target.append(node)
+        node_by_id[global_id] = node
+        used_node_ids.add(global_id)
+        node_id_by_label[fingerprint] = global_id
+        local_to_global[local_id] = global_id
+        if candidate.get("parent_id"):
+            pending_parent_updates.append((global_id, str(candidate["parent_id"])))
+
+    for global_id, local_parent_id in pending_parent_updates:
+        parent_global_id = local_to_global.get(local_parent_id)
+        if parent_global_id and parent_global_id != global_id and global_id in node_by_id:
+            node_by_id[global_id]["parent_id"] = parent_global_id
+    return local_to_global
+
+
+def _merge_mind_map_edges(
+    *,
+    target: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    local_to_global: dict[str, str],
+    seen_edges: set[str],
+    limit: int,
+) -> None:
+    for candidate in candidates:
+        if len(target) >= limit:
+            break
+        source = local_to_global.get(str(candidate.get("source"))) or str(candidate.get("source") or "")
+        target_id = local_to_global.get(str(candidate.get("target"))) or str(candidate.get("target") or "")
+        if not source or not target_id or source == target_id:
+            continue
+        edge_type = _coerce_mind_map_edge_type(candidate.get("type"))
+        fingerprint = f"{source}->{target_id}:{edge_type}"
+        if fingerprint in seen_edges:
+            continue
+        seen_edges.add(fingerprint)
+        target.append(
+            {
+                **candidate,
+                "id": _unique_mind_map_edge_id(candidate.get("id"), source, target_id, len(target) + 1),
+                "source": source,
+                "target": target_id,
+                "type": edge_type,
+            }
+        )
+
+
+def _fallback_mind_map(items: list[dict[str, Any]], query: str) -> dict[str, Any]:
+    central_topic = _preview(query, limit=80) or "Mind Map"
+    central_node = {
+        "id": "central-topic",
+        "label": central_topic,
+        "type": "central",
+        "summary": f"Central topic for this mind map: {central_topic}",
+        "level": 0,
+        "parent_id": None,
+        "citations": [],
+    }
+    nodes = [central_node]
+    edges: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for index, item in enumerate(items[: _MIND_MAP_MAX_NODES - 1], start=1):
+        citation = item["citation"]
+        content = _coerce_string(item.get("content") or citation.get("quote"))
+        title = _coerce_string(item.get("title") or citation.get("title"), f"Source {index}")
+        if not content:
+            continue
+        fingerprint = _flashcard_fingerprint(title)
+        if fingerprint in seen_titles:
+            continue
+        seen_titles.add(fingerprint)
+        node_id = _mind_map_node_id(title, index)
+        nodes.append(
+            {
+                "id": node_id,
+                "label": _preview(title, limit=80),
+                "type": "source",
+                "summary": _preview(content, limit=260),
+                "level": 1,
+                "parent_id": "central-topic",
+                "citations": [citation],
+            }
+        )
+        edges.append(
+            {
+                "id": f"central-{node_id}"[:80],
+                "source": "central-topic",
+                "target": node_id,
+                "type": "parent_child",
+                "description": f"{title} supports the mind map topic.",
+                "citations": [citation],
+            }
+        )
+    return {
+        "overview": f"Generated a fallback mind map from {len(items)} indexed chunks.",
+        "central_topic": central_topic,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def _finalize_mind_map_payload(
+    *,
+    overview: str,
+    central_topic: str,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not any(node.get("type") == "central" or node.get("level") == 0 for node in nodes):
+        nodes = [
+            {
+                "id": "central-topic",
+                "label": _preview(central_topic, limit=80),
+                "type": "central",
+                "summary": f"Central topic for this mind map: {central_topic}",
+                "level": 0,
+                "parent_id": None,
+                "citations": [],
+            },
+            *nodes,
+        ]
+    valid_node_ids = {node["id"] for node in nodes}
+    valid_edges = [
+        edge
+        for edge in edges
+        if edge.get("source") in valid_node_ids and edge.get("target") in valid_node_ids
+    ]
+    return {
+        "overview": overview,
+        "central_topic": central_topic,
+        "nodes": nodes[:_MIND_MAP_MAX_NODES],
+        "edges": valid_edges[:_MIND_MAP_MAX_EDGES],
+    }
+
+
+def _build_mind_map_overview(
+    overview_parts: list[str],
+    node_count: int,
+    edge_count: int,
+    chunk_count: int,
+) -> str:
+    suffix = f" Generated a 2D mind map from {chunk_count} indexed chunks with {node_count} nodes and {edge_count} relationships."
+    for overview in overview_parts:
+        cleaned = _coerce_string(overview)
+        if cleaned:
+            return f"{cleaned}{suffix}"
+    return suffix.strip()
+
+
+def _mind_map_payload_citations(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return _unique_citations(
+        citation
+        for collection_name in ("nodes", "edges")
+        for item in payload.get(collection_name, [])
+        if isinstance(item, dict)
+        for citation in item.get("citations", [])
+    )
+
+
+def _mind_map_node_id(value: Any, index: int) -> str:
+    fingerprint = _flashcard_fingerprint(_coerce_string(value))
+    if not fingerprint:
+        return f"node-{index}"
+    return re.sub(r"[^a-z0-9]+", "-", fingerprint).strip("-")[:72] or f"node-{index}"
+
+
+def _unique_mind_map_node_id(value: Any, used_node_ids: set[str]) -> str:
+    base = _mind_map_node_id(value, len(used_node_ids) + 1)
+    candidate = base
+    suffix = 2
+    while candidate in used_node_ids:
+        candidate = f"{base}-{suffix}"[:80]
+        suffix += 1
+    return candidate
+
+
+def _mind_map_edge_id(value: Any, source: str, target: str, index: int) -> str:
+    cleaned = _mind_map_node_id(value, index) if _coerce_string(value) else ""
+    if cleaned and cleaned != f"node-{index}":
+        return cleaned
+    return f"edge-{source}-{target}-{index}"[:80]
+
+
+def _unique_mind_map_edge_id(value: Any, source: str, target: str, index: int) -> str:
+    return _mind_map_edge_id(value, source, target, index)
+
+
+def _resolve_mind_map_endpoint(
+    value: Any,
+    node_ids: set[str],
+    endpoint_by_label: dict[str, str],
+) -> str:
+    endpoint = _coerce_string(value)
+    if endpoint in node_ids:
+        return endpoint
+    return endpoint_by_label.get(_flashcard_fingerprint(endpoint), "")
+
+
+def _coerce_mind_map_node_type(value: Any) -> str:
+    cleaned = _coerce_string(value).lower()
+    if cleaned in {"central", "topic", "subtopic", "concept", "source"}:
+        return cleaned
+    return "concept"
+
+
+def _coerce_mind_map_edge_type(value: Any) -> str:
+    cleaned = _coerce_string(value).lower()
+    if cleaned in {"parent_child", "relates_to", "supports"}:
+        return cleaned
+    return "relates_to"
+
+
+def _coerce_mind_map_level(value: Any) -> int:
+    try:
+        level = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return max(0, min(level, _MIND_MAP_MAX_DEPTH))
+
+
 def _flashcard_fingerprint(front: str) -> str:
     normalized = "".join(
         character
@@ -2272,6 +2892,8 @@ def _render_structured_payload_as_markdown(
         return _render_quiz_markdown(title, payload)
     if report_type == "study_guide":
         return _render_study_guide_markdown(title, payload)
+    if report_type == "mind_map":
+        return _render_mind_map_markdown(title, payload)
     return _render_executive_brief_markdown(title, payload)
 
 
@@ -2441,6 +3063,49 @@ def _render_study_guide_markdown(title: str, payload: dict[str, Any]) -> str:
                 f"### {index}. {question.get('question', 'Untitled question')}",
                 f"- Answer: {question.get('answer', '')}",
                 _format_citation_line(question.get("citations", [])),
+            ]
+        )
+    return "\n".join(line for line in lines if line is not None)
+
+
+def _render_mind_map_markdown(title: str, payload: dict[str, Any]) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        "## Overview",
+        payload.get("overview", ""),
+        "",
+        "## Central Topic",
+        payload.get("central_topic", ""),
+        "",
+        "## Nodes",
+    ]
+    for index, node in enumerate(payload.get("nodes", []), start=1):
+        if not isinstance(node, dict):
+            continue
+        lines.extend(
+            [
+                "",
+                f"### {index}. {node.get('label', 'Untitled node')}",
+                f"- Type: {node.get('type', 'concept')}",
+                f"- Level: {node.get('level', 1)}",
+                f"- Parent: {node.get('parent_id') or 'none'}",
+                f"- Summary: {node.get('summary', '')}",
+                _format_citation_line(node.get("citations", [])),
+            ]
+        )
+
+    lines.extend(["", "## Relationships"])
+    for index, edge in enumerate(payload.get("edges", []), start=1):
+        if not isinstance(edge, dict):
+            continue
+        lines.extend(
+            [
+                "",
+                f"### {index}. {edge.get('source', '')} -> {edge.get('target', '')}",
+                f"- Type: {edge.get('type', 'relates_to')}",
+                f"- Description: {edge.get('description', '')}",
+                _format_citation_line(edge.get("citations", [])),
             ]
         )
     return "\n".join(line for line in lines if line is not None)
