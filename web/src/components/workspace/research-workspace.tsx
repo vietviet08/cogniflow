@@ -331,7 +331,7 @@ export function ResearchWorkspace() {
   }
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-background">
+    <div className="flex h-screen min-h-0 flex-col bg-transparent">
       <WorkspaceTopBar activeProject={activeProject} />
       <WorkspaceCommandPalette
         open={commandOpen}
@@ -470,8 +470,8 @@ export function ResearchWorkspace() {
 
 function WorkspaceResizeHandle() {
   return (
-    <ResizableHandle className="group flex w-3 cursor-col-resize items-center justify-center bg-background transition-colors hover:bg-primary/5">
-      <div className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60" />
+    <ResizableHandle className="group flex w-3 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-primary/5">
+      <div className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-hover:shadow-[0_0_14px_var(--color-primary)]" />
     </ResizableHandle>
   );
 }
@@ -489,13 +489,13 @@ function MobileWorkspaceDrawer({
 }) {
   return (
     <motion.div
-      className="absolute inset-0 z-30 flex flex-col bg-background/95 backdrop-blur-md"
+      className="holo-surface absolute inset-0 z-30 flex flex-col bg-background/95 backdrop-blur-xl"
       initial={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 32 }}
       animate={{ opacity: 1, y: 0 }}
       exit={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 32 }}
       transition={{ duration: 0.18, ease: "easeOut" }}
     >
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card/70 px-4">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 bg-card/65 px-4">
         <div className="flex items-center gap-2">
           <PanelBottomOpen className="h-4 w-4 text-primary" />
           <p className="text-sm font-semibold text-foreground">{title}</p>
@@ -525,7 +525,7 @@ function MobileWorkspaceTabs({
   ];
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-3 py-2 backdrop-blur lg:hidden">
+    <div className="holo-surface fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-card/90 px-3 py-2 backdrop-blur-xl lg:hidden">
       <div className="grid grid-cols-4 gap-1">
         {tabs.map(({ value, label, icon: Icon }) => (
           <button
@@ -535,8 +535,8 @@ function MobileWorkspaceTabs({
             className={cn(
               "flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors",
               activeTab === value
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                ? "bg-primary/15 text-primary shadow-[0_0_18px_color-mix(in_oklch,var(--color-primary)_16%,transparent)]"
+                : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
             )}
           >
             <Icon className="h-4 w-4" />
@@ -546,7 +546,7 @@ function MobileWorkspaceTabs({
         <button
           type="button"
           onClick={onCommand}
-          className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
         >
           <Search className="h-4 w-4" />
           Commands
@@ -653,7 +653,7 @@ function WorkspaceCommandPalette({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 bg-background/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-background/60 p-4 backdrop-blur-md"
       onClick={() => onOpenChange(false)}
       initial={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -666,8 +666,8 @@ function WorkspaceCommandPalette({
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.16 }}
       >
-        <CmdkCommand className="overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl">
-          <div className="flex items-center gap-2 border-b border-border px-3">
+        <CmdkCommand className="holo-surface overflow-hidden rounded-xl text-popover-foreground shadow-2xl">
+          <div className="flex items-center gap-2 border-b border-border/70 px-3">
             <Search className="h-4 w-4 text-muted-foreground" />
             <CmdkCommand.Input
               autoFocus
@@ -686,7 +686,7 @@ function WorkspaceCommandPalette({
                 disabled={command.disabled}
                 onSelect={() => run(command.action, command.disabled)}
                 className={cn(
-                  "flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm outline-none data-[selected=true]:bg-accent",
+                  "flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm outline-none data-[selected=true]:bg-primary/10 data-[selected=true]:text-primary",
                   command.disabled && "cursor-not-allowed opacity-40",
                 )}
               >
@@ -703,12 +703,12 @@ function WorkspaceCommandPalette({
 
 function WorkspaceEmptyState() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-lg rounded-lg border border-dashed border-border bg-card/80 p-8 text-center shadow-sm">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
+    <div className="flex min-h-screen items-center justify-center bg-transparent p-6">
+      <div className="holo-surface holo-edge w-full max-w-lg rounded-xl p-8 text-center shadow-xl">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary shadow-[0_0_28px_color-mix(in_oklch,var(--color-primary)_22%,transparent)]">
           <BrainCircuit className="h-6 w-6" />
         </div>
-        <h1 className="text-xl font-semibold text-foreground">Select a project first</h1>
+        <h1 className="holo-text font-display text-xl font-semibold">Select a project first</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           The research workspace is scoped to one active project so sources,
           chat, and studio artifacts stay connected.
@@ -733,14 +733,14 @@ function WorkspaceTopBar({ activeProject }: { activeProject: StoredProject }) {
   const isDark = theme === "dark";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card/90 px-4 backdrop-blur">
+    <header className="holo-surface flex h-14 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 border-border/70 bg-card/80 px-4 backdrop-blur-xl">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-[linear-gradient(135deg,var(--color-primary),var(--color-accent),oklch(0.66_0.19_286))] text-primary-foreground shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_24%,transparent)]">
           <BrainCircuit className="h-4 w-4" />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-semibold text-foreground">NoteMesh Workspace</p>
+            <p className="holo-text font-display truncate text-sm font-semibold">NoteMesh Workspace</p>
             {activeProject.role ? (
               <Badge variant="secondary" className="hidden text-[10px] capitalize sm:inline-flex">
                 {activeProject.role}
@@ -800,14 +800,14 @@ function PanelFrame({
   children: ReactNode;
 }) {
   return (
-    <section className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-card/70 px-4 py-3 backdrop-blur">
+    <section className="flex h-full min-h-0 flex-col bg-transparent">
+      <div className="holo-surface flex shrink-0 items-start justify-between gap-3 rounded-none border-x-0 border-t-0 border-border/70 bg-card/60 px-4 py-3 backdrop-blur-xl">
         <div className="flex min-w-0 items-start gap-2.5">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-primary/15">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/15 text-primary shadow-[0_0_18px_color-mix(in_oklch,var(--color-primary)_14%,transparent)] dark:bg-primary/15">
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
+            <h2 className="font-display truncate text-sm font-semibold text-foreground">{title}</h2>
             <p className="truncate text-xs text-muted-foreground">{description}</p>
           </div>
         </div>
@@ -1131,9 +1131,11 @@ function SourceRow({
       layout
       whileHover={{ y: -1 }}
       className={cn(
-        "rounded-lg border bg-card p-3 transition-colors",
-        selected ? "border-primary/50 bg-primary/5 dark:bg-primary/10" : "border-border hover:border-primary/25",
-        highlighted && "border-warning bg-warning/10 shadow-sm dark:bg-warning/15",
+        "holo-edge rounded-lg border bg-card/68 p-3 backdrop-blur transition-colors",
+        selected
+          ? "border-primary/50 bg-primary/10 shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_14%,transparent)] dark:bg-primary/10"
+          : "border-border/70 hover:border-primary/25",
+        highlighted && "border-warning bg-warning/10 shadow-[0_0_26px_color-mix(in_oklch,var(--color-warning)_18%,transparent)] dark:bg-warning/15",
       )}
     >
       <div className="flex items-start gap-3">
@@ -1414,7 +1416,7 @@ function ResearchCanvasPanel({
                       key={prompt}
                       type="button"
                       onClick={() => setInputValue(prompt)}
-                      className="rounded-full border border-border bg-card/70 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                      className="rounded-full border border-border/70 bg-card/60 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-foreground"
                     >
                       {prompt}
                     </button>
@@ -1425,7 +1427,7 @@ function ResearchCanvasPanel({
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="shrink-0 border-t border-border bg-card/80 p-3 pb-20 lg:pb-3">
+        <form onSubmit={handleSubmit} className="holo-surface shrink-0 rounded-none border-x-0 border-b-0 border-t border-border/70 bg-card/78 p-3 pb-20 lg:pb-3">
           <div className="flex gap-2">
             <Textarea
               ref={askInputRef}
@@ -1469,10 +1471,10 @@ function ChatMessageCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        "rounded-lg border p-4",
+        "holo-edge rounded-lg border p-4 backdrop-blur",
         isAssistant
-          ? "border-primary/15 bg-card/90 shadow-sm dark:bg-card/80"
-          : "ml-auto max-w-[88%] border-border bg-muted/60 dark:bg-muted/40",
+          ? "border-primary/20 bg-card/82 shadow-[0_0_24px_color-mix(in_oklch,var(--color-primary)_8%,transparent)] dark:bg-card/80"
+          : "ml-auto max-w-[88%] border-border/70 bg-muted/55 dark:bg-muted/40",
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -1480,7 +1482,7 @@ function ChatMessageCard({
           <div
             className={cn(
               "flex h-7 w-7 items-center justify-center rounded-lg",
-              isAssistant ? "bg-primary/10 text-primary" : "bg-secondary text-secondary-foreground",
+              isAssistant ? "border border-primary/20 bg-primary/15 text-primary" : "bg-secondary text-secondary-foreground",
             )}
           >
             {isAssistant ? <BrainCircuit className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
@@ -2103,7 +2105,7 @@ function StudioOutputsPanel({
                         setType(templateType);
                         setQuery("Create a source-grounded artifact from this project.");
                       }}
-                      className="flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2 text-left text-xs transition-colors hover:border-primary/30 hover:bg-primary/5"
+                      className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/60 px-3 py-2 text-left text-xs backdrop-blur transition-colors hover:border-primary/30 hover:bg-primary/10"
                     >
                       <Icon className="h-4 w-4 text-primary" />
                       {REPORT_LABELS[templateType]}
@@ -2140,12 +2142,14 @@ function ArtifactCard({
       animate={{ opacity: 1, y: 0 }}
       onClick={onOpen}
       className={cn(
-        "w-full rounded-lg border bg-card/90 p-3 text-left transition-colors hover:border-primary/30 dark:bg-card/75",
-        selected ? "border-primary/50 bg-primary/5 dark:bg-primary/10" : "border-border",
+        "holo-edge w-full rounded-lg border bg-card/78 p-3 text-left backdrop-blur transition-colors hover:border-primary/30 dark:bg-card/75",
+        selected
+          ? "border-primary/50 bg-primary/10 shadow-[0_0_24px_color-mix(in_oklch,var(--color-primary)_14%,transparent)] dark:bg-primary/10"
+          : "border-border/70",
       )}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/60 text-muted-foreground">
           {loading ? <Spinner className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
         </div>
         <div className="min-w-0 flex-1">
@@ -2172,7 +2176,7 @@ function ArtifactSkeletonCard({ type }: { type: ReportType }) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-lg border border-primary/20 bg-primary/5 p-3"
+      className="holo-edge rounded-lg border border-primary/20 bg-primary/10 p-3 shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_12%,transparent)]"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-background text-primary">
