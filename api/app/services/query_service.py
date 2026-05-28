@@ -546,6 +546,9 @@ def _build_where_clause(project_id: uuid.UUID, filters: dict[str, Any] | None) -
     if not filters:
         return where
 
+    source_ids = _filter_source_ids(filters)
+    if source_ids:
+        where["source_id"] = {"$in": sorted(source_ids)}
     source_types = filters.get("source_types")
     if isinstance(source_types, list) and source_types:
         where["source_type"] = {"$in": source_types}
@@ -1024,9 +1027,21 @@ def _filter_source_types(filters: dict[str, Any] | None) -> set[str]:
     return {str(source_type) for source_type in source_types if str(source_type).strip()}
 
 
+def _filter_source_ids(filters: dict[str, Any] | None) -> set[str]:
+    if not filters:
+        return set()
+    source_ids = filters.get("source_ids")
+    if not isinstance(source_ids, list):
+        return set()
+    return {str(source_id).strip() for source_id in source_ids if str(source_id).strip()}
+
+
 def _source_matches_filters(source: Source, filters: dict[str, Any] | None) -> bool:
     if not filters:
         return True
+    source_ids = _filter_source_ids(filters)
+    if source_ids and str(source.id) not in source_ids:
+        return False
     source_types = _filter_source_types(filters)
     if source_types and source.type not in source_types:
         return False

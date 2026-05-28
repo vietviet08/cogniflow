@@ -2,13 +2,17 @@
 
 import {
   ChangeEvent,
+  Dispatch,
   FormEvent,
   ReactNode,
+  RefObject,
+  SetStateAction,
   useEffect,
   useRef,
   useState,
 } from "react";
 import Link from "next/link";
+import { Command as CmdkCommand } from "cmdk";
 import { useTheme } from "next-themes";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -43,6 +47,7 @@ import {
   Sun,
   Upload,
   Workflow,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +56,7 @@ import {
   generateReport,
   getReport,
   ingestSourceUrl,
+  listProjectJobs,
   listChatMessages,
   listChatSessions,
   listReports,
@@ -63,6 +69,7 @@ import {
 import type {
   ChatMessageData,
   CitationData,
+  JobStatusData,
   ProjectRole,
   ReportListItem,
   ReportResult,
@@ -97,6 +104,16 @@ type StudioRequest = {
   query: string;
   type: ReportType;
   nonce: number;
+};
+
+type WorkspaceActions = {
+  focusAsk?: () => void;
+  newChat?: () => void;
+  uploadSource?: () => void;
+  processSelectedSources?: () => void;
+  refreshSources?: () => void;
+  refreshArtifacts?: () => void;
+  generateArtifact?: (type: ReportType) => void;
 };
 
 const REPORT_TYPES: Array<{
@@ -198,7 +215,13 @@ function describeStructuredPayload(payload: StructuredReportPayload | null | und
   return "Structured artifact ready.";
 }
 
-function CitationChips({ citations }: { citations: CitationData[] }) {
+function CitationChips({
+  citations,
+  onCitationHover,
+}: {
+  citations: CitationData[];
+  onCitationHover?: (sourceId: string | null) => void;
+}) {
   const { openCitation } = useCitationViewer();
 
   if (!citations.length) return null;
@@ -219,6 +242,10 @@ function CitationChips({ citations }: { citations: CitationData[] }) {
         <button
           key={`${citation.chunk_id}-${index}`}
           type="button"
+          onMouseEnter={() => onCitationHover?.(citation.source_id || null)}
+          onMouseLeave={() => onCitationHover?.(null)}
+          onFocus={() => onCitationHover?.(citation.source_id || null)}
+          onBlur={() => onCitationHover?.(null)}
           onClick={() => open(citation)}
           className="group inline-flex"
         >
@@ -242,9 +269,24 @@ export function ResearchWorkspace() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("research");
   const [studioRequest, setStudioRequest] = useState<StudioRequest | null>(null);
   const [selectedArtifact, setSelectedArtifact] = useState<ReportResult | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+  const [highlightedSourceId, setHighlightedSourceId] = useState<string | null>(null);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const workspaceActionsRef = useRef<WorkspaceActions>({});
 
   useEffect(() => {
     setActiveProjectState(getActiveProject());
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen((current) => !current);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   if (!activeProject) {
@@ -263,9 +305,29 @@ export function ResearchWorkspace() {
     setActiveTab("research");
   }
 
+  function registerWorkspaceActions(actions: Partial<WorkspaceActions>) {
+    workspaceActionsRef.current = {
+      ...workspaceActionsRef.current,
+      ...actions,
+    };
+  }
+
+  function clearSourceScope() {
+    setSelectedSourceIds(new Set());
+  }
+
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
       <WorkspaceTopBar activeProject={activeProject} />
+      <WorkspaceCommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        canMutate={canMutate}
+        selectedSourceCount={selectedSourceIds.size}
+        actionsRef={workspaceActionsRef}
+      />
 
       <div className="border-b border-border bg-card/60 px-3 py-2 lg:hidden">
         <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
@@ -298,6 +360,10 @@ export function ResearchWorkspace() {
             <KnowledgeSourcesPanel
               activeProject={activeProject}
               canMutate={canMutate}
+              selectedSourceIds={selectedSourceIds}
+              setSelectedSourceIds={setSelectedSourceIds}
+              highlightedSourceId={highlightedSourceId}
+              registerActions={registerWorkspaceActions}
             />
           </ResizablePanel>
           <WorkspaceResizeHandle />
@@ -311,8 +377,12 @@ export function ResearchWorkspace() {
               activeProject={activeProject}
               canMutate={canMutate}
               selectedArtifact={selectedArtifact}
+              selectedSourceIds={selectedSourceIds}
+              onClearSourceScope={clearSourceScope}
               onCloseArtifact={() => setSelectedArtifact(null)}
               onRequestArtifact={requestArtifact}
+              onCitationHover={setHighlightedSourceId}
+              registerActions={registerWorkspaceActions}
             />
           </ResizablePanel>
           <WorkspaceResizeHandle />
@@ -328,6 +398,7 @@ export function ResearchWorkspace() {
               request={studioRequest}
               selectedArtifactId={selectedArtifact?.report_id ?? null}
               onOpenArtifact={openArtifact}
+              registerActions={registerWorkspaceActions}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -335,15 +406,26 @@ export function ResearchWorkspace() {
 
       <div className="min-h-0 flex-1 lg:hidden">
         {activeTab === "sources" ? (
-          <KnowledgeSourcesPanel activeProject={activeProject} canMutate={canMutate} />
+          <KnowledgeSourcesPanel
+            activeProject={activeProject}
+            canMutate={canMutate}
+            selectedSourceIds={selectedSourceIds}
+            setSelectedSourceIds={setSelectedSourceIds}
+            highlightedSourceId={highlightedSourceId}
+            registerActions={registerWorkspaceActions}
+          />
         ) : null}
         {activeTab === "research" ? (
           <ResearchCanvasPanel
             activeProject={activeProject}
             canMutate={canMutate}
             selectedArtifact={selectedArtifact}
+            selectedSourceIds={selectedSourceIds}
+            onClearSourceScope={clearSourceScope}
             onCloseArtifact={() => setSelectedArtifact(null)}
             onRequestArtifact={requestArtifact}
+            onCitationHover={setHighlightedSourceId}
+            registerActions={registerWorkspaceActions}
           />
         ) : null}
         {activeTab === "studio" ? (
@@ -353,6 +435,7 @@ export function ResearchWorkspace() {
             request={studioRequest}
             selectedArtifactId={selectedArtifact?.report_id ?? null}
             onOpenArtifact={openArtifact}
+            registerActions={registerWorkspaceActions}
           />
         ) : null}
       </div>
@@ -365,6 +448,138 @@ function WorkspaceResizeHandle() {
     <ResizableHandle className="group flex w-3 cursor-col-resize items-center justify-center bg-background transition-colors hover:bg-primary/5">
       <div className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60" />
     </ResizableHandle>
+  );
+}
+
+function WorkspaceCommandPalette({
+  open,
+  onOpenChange,
+  activeTab,
+  setActiveTab,
+  canMutate,
+  selectedSourceCount,
+  actionsRef,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  activeTab: WorkspaceTab;
+  setActiveTab: (tab: WorkspaceTab) => void;
+  canMutate: boolean;
+  selectedSourceCount: number;
+  actionsRef: RefObject<WorkspaceActions>;
+}) {
+  if (!open) return null;
+
+  function run(action: () => void, disabled = false) {
+    if (disabled) return;
+    action();
+    onOpenChange(false);
+  }
+
+  const commands = [
+    {
+      label: "Focus ask box",
+      hint: "Research",
+      action: () => actionsRef.current?.focusAsk?.(),
+    },
+    {
+      label: "Start new chat",
+      hint: "Research",
+      disabled: !canMutate,
+      action: () => actionsRef.current?.newChat?.(),
+    },
+    {
+      label: "Upload source",
+      hint: "Sources",
+      disabled: !canMutate,
+      action: () => actionsRef.current?.uploadSource?.(),
+    },
+    {
+      label: `Process selected sources (${selectedSourceCount})`,
+      hint: "Sources",
+      disabled: !canMutate || selectedSourceCount === 0,
+      action: () => actionsRef.current?.processSelectedSources?.(),
+    },
+    {
+      label: "Generate research brief",
+      hint: "Studio",
+      disabled: !canMutate,
+      action: () => actionsRef.current?.generateArtifact?.("research_brief"),
+    },
+    {
+      label: "Generate flashcards",
+      hint: "Studio",
+      disabled: !canMutate,
+      action: () => actionsRef.current?.generateArtifact?.("flashcards"),
+    },
+    {
+      label: "Generate mind map",
+      hint: "Studio",
+      disabled: !canMutate,
+      action: () => actionsRef.current?.generateArtifact?.("mind_map"),
+    },
+    {
+      label: "Refresh sources",
+      hint: "Sources",
+      action: () => actionsRef.current?.refreshSources?.(),
+    },
+    {
+      label: "Refresh artifacts",
+      hint: "Studio",
+      action: () => actionsRef.current?.refreshArtifacts?.(),
+    },
+    {
+      label: "Switch to Sources",
+      hint: activeTab === "sources" ? "Current" : "Panel",
+      action: () => setActiveTab("sources"),
+    },
+    {
+      label: "Switch to Research",
+      hint: activeTab === "research" ? "Current" : "Panel",
+      action: () => setActiveTab("research"),
+    },
+    {
+      label: "Switch to Studio",
+      hint: activeTab === "studio" ? "Current" : "Panel",
+      action: () => setActiveTab("studio"),
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background/60 p-4 backdrop-blur-sm" onClick={() => onOpenChange(false)}>
+      <div className="mx-auto mt-20 max-w-xl" onClick={(event) => event.stopPropagation()}>
+        <CmdkCommand className="overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl">
+          <div className="flex items-center gap-2 border-b border-border px-3">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <CmdkCommand.Input
+              autoFocus
+              placeholder="Run a workspace command..."
+              className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+          <CmdkCommand.List className="max-h-80 overflow-y-auto p-2">
+            <CmdkCommand.Empty className="px-3 py-8 text-center text-sm text-muted-foreground">
+              No commands found.
+            </CmdkCommand.Empty>
+            {commands.map((command) => (
+              <CmdkCommand.Item
+                key={command.label}
+                value={command.label}
+                disabled={command.disabled}
+                onSelect={() => run(command.action, command.disabled)}
+                className={cn(
+                  "flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm outline-none data-[selected=true]:bg-accent",
+                  command.disabled && "cursor-not-allowed opacity-40",
+                )}
+              >
+                <span>{command.label}</span>
+                <span className="text-xs text-muted-foreground">{command.hint}</span>
+              </CmdkCommand.Item>
+            ))}
+          </CmdkCommand.List>
+        </CmdkCommand>
+      </div>
+    </div>
   );
 }
 
@@ -483,15 +698,23 @@ function PanelFrame({
 function KnowledgeSourcesPanel({
   activeProject,
   canMutate,
+  selectedSourceIds,
+  setSelectedSourceIds,
+  highlightedSourceId,
+  registerActions,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
+  selectedSourceIds: Set<string>;
+  setSelectedSourceIds: Dispatch<SetStateAction<Set<string>>>;
+  highlightedSourceId: string | null;
+  registerActions: (actions: Partial<WorkspaceActions>) => void;
 }) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [processingActive, setProcessingActive] = useState(false);
 
   const {
     data,
@@ -505,9 +728,27 @@ function KnowledgeSourcesPanel({
 
   const sources = data?.data.items ?? [];
   const indexedCount = sources.filter((source) => source.indexing?.is_indexed).length;
+  const { data: jobsData } = useQuery({
+    queryKey: ["workspace-processing-jobs", activeProject.id],
+    queryFn: () => listProjectJobs(activeProject.id),
+    enabled: processingActive,
+    refetchInterval: processingActive ? 2000 : false,
+  });
+  const processingJobs = (jobsData?.data.items ?? []).filter(
+    (job) =>
+      job.type === "processing" &&
+      ["queued", "running"].includes(job.status),
+  );
+
+  useEffect(() => {
+    if (processingActive && jobsData && processingJobs.length === 0) {
+      setProcessingActive(false);
+      void refreshSources();
+    }
+  }, [jobsData, processingActive, processingJobs.length]);
 
   function toggleSelected(sourceId: string) {
-    setSelectedIds((current) => {
+    setSelectedSourceIds((current) => {
       const next = new Set(current);
       if (next.has(sourceId)) {
         next.delete(sourceId);
@@ -521,6 +762,14 @@ function KnowledgeSourcesPanel({
   async function refreshSources() {
     await queryClient.invalidateQueries({ queryKey: ["workspace-sources", activeProject.id] });
   }
+
+  useEffect(() => {
+    registerActions({
+      uploadSource: () => fileInputRef.current?.click(),
+      processSelectedSources: () => void handleProcessSelected(),
+      refreshSources: () => void refreshSources(),
+    });
+  });
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -559,7 +808,7 @@ function KnowledgeSourcesPanel({
   }
 
   async function handleProcessSelected() {
-    const sourceIds = Array.from(selectedIds);
+    const sourceIds = Array.from(selectedSourceIds);
     if (!sourceIds.length) {
       toast.error("Select at least one source to process.");
       return;
@@ -568,7 +817,7 @@ function KnowledgeSourcesPanel({
     const toastId = toast.loading("Indexing selected sources...");
     try {
       await processSources({ projectId: activeProject.id, sourceIds });
-      setSelectedIds(new Set());
+      setProcessingActive(true);
       toast.success("Processing job started.", { id: toastId });
       await refreshSources();
     } catch (error) {
@@ -630,19 +879,23 @@ function KnowledgeSourcesPanel({
 
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            {selectedIds.size} selected
+            {selectedSourceIds.size} selected
           </p>
           <Button
             type="button"
             size="sm"
             variant="outline"
-            disabled={!canMutate || busy || selectedIds.size === 0}
+            disabled={!canMutate || busy || selectedSourceIds.size === 0}
             onClick={() => void handleProcessSelected()}
           >
             <Sparkles className="h-3.5 w-3.5" />
             Process
           </Button>
         </div>
+
+        {processingActive ? (
+          <SourceProcessingProgress jobs={processingJobs} />
+        ) : null}
 
         {isLoading ? (
           <div className="flex h-40 items-center justify-center">
@@ -654,7 +907,8 @@ function KnowledgeSourcesPanel({
               <SourceRow
                 key={source.id}
                 source={source}
-                selected={selectedIds.has(source.id)}
+                selected={selectedSourceIds.has(source.id)}
+                highlighted={highlightedSourceId === source.id}
                 onToggle={() => toggleSelected(source.id)}
               />
             ))}
@@ -681,13 +935,48 @@ function DatabaseIcon() {
   );
 }
 
+function SourceProcessingProgress({ jobs }: { jobs: JobStatusData[] }) {
+  const activeJobs = jobs.length;
+  const averageProgress =
+    activeJobs > 0
+      ? Math.round(jobs.reduce((sum, job) => sum + job.progress, 0) / activeJobs)
+      : 5;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-lg border border-primary/20 bg-primary/5 p-3"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-foreground">Indexing sources</p>
+          <p className="text-[11px] text-muted-foreground">
+            {activeJobs ? `${activeJobs} processing job${activeJobs > 1 ? "s" : ""} active` : "Waiting for job status..."}
+          </p>
+        </div>
+        <Spinner className="h-4 w-4 text-primary" />
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background">
+        <motion.div
+          className="h-full rounded-full bg-primary"
+          initial={{ width: "8%" }}
+          animate={{ width: `${Math.max(averageProgress, 8)}%` }}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
 function SourceRow({
   source,
   selected,
+  highlighted,
   onToggle,
 }: {
   source: SourceListItemData;
   selected: boolean;
+  highlighted: boolean;
   onToggle: () => void;
 }) {
   const trust = source.quality?.trust_score;
@@ -700,6 +989,7 @@ function SourceRow({
       className={cn(
         "rounded-lg border bg-card p-3 transition-colors",
         selected ? "border-primary/50 bg-primary/5" : "border-border hover:border-primary/25",
+        highlighted && "border-warning bg-warning/10 shadow-sm",
       )}
     >
       <div className="flex items-start gap-3">
@@ -745,20 +1035,31 @@ function ResearchCanvasPanel({
   activeProject,
   canMutate,
   selectedArtifact,
+  selectedSourceIds,
+  onClearSourceScope,
   onCloseArtifact,
   onRequestArtifact,
+  onCitationHover,
+  registerActions,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
   selectedArtifact: ReportResult | null;
+  selectedSourceIds: Set<string>;
+  onClearSourceScope: () => void;
   onCloseArtifact: () => void;
   onRequestArtifact: (query: string, type: ReportType) => void;
+  onCitationHover: (sourceId: string | null) => void;
+  registerActions: (actions: Partial<WorkspaceActions>) => void;
 }) {
   const queryClient = useQueryClient();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [sending, setSending] = useState(false);
+  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
+  const [assistantStage, setAssistantStage] = useState("Retrieving evidence");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const askInputRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: sessionsData, isLoading: loadingSessions } = useQuery({
     queryKey: ["workspace-chat-sessions", activeProject.id],
@@ -781,7 +1082,32 @@ function ResearchCanvasPanel({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, sending]);
+  }, [messages.length, sending, optimisticMessage]);
+
+  useEffect(() => {
+    if (!sending) return;
+    const stages = ["Retrieving evidence", "Ranking citations", "Drafting answer"];
+    let index = 0;
+    setAssistantStage(stages[index]);
+    const interval = window.setInterval(() => {
+      index = (index + 1) % stages.length;
+      setAssistantStage(stages[index]);
+    }, 1400);
+    return () => window.clearInterval(interval);
+  }, [sending]);
+
+  useEffect(() => {
+    registerActions({
+      focusAsk: () => {
+        onCloseArtifact();
+        askInputRef.current?.focus();
+      },
+      newChat: () => {
+        onCloseArtifact();
+        setActiveSessionId(null);
+      },
+    });
+  });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -793,8 +1119,10 @@ function ResearchCanvasPanel({
     }
 
     setInputValue("");
+    setOptimisticMessage(content);
     setSending(true);
     let sessionId = activeSessionId;
+    const scopedSourceIds = Array.from(selectedSourceIds);
 
     try {
       if (!sessionId) {
@@ -807,7 +1135,13 @@ function ResearchCanvasPanel({
         });
       }
 
-      await sendChatMessage({ sessionId, content, provider: "openai", topK: 5 });
+      await sendChatMessage({
+        sessionId,
+        content,
+        provider: "openai",
+        topK: 5,
+        filters: scopedSourceIds.length ? { source_ids: scopedSourceIds } : undefined,
+      });
       await queryClient.invalidateQueries({
         queryKey: ["workspace-chat-messages", sessionId],
       });
@@ -818,6 +1152,7 @@ function ResearchCanvasPanel({
       toast.error(error instanceof Error ? error.message : "Message failed.");
     } finally {
       setSending(false);
+      setOptimisticMessage(null);
     }
   }
 
@@ -858,7 +1193,11 @@ function ResearchCanvasPanel({
       }
     >
       {selectedArtifact ? (
-        <ArtifactCanvas report={selectedArtifact} onRequestArtifact={onRequestArtifact} />
+        <ArtifactCanvas
+          report={selectedArtifact}
+          onRequestArtifact={onRequestArtifact}
+          onCitationHover={onCitationHover}
+        />
       ) : (
       <div className="flex h-full min-h-0 flex-col">
         <div className="border-b border-border bg-card/30 px-4 py-2">
@@ -879,6 +1218,10 @@ function ResearchCanvasPanel({
               </button>
             ))}
           </div>
+          <SourceScopeBar
+            selectedCount={selectedSourceIds.size}
+            onClear={onClearSourceScope}
+          />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -894,13 +1237,14 @@ function ResearchCanvasPanel({
                   message={message}
                   onRequestArtifact={onRequestArtifact}
                   onMessageAction={handleMessageAction}
+                  onCitationHover={onCitationHover}
                 />
               ))}
+              {optimisticMessage ? (
+                <OptimisticChatBubble content={optimisticMessage} />
+              ) : null}
               {sending ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner className="h-4 w-4" />
-                  Researching indexed evidence...
-                </div>
+                <AssistantSkeleton stage={assistantStage} />
               ) : null}
               <div ref={messagesEndRef} />
             </div>
@@ -923,6 +1267,7 @@ function ResearchCanvasPanel({
         <form onSubmit={handleSubmit} className="shrink-0 border-t border-border bg-card/80 p-3">
           <div className="flex gap-2">
             <Textarea
+              ref={askInputRef}
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
               placeholder="Ask about the selected research project..."
@@ -944,10 +1289,12 @@ function ChatMessageCard({
   message,
   onRequestArtifact,
   onMessageAction,
+  onCitationHover,
 }: {
   message: ChatMessageData;
   onRequestArtifact: (query: string, type: ReportType) => void;
   onMessageAction: (messageId: string, patch: { isBookmarked?: boolean; rating?: number }) => void;
+  onCitationHover: (sourceId: string | null) => void;
 }) {
   const isAssistant = message.role === "assistant";
 
@@ -1002,7 +1349,7 @@ function ChatMessageCard({
       <div className="prose prose-sm max-w-none dark:prose-invert">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
       </div>
-      <CitationChips citations={message.citations ?? []} />
+      <CitationChips citations={message.citations ?? []} onCitationHover={onCitationHover} />
 
       {isAssistant ? (
         <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
@@ -1039,12 +1386,79 @@ function ChatMessageCard({
   );
 }
 
+function SourceScopeBar({
+  selectedCount,
+  onClear,
+}: {
+  selectedCount: number;
+  onClear: () => void;
+}) {
+  return (
+    <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Layers className="h-3.5 w-3.5" />
+        <span>
+          {selectedCount > 0
+            ? `Scoped to ${selectedCount} selected source${selectedCount > 1 ? "s" : ""}`
+            : "Using all indexed sources"}
+        </span>
+      </div>
+      {selectedCount > 0 ? (
+        <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={onClear}>
+          <X className="h-3.5 w-3.5" />
+          Clear
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function OptimisticChatBubble({ content }: { content: string }) {
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="ml-auto max-w-[88%] rounded-lg border border-border bg-muted/60 p-4"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+          <MessageSquare className="h-4 w-4" />
+        </div>
+        <span className="text-xs font-semibold text-foreground">user</span>
+      </div>
+      <p className="text-sm leading-6 text-foreground">{content}</p>
+    </motion.article>
+  );
+}
+
+function AssistantSkeleton({ stage }: { stage: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-lg border border-primary/15 bg-card p-4 shadow-sm"
+    >
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner className="h-4 w-4 text-primary" />
+        {stage}...
+      </div>
+      <div className="mt-4 space-y-2">
+        <div className="h-3 w-3/4 animate-pulse rounded-full bg-muted" />
+        <div className="h-3 w-11/12 animate-pulse rounded-full bg-muted" />
+        <div className="h-3 w-2/3 animate-pulse rounded-full bg-muted" />
+      </div>
+    </motion.div>
+  );
+}
+
 function ArtifactCanvas({
   report,
   onRequestArtifact,
+  onCitationHover,
 }: {
   report: ReportResult;
   onRequestArtifact: (query: string, type: ReportType) => void;
+  onCitationHover: (sourceId: string | null) => void;
 }) {
   const Icon = getReportIcon(report.type);
 
@@ -1101,7 +1515,7 @@ function ArtifactCanvas({
           className="mx-auto max-w-5xl space-y-5"
         >
           <ArtifactStructuredView report={report} />
-          <CitationChips citations={report.citations ?? []} />
+          <CitationChips citations={report.citations ?? []} onCitationHover={onCitationHover} />
 
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -1353,12 +1767,14 @@ function StudioOutputsPanel({
   request,
   selectedArtifactId,
   onOpenArtifact,
+  registerActions,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
   request: StudioRequest | null;
   selectedArtifactId: string | null;
   onOpenArtifact: (artifact: ReportResult) => void;
+  registerActions: (actions: Partial<WorkspaceActions>) => void;
 }) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
@@ -1380,6 +1796,13 @@ function StudioOutputsPanel({
     setType(request.type);
     void generateArtifact(request.query, request.type);
   }, [request]);
+
+  useEffect(() => {
+    registerActions({
+      refreshArtifacts: () => void refetch(),
+      generateArtifact: (reportType: ReportType) => void generateArtifact(query || "Create a source-grounded artifact from this project.", reportType),
+    });
+  });
 
   async function generateArtifact(nextQuery = query, nextType = type) {
     const cleanQuery = nextQuery.trim();
@@ -1488,8 +1911,10 @@ function StudioOutputsPanel({
             <div className="flex h-28 items-center justify-center">
               <Spinner />
             </div>
-          ) : reports.length ? (
-            reports.map((report) => (
+          ) : reports.length || generating ? (
+            <>
+            {generating ? <ArtifactSkeletonCard type={type} /> : null}
+            {reports.map((report) => (
               <ArtifactCard
                 key={report.report_id}
                 report={report}
@@ -1497,7 +1922,8 @@ function StudioOutputsPanel({
                 loading={loadingReportId === report.report_id}
                 onOpen={() => void openReport(report)}
               />
-            ))
+            ))}
+            </>
           ) : (
             <div className="rounded-lg border border-dashed border-border p-5 text-center">
               <FileText className="mx-auto h-8 w-8 text-muted-foreground" />
@@ -1556,5 +1982,31 @@ function ArtifactCard({
         </div>
       </div>
     </motion.button>
+  );
+}
+
+function ArtifactSkeletonCard({ type }: { type: ReportType }) {
+  const Icon = getReportIcon(type);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-lg border border-primary/20 bg-primary/5 p-3"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-background text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-foreground">Generating {REPORT_LABELS[type] ?? type}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Retrieving evidence and drafting artifact...</p>
+          <div className="mt-3 space-y-1.5">
+            <div className="h-2 w-4/5 animate-pulse rounded-full bg-primary/20" />
+            <div className="h-2 w-2/3 animate-pulse rounded-full bg-primary/20" />
+          </div>
+        </div>
+      </div>
+    </motion.div>
   );
 }

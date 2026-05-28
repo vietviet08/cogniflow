@@ -29,6 +29,7 @@ def test_chat_message_uses_recent_history_for_follow_up_retrieval(client, monkey
                 "query": query,
                 "provider": provider,
                 "top_k": top_k,
+                "filters": filters,
                 "conversation_context": conversation_context or [],
             }
         )
@@ -60,6 +61,7 @@ def test_chat_message_uses_recent_history_for_follow_up_retrieval(client, monkey
             "content": "What about enterprise plans?",
             "provider": "openai",
             "top_k": 4,
+            "filters": {"source_ids": ["src_123"]},
         },
     )
     assert second.status_code == 201
@@ -69,6 +71,7 @@ def test_chat_message_uses_recent_history_for_follow_up_retrieval(client, monkey
     assert body["assistant_message"]["retrieval"] == {"mode": "hybrid"}
 
     follow_up_call = calls[-1]
+    assert follow_up_call["filters"] == {"source_ids": ["src_123"]}
     assert follow_up_call["query"].startswith("What about enterprise plans?")
     assert "What changed in competitor pricing?" in follow_up_call["query"]
     assert follow_up_call["conversation_context"][0]["role"] == "user"
