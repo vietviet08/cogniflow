@@ -177,7 +177,7 @@ export function NodeDetailPanel({ element, payload }: NodeDetailPanelProps) {
     return (
       <div className="flex flex-col h-full">
         <CardHeader className="pb-3 border-b bg-muted/20">
-          <CardTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/60">
+          <CardTitle className="text-xl font-bold text-foreground">
             {data.label}
           </CardTitle>
           <Badge className="w-fit mt-1 shadow-sm" variant="secondary">

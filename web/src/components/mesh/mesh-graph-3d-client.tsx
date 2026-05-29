@@ -15,19 +15,19 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
     const isDark = theme === "dark" || (theme === "system" && systemTheme === "dark");
 
     // Theme colors
-    const bgColor = isDark ? "#09090b" : "#ffffff";
-    const textColor = isDark ? "#ffffff" : "#09090b";
-    const edgeColor = isDark ? "rgba(161, 161, 170, 0.25)" : "rgba(161, 161, 170, 0.45)"; // zinc-400
-    const conflictColor = isDark ? "#ef4444" : "#dc2626"; // red-500 / red-600
+    const bgColor = isDark ? "#07111f" : "#f5fbff";
+    const textColor = isDark ? "#ecfeff" : "#102033";
+    const edgeColor = isDark ? "rgba(103, 232, 249, 0.22)" : "rgba(14, 165, 233, 0.28)";
+    const conflictColor = isDark ? "#fb7185" : "#e11d48";
 
     // Vibrant palette for nodes
     const nodePalette = [
-        "#3b82f6", // blue
-        "#8b5cf6", // violet
-        "#ec4899", // pink
-        "#10b981", // emerald
-        "#f59e0b", // amber
-        "#06b6d4"  // cyan
+        "#22d3ee",
+        "#8b5cf6",
+        "#f472b6",
+        "#34d399",
+        "#facc15",
+        "#38bdf8"
     ];
 
     const getNodeColor = useCallback((id: string) => {
@@ -95,11 +95,11 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
 
     const graphShellClass = isFullscreen
         ? "fixed inset-0 z-50 flex h-screen w-screen bg-background"
-        : "flex h-[100%] w-full min-h-[500px]";
+        : "flex h-[100%] w-full min-h-[500px] overflow-hidden rounded-xl";
 
     return (
         <div className={graphShellClass}>
-            <div ref={containerRef} className="flex-1 relative h-full border-r border-border min-w-0 bg-background overflow-hidden">
+            <div ref={containerRef} className="relative h-full min-w-0 flex-1 overflow-hidden border-r border-border/70 bg-background">
                 <ForceGraph3D
                     ref={graphRef}
                     width={dimensions.width}
@@ -115,9 +115,11 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
                         const material = new THREE.MeshPhongMaterial({
                             color: getNodeColor(node.id),
                             transparent: true,
-                            opacity: 0.85,
-                            shininess: 80,
-                            specular: new THREE.Color(0x444444)
+                            opacity: 0.9,
+                            shininess: 130,
+                            emissive: new THREE.Color(getNodeColor(node.id)),
+                            emissiveIntensity: isDark ? 0.16 : 0.08,
+                            specular: new THREE.Color(0xb8f7ff)
                         });
                         const sphere = new THREE.Mesh(geometry, material);
                         group.add(sphere);
@@ -127,11 +129,11 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
                         sprite.color = textColor;
                         sprite.textHeight = 2; // A bit larger
                         sprite.fontWeight = "400"; // Semi-bold for cleaner look
-                        sprite.fontFace = "Inter, system-ui, sans-serif"; // Modern crisp font
+                        sprite.fontFace = "Space Grotesk, Inter, system-ui, sans-serif";
                         sprite.position.y = 12; // offset above the sphere
 
                         // Sleek badge background effect
-                        sprite.backgroundColor = isDark ? "rgba(24, 24, 27, 0.85)" : "rgba(255, 255, 255, 0.85)";
+                        sprite.backgroundColor = isDark ? "rgba(8, 18, 34, 0.82)" : "rgba(245, 251, 255, 0.82)";
                         sprite.padding = [2, 1] as any;
                         sprite.borderRadius = 3;
                         sprite.borderColor = getNodeColor(node.id);
@@ -156,7 +158,7 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
                 <button
                     type="button"
                     onClick={() => setIsFullscreen((current) => !current)}
-                    className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background/85 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent"
+                    className="holo-surface absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-accent/70"
                     aria-label={isFullscreen ? "Exit fullscreen mesh" : "Open fullscreen mesh"}
                     title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
                 >
@@ -167,7 +169,7 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
                     <button
                         type="button"
                         onClick={() => setDetailOpen((current) => !current)}
-                        className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-background/90 px-4 py-2 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent lg:hidden"
+                        className="holo-surface absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/70 lg:hidden"
                     >
                         <Info className="h-4 w-4" />
                         {detailOpen ? "Hide details" : "Show details"}
@@ -176,17 +178,17 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
 
                 {/* Floating Info Panel */}
                 <div className="absolute top-4 left-4 pointer-events-auto">
-                    <div className="bg-background/80 backdrop-blur-md rounded-lg border shadow-sm max-w-sm overflow-hidden transition-all duration-300">
+                    <div className="holo-surface holo-edge max-w-sm overflow-hidden rounded-xl transition-all duration-300">
                         {/* Header / Toggle */}
                         <div
-                            className="p-3 bg-secondary/30 flex items-center justify-between cursor-pointer hover:bg-secondary/50 transition-colors"
+                            className="flex cursor-pointer items-center justify-between bg-secondary/30 p-3 transition-colors hover:bg-secondary/55"
                             onClick={() => setIsInfoExpanded(!isInfoExpanded)}
                         >
-                            <h3 className="font-bold text-sm flex items-center gap-2 text-transparent bg-clip-text bg-gradient-to-r from-primary to-blue-500">
+                            <h3 className="holo-text font-display flex items-center gap-2 text-sm font-bold">
                                 <Info className="w-4 h-4 text-primary" />
                                 Knowledge Discovery 3D
                                 <span className="text-[9px] bg-primary/10 text-foreground px-2 py-0.5 rounded-full border border-primary/20 ml-1">
-                                    BETA
+                                    HOLO
                                 </span>
                             </h3>
                             {isInfoExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
@@ -194,7 +196,7 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
 
                         {/* Collapsible Content */}
                         {isInfoExpanded && (
-                            <div className="p-4 pt-2 border-t border-border/50">
+                            <div className="border-t border-border/50 p-4 pt-2">
                                 <p className="text-xs text-muted-foreground leading-relaxed">
                                     {payload.overview}
                                 </p>
@@ -212,8 +214,8 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
             <div
                 className={
                     isFullscreen
-                        ? `${detailOpen ? "translate-y-0" : "translate-y-full lg:translate-y-0"} fixed inset-x-0 bottom-0 z-30 h-[42vh] overflow-hidden border-t border-border bg-background transition-transform lg:static lg:h-full lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0`
-                        : "w-[350px] shrink-0 h-full overflow-hidden bg-background"
+                        ? `${detailOpen ? "translate-y-0" : "translate-y-full lg:translate-y-0"} holo-surface fixed inset-x-0 bottom-0 z-30 h-[42vh] overflow-hidden rounded-t-xl border-t border-border/70 bg-card/85 transition-transform lg:static lg:h-full lg:w-[360px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0`
+                        : "holo-surface h-full w-[350px] shrink-0 overflow-hidden rounded-none bg-card/70"
                 }
             >
                 <NodeDetailPanel element={selectedElement} payload={payload} />
