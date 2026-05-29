@@ -27,6 +27,7 @@ import {
   BookOpen,
   BrainCircuit,
   CheckCircle2,
+  ChevronLeft,
   CircleHelp,
   Copy,
   ExternalLink,
@@ -64,12 +65,17 @@ import {
   listSources,
   processSources,
   sendChatMessage,
+  browseGoogleDriveItems,
+  importProjectIntegrationSource,
+  listProjectIntegrations,
   updateChatMessage,
   uploadSourceFile,
 } from "@/lib/api/client";
 import type {
   ChatMessageData,
   CitationData,
+  GoogleDriveBrowseItemData,
+  IntegrationConnectionData,
   JobStatusData,
   ProjectRole,
   ReportListItem,
@@ -84,6 +90,7 @@ import { cn } from "@/lib/utils";
 
 import { useAuth } from "@/components/auth-provider";
 import { useCitationViewer } from "@/components/citation-viewer-provider";
+import { WebSourceDiscovery } from "@/components/web-source-discovery";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -100,6 +107,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 
 type WorkspaceTab = "sources" | "research" | "studio";
+type SourceTool = "add" | "web" | "drive";
 
 type StudioRequest = {
   query: string;
@@ -838,6 +846,14 @@ function KnowledgeSourcesPanel({
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [processingActive, setProcessingActive] = useState(false);
+  const [sourceTool, setSourceTool] = useState<SourceTool>("add");
+  const [driveFolderPath, setDriveFolderPath] = useState<Array<{ id: string; name: string }>>([
+    { id: "root", name: "My Drive" },
+  ]);
+  const [driveSearch, setDriveSearch] = useState("");
+  const [driveItems, setDriveItems] = useState<GoogleDriveBrowseItemData[]>([]);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveImportingId, setDriveImportingId] = useState<string | null>(null);
 
   const {
     data,
@@ -851,6 +867,11 @@ function KnowledgeSourcesPanel({
 
   const sources = data?.data.items ?? [];
   const indexedCount = sources.filter((source) => source.indexing?.is_indexed).length;
+  const sourceUrls = new Set(
+    sources
+      .map((source) => source.file_name)
+      .filter((item) => item.startsWith("http://") || item.startsWith("https://")),
+  );
   const { data: jobsData } = useQuery({
     queryKey: ["workspace-processing-jobs", activeProject.id],
     queryFn: () => listProjectJobs(activeProject.id),
@@ -861,6 +882,14 @@ function KnowledgeSourcesPanel({
     (job) =>
       job.type === "processing" &&
       ["queued", "running"].includes(job.status),
+  );
+  const { data: integrationsData, refetch: refetchIntegrations } = useQuery({
+    queryKey: ["workspace-integrations", activeProject.id],
+    queryFn: () => listProjectIntegrations(activeProject.id),
+    enabled: sourceTool === "drive",
+  });
+  const googleDriveIntegration = integrationsData?.data.items.find(
+    (integration) => integration.provider === "google_drive",
   );
 
   useEffect(() => {
@@ -885,6 +914,73 @@ function KnowledgeSourcesPanel({
   async function refreshSources() {
     await queryClient.invalidateQueries({ queryKey: ["workspace-sources", activeProject.id] });
   }
+
+  async function loadDriveItems(folderId = driveFolderPath.at(-1)?.id ?? "root", query = driveSearch) {
+    setDriveLoading(true);
+    try {
+      const response = await browseGoogleDriveItems({
+        projectId: activeProject.id,
+        folderId,
+        query: query.trim() || undefined,
+        pageSize: 50,
+      });
+      setDriveItems(response.data.items);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to browse Google Drive.");
+      setDriveItems([]);
+    } finally {
+      setDriveLoading(false);
+    }
+  }
+
+  async function openDriveFolder(item: GoogleDriveBrowseItemData) {
+    const nextPath = [...driveFolderPath, { id: item.id, name: item.name }];
+    setDriveFolderPath(nextPath);
+    await loadDriveItems(item.id, driveSearch);
+  }
+
+  async function goBackDriveFolder() {
+    if (driveFolderPath.length <= 1) return;
+    const nextPath = driveFolderPath.slice(0, -1);
+    const folder = nextPath.at(-1);
+    if (!folder) return;
+    setDriveFolderPath(nextPath);
+    await loadDriveItems(folder.id, driveSearch);
+  }
+
+  async function handleDriveSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await loadDriveItems(driveFolderPath.at(-1)?.id ?? "root", driveSearch);
+  }
+
+  async function importDriveFile(item: GoogleDriveBrowseItemData) {
+    if (!canMutate) {
+      toast.error("This action requires editor role or higher.");
+      return;
+    }
+    setDriveImportingId(item.id);
+    const toastId = toast.loading(`Importing ${item.name}...`);
+    try {
+      await importProjectIntegrationSource({
+        projectId: activeProject.id,
+        provider: "google_drive",
+        itemReference: item.id,
+      });
+      toast.success("Google Drive source imported. Run processing to index it.", { id: toastId });
+      await refreshSources();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to import Drive file.", { id: toastId });
+    } finally {
+      setDriveImportingId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (sourceTool !== "drive" || !googleDriveIntegration?.configured) {
+      return;
+    }
+    void loadDriveItems("root", "");
+  }, [sourceTool, googleDriveIntegration?.configured]);
 
   useEffect(() => {
     registerActions({
@@ -963,41 +1059,99 @@ function KnowledgeSourcesPanel({
     >
       <div className="space-y-4 p-4">
         <div className="rounded-lg border border-border bg-card p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-semibold text-foreground">Add source</p>
-              <p className="text-[11px] text-muted-foreground">PDF, DOCX, URL, arXiv and web pages.</p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!canMutate || busy}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Upload
-            </Button>
+          <div className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-muted/45 p-1">
+            {([
+              { value: "add", label: "Add", icon: Upload },
+              { value: "web", label: "Web", icon: Search },
+              { value: "drive", label: "Drive", icon: FolderOpen },
+            ] as Array<{ value: SourceTool; label: string; icon: typeof Upload }>).map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setSourceTool(value)}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors",
+                  sourceTool === value
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={SUPPORTED_FILE_ACCEPT}
-            className="hidden"
-            onChange={handleUpload}
-          />
-          <form onSubmit={handleUrlSubmit} className="mt-3 flex gap-2">
-            <Input
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://example.com/research"
-              disabled={!canMutate || busy}
-              className="h-8 text-xs"
+
+          {sourceTool === "add" ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Add source</p>
+                  <p className="text-[11px] text-muted-foreground">PDF, DOCX, URL, arXiv and web pages.</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!canMutate || busy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload
+                </Button>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={SUPPORTED_FILE_ACCEPT}
+                className="hidden"
+                onChange={handleUpload}
+              />
+              <form onSubmit={handleUrlSubmit} className="mt-3 flex gap-2">
+                <Input
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://example.com/research or arXiv URL"
+                  disabled={!canMutate || busy}
+                  className="h-8 text-xs"
+                />
+                <Button type="submit" size="icon" disabled={!canMutate || busy || !url.trim()}>
+                  <Link2 className="h-4 w-4" />
+                </Button>
+              </form>
+            </>
+          ) : null}
+
+          {sourceTool === "web" ? (
+            <div className="max-h-[560px] min-h-[360px] overflow-hidden">
+              <WebSourceDiscovery
+                projectId={activeProject.id}
+                canMutate={canMutate}
+                addedUrls={sourceUrls}
+                onSourceAdded={() => void refreshSources()}
+                compact
+              />
+            </div>
+          ) : null}
+
+          {sourceTool === "drive" ? (
+            <GoogleDriveSourceTool
+              integration={googleDriveIntegration}
+              canMutate={canMutate}
+              driveItems={driveItems}
+              driveFolderPath={driveFolderPath}
+              driveSearch={driveSearch}
+              driveLoading={driveLoading}
+              driveImportingId={driveImportingId}
+              onRefreshIntegration={() => void refetchIntegrations()}
+              onSearchChange={setDriveSearch}
+              onSearch={handleDriveSearch}
+              onBack={() => void goBackDriveFolder()}
+              onOpenFolder={(item) => void openDriveFolder(item)}
+              onImport={(item) => void importDriveFile(item)}
+              onReload={() => void loadDriveItems()}
             />
-            <Button type="submit" size="icon" disabled={!canMutate || busy || !url.trim()}>
-              <Link2 className="h-4 w-4" />
-            </Button>
-          </form>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -1068,6 +1222,157 @@ function KnowledgeSourcesPanel({
         )}
       </div>
     </PanelFrame>
+  );
+}
+
+function GoogleDriveSourceTool({
+  integration,
+  canMutate,
+  driveItems,
+  driveFolderPath,
+  driveSearch,
+  driveLoading,
+  driveImportingId,
+  onRefreshIntegration,
+  onSearchChange,
+  onSearch,
+  onBack,
+  onOpenFolder,
+  onImport,
+  onReload,
+}: {
+  integration?: IntegrationConnectionData;
+  canMutate: boolean;
+  driveItems: GoogleDriveBrowseItemData[];
+  driveFolderPath: Array<{ id: string; name: string }>;
+  driveSearch: string;
+  driveLoading: boolean;
+  driveImportingId: string | null;
+  onRefreshIntegration: () => void;
+  onSearchChange: (value: string) => void;
+  onSearch: (event: FormEvent<HTMLFormElement>) => void;
+  onBack: () => void;
+  onOpenFolder: (item: GoogleDriveBrowseItemData) => void;
+  onImport: (item: GoogleDriveBrowseItemData) => void;
+  onReload: () => void;
+}) {
+  if (!integration) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-4 text-center">
+        <Spinner className="mx-auto h-5 w-5" />
+        <p className="mt-2 text-xs text-muted-foreground">Loading Google Drive integration...</p>
+      </div>
+    );
+  }
+
+  if (!integration.configured) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-4 text-center">
+        <FolderOpen className="mx-auto h-7 w-7 text-muted-foreground" />
+        <p className="mt-2 text-sm font-medium text-foreground">Google Drive is not connected</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Connect Google Drive from the Sources page, then import Docs, Sheets, Slides, PDFs, and Office files here.
+        </p>
+        <div className="mt-4 flex justify-center gap-2">
+          <Link href="/sources" className={buttonVariants({ size: "sm" })}>
+            Connect Drive
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+          <Button type="button" size="sm" variant="outline" onClick={onRefreshIntegration}>
+            Refresh
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentFolder = driveFolderPath.at(-1)?.name ?? "My Drive";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold text-foreground">Google Drive</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {integration.account_label || integration.display_name}
+          </p>
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={onReload} disabled={driveLoading}>
+          {driveLoading ? <Spinner className="h-3.5 w-3.5" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+          Reload
+        </Button>
+      </div>
+
+      <form onSubmit={onSearch} className="flex gap-2">
+        <Input
+          value={driveSearch}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder={`Search in ${currentFolder}`}
+          className="h-8 text-xs"
+        />
+        <Button type="submit" size="icon" disabled={driveLoading}>
+          <Search className="h-4 w-4" />
+        </Button>
+      </form>
+
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          onClick={onBack}
+          disabled={driveFolderPath.length <= 1 || driveLoading}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="truncate">{driveFolderPath.map((item) => item.name).join(" / ")}</span>
+      </div>
+
+      {driveLoading ? (
+        <div className="flex h-32 items-center justify-center">
+          <Spinner />
+        </div>
+      ) : driveItems.length ? (
+        <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+          {driveItems.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/40 p-2"
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                {item.is_folder ? <FolderOpen className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-foreground">{item.name}</p>
+                <p className="truncate text-[10px] text-muted-foreground">
+                  {item.is_folder ? "Folder" : item.mime_type}
+                </p>
+              </div>
+              {item.is_folder ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => onOpenFolder(item)}>
+                  Open
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!canMutate || !item.is_supported_import || driveImportingId === item.id}
+                  onClick={() => onImport(item)}
+                >
+                  {driveImportingId === item.id ? <Spinner className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                  Import
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border p-4 text-center">
+          <p className="text-xs text-muted-foreground">No Drive items found.</p>
+        </div>
+      )}
+    </div>
   );
 }
 
