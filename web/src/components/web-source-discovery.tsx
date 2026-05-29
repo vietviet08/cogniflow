@@ -60,7 +60,6 @@ export function WebSourceDiscovery({
     // Track URLs added during this session for instant feedback
     const [locallyAdded, setLocallyAdded] = useState<Set<string>>(new Set());
 
-    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     const isAdded = (url: string) => addedUrls.has(url) || locallyAdded.has(url);
@@ -97,13 +96,10 @@ export function WebSourceDiscovery({
 
     function handleQueryChange(value: string) {
         setQuery(value);
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => runSearch(value), 600);
     }
 
     function handleSearchSubmit(e: React.FormEvent) {
         e.preventDefault();
-        if (debounceRef.current) clearTimeout(debounceRef.current);
         runSearch(query);
     }
 

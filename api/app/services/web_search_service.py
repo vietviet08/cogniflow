@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import re
+import unicodedata
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -107,6 +108,7 @@ class WebPreviewResult:
 # ---------------------------------------------------------------------------
 
 _DDG_SEARCH_URL = "https://html.duckduckgo.com/html/"
+_STARTPAGE_SEARCH_URL = "https://www.startpage.com/sp/search"
 _BING_SEARCH_URL = "https://www.bing.com/search"
 _HEADERS = {
     "User-Agent": (
@@ -132,18 +134,22 @@ def search_web(query: str, limit: int = 10) -> list[WebSearchResult]:
     provider = settings.web_search_provider.lower()
     if provider == "serpapi":
         return _search_serpapi(query, effective_limit)
+    if provider == "startpage":
+        return _search_startpage(query, effective_limit)
     if provider == "bing":
         return _search_bing(query, effective_limit)
 
-    # Default: DuckDuckGo first, Bing fallback. DuckDuckGo often returns a
-    # 202 challenge page in server environments, which parses as zero results.
-    try:
-        results = _search_duckduckgo(query, effective_limit)
-    except WebSearchError:
-        results = []
-    if results:
-        return results
-    return _search_bing(query, effective_limit)
+    # Default: try no-key providers in order. DuckDuckGo often returns a 202
+    # challenge page in server environments. Bing can over-match Vietnamese
+    # function words, so Startpage is preferred when available.
+    for searcher in (_search_duckduckgo, _search_startpage, _search_bing):
+        try:
+            results = _rank_results(query, searcher(query, effective_limit * 2))
+        except WebSearchError:
+            results = []
+        if results:
+            return results[:effective_limit]
+    return []
 
 
 def _search_duckduckgo(query: str, limit: int) -> list[WebSearchResult]:
@@ -192,6 +198,77 @@ def _search_duckduckgo(query: str, limit: int) -> list[WebSearchResult]:
                 snippet=snippet,
                 domain=domain,
                 favicon_url=favicon_url,
+            )
+        )
+
+    return results
+
+
+def _search_startpage(query: str, limit: int) -> list[WebSearchResult]:
+    """Parse Startpage HTML search results as a no-key fallback."""
+    try:
+        response = requests.get(
+            _STARTPAGE_SEARCH_URL,
+            params={"query": query},
+            headers=_HEADERS,
+            timeout=15,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise WebSearchError(f"Startpage search failed: {exc}") from exc
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    results: list[WebSearchResult] = []
+    seen_urls: set[str] = set()
+
+    for result_div in soup.select(".result"):
+        if len(results) >= limit:
+            break
+
+        candidates: list[tuple[str, str]] = []
+        for anchor in result_div.select("a[href^='http']"):
+            raw_url = str(anchor.get("href", ""))
+            domain = _extract_domain(raw_url)
+            if not raw_url.startswith(("http://", "https://")):
+                continue
+            if "startpage.com" in domain or "startpage.info" in domain:
+                continue
+            text = anchor.get_text(" ", strip=True)
+            if text:
+                candidates.append((raw_url, text))
+
+        if not candidates:
+            continue
+
+        url = candidates[0][0]
+        if url in seen_urls:
+            continue
+
+        domain = _extract_domain(url)
+        title_candidates = [
+            text
+            for candidate_url, text in candidates
+            if candidate_url == url
+            and not text.startswith(("http://", "https://"))
+            and "›" not in text
+            and text.lower() != domain.lower()
+        ]
+        title = max(title_candidates, key=len, default=domain)
+        if title.startswith(("http://", "https://")) or title == domain:
+            title = domain
+
+        full_text = result_div.get_text(" ", strip=True)
+        snippet = _extract_startpage_snippet(full_text, title, url, domain)
+
+        seen_urls.add(url)
+        results.append(
+            WebSearchResult(
+                title=title,
+                url=url,
+                snippet=snippet,
+                domain=domain,
+                favicon_url=_favicon_url(domain),
             )
         )
 
@@ -372,6 +449,74 @@ def _extract_domain(url: str) -> str:
 def _favicon_url(domain: str) -> str:
     """Use Google's favicon service for reliable favicon resolution."""
     return f"https://www.google.com/s2/favicons?domain={domain}&sz=32"
+
+
+def _rank_results(query: str, results: list[WebSearchResult]) -> list[WebSearchResult]:
+    """Prefer results that match meaningful query tokens in title/snippet/url."""
+    required_tokens = _meaningful_query_tokens(query)
+    if not required_tokens:
+        return results
+
+    scored: list[tuple[int, int, WebSearchResult]] = []
+    for index, result in enumerate(results):
+        haystack = _normalize_search_text(
+            f"{result.title} {result.snippet} {result.url} {result.domain}"
+        )
+        score = sum(1 for token in required_tokens if token in haystack)
+        scored.append((score, -index, result))
+
+    max_score = max((score for score, _, _ in scored), default=0)
+    if max_score == 0:
+        return results
+
+    minimum_score = max(1, min(2, len(required_tokens)))
+    filtered = [item for item in scored if item[0] >= minimum_score]
+    filtered.sort(reverse=True)
+    return [result for _, _, result in filtered]
+
+
+def _meaningful_query_tokens(query: str) -> list[str]:
+    stopwords = {
+        "a",
+        "an",
+        "and",
+        "cau",
+        "cua",
+        "for",
+        "hoi",
+        "la",
+        "the",
+        "ve",
+        "về",
+        "what",
+        "with",
+    }
+    normalized = _normalize_search_text(query)
+    tokens = re.findall(r"[a-z0-9][a-z0-9+#.-]*", normalized)
+    return [
+        token
+        for token in tokens
+        if len(token) >= 3 and token not in stopwords
+    ]
+
+
+def _normalize_search_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_text = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return ascii_text.lower()
+
+
+def _extract_startpage_snippet(
+    full_text: str,
+    title: str,
+    url: str,
+    domain: str,
+) -> str:
+    snippet = full_text
+    for part in (title, url, domain, "Visit in Anonymous View"):
+        snippet = snippet.replace(part, " ")
+    snippet = re.sub(r"\s+", " ", snippet).strip()
+    return snippet[:500]
 
 
 def _clean_ddg_url(raw: str) -> str:

@@ -45,3 +45,56 @@ def test_search_web_falls_back_to_bing(monkeypatch) -> None:
     assert results[0].title == "Tư tưởng Hồ Chí Minh"
     assert results[0].url == "https://example.edu/article"
     assert results[0].domain == "example.edu"
+
+
+def test_startpage_parser_extracts_relevant_result(monkeypatch) -> None:
+    html = """
+    <html><body>
+      <div class="result">
+        <a class="result-link" href="https://itviec.com/blog/cau-hoi-phong-van-java-spring-boot/">ITviec</a>
+        <a class="result-link" href="https://itviec.com/blog/cau-hoi-phong-van-java-spring-boot/">
+          https://itviec.com › blog › cau-hoi-phong-van-java-spring-boot
+        </a>
+        <a class="result-link" href="https://itviec.com/blog/cau-hoi-phong-van-java-spring-boot/">
+          Top 45+ câu hỏi phỏng vấn Java Spring Boot thường gặp - ITviec Blog
+        </a>
+        <p>Tổng hợp các câu hỏi phỏng vấn Java Spring Boot thường gặp.</p>
+      </div>
+    </body></html>
+    """
+
+    class Response:
+        text = html
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(web_search_service.requests, "get", lambda *args, **kwargs: Response())
+
+    results = web_search_service._search_startpage("câu hỏi phỏng vấn java spring boot", 10)
+
+    assert len(results) == 1
+    assert results[0].title == "Top 45+ câu hỏi phỏng vấn Java Spring Boot thường gặp - ITviec Blog"
+    assert results[0].url == "https://itviec.com/blog/cau-hoi-phong-van-java-spring-boot/"
+
+
+def test_rank_results_filters_broad_function_word_matches() -> None:
+    broad = web_search_service.WebSearchResult(
+        title="Các loại câu trong tiếng Việt",
+        url="https://example.test/cau",
+        snippet="Bài viết về câu đơn và câu ghép.",
+        domain="example.test",
+    )
+    relevant = web_search_service.WebSearchResult(
+        title="Câu hỏi phỏng vấn Java Spring Boot",
+        url="https://example.test/java-spring-boot",
+        snippet="Danh sách câu hỏi Java và Spring Boot.",
+        domain="example.test",
+    )
+
+    ranked = web_search_service._rank_results(
+        "câu hỏi phỏng vấn java spring boot",
+        [broad, relevant],
+    )
+
+    assert ranked == [relevant]
