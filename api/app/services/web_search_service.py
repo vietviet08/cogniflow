@@ -1,17 +1,19 @@
 """
-Web Search Service — DuckDuckGo-based web search + URL preview.
+Web Search Service — web search + URL preview.
 
 Provides two main capabilities:
 1. search_web(): keyword → list of web results (title, url, snippet, domain)
 2. fetch_web_preview(): url → scraped preview (title, content, tags, meta)
 
-Designed to be swappable with SerpAPI / Tavily by changing the provider in config.
+Designed to be swappable with SerpAPI or provider-specific search by changing
+the provider in config.
 """
 from __future__ import annotations
 
+import base64
 import re
 from typing import Any
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -101,16 +103,21 @@ class WebPreviewResult:
 
 
 # ---------------------------------------------------------------------------
-# DuckDuckGo search (no API key required)
+# Search providers
 # ---------------------------------------------------------------------------
 
 _DDG_SEARCH_URL = "https://html.duckduckgo.com/html/"
+_BING_SEARCH_URL = "https://www.bing.com/search"
 _HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+_BING_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
 }
 
 
@@ -122,11 +129,21 @@ def search_web(query: str, limit: int = 10) -> list[WebSearchResult]:
     settings = get_settings()
     effective_limit = min(limit, settings.web_search_max_results)
 
-    provider = settings.web_search_provider
+    provider = settings.web_search_provider.lower()
     if provider == "serpapi":
         return _search_serpapi(query, effective_limit)
-    # Default: DuckDuckGo (no key required)
-    return _search_duckduckgo(query, effective_limit)
+    if provider == "bing":
+        return _search_bing(query, effective_limit)
+
+    # Default: DuckDuckGo first, Bing fallback. DuckDuckGo often returns a
+    # 202 challenge page in server environments, which parses as zero results.
+    try:
+        results = _search_duckduckgo(query, effective_limit)
+    except WebSearchError:
+        results = []
+    if results:
+        return results
+    return _search_bing(query, effective_limit)
 
 
 def _search_duckduckgo(query: str, limit: int) -> list[WebSearchResult]:
@@ -175,6 +192,62 @@ def _search_duckduckgo(query: str, limit: int) -> list[WebSearchResult]:
                 snippet=snippet,
                 domain=domain,
                 favicon_url=favicon_url,
+            )
+        )
+
+    return results
+
+
+def _search_bing(query: str, limit: int) -> list[WebSearchResult]:
+    """Parse Bing HTML search results as a no-key fallback."""
+    try:
+        response = requests.get(
+            _BING_SEARCH_URL,
+            params={"q": query, "count": limit},
+            headers=_BING_HEADERS,
+            timeout=15,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise WebSearchError(f"Bing search failed: {exc}") from exc
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    results: list[WebSearchResult] = []
+    seen_urls: set[str] = set()
+
+    for result_item in soup.select("li.b_algo"):
+        if len(results) >= limit:
+            break
+
+        title_tag = result_item.select_one("h2 a")
+        if not title_tag:
+            continue
+
+        url = _clean_bing_url(str(title_tag.get("href", "")))
+        if not url or not url.startswith(("http://", "https://")):
+            continue
+        if _extract_domain(url).endswith("bing.com"):
+            continue
+        if url in seen_urls:
+            continue
+
+        title = title_tag.get_text(" ", strip=True)
+        if not title:
+            continue
+
+        snippet_tag = result_item.select_one(".b_caption p") or result_item.select_one("p")
+        snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
+        domain = _extract_domain(url)
+
+        seen_urls.add(url)
+        results.append(
+            WebSearchResult(
+                title=title,
+                url=url,
+                snippet=snippet,
+                domain=domain,
+                favicon_url=_favicon_url(domain),
             )
         )
 
@@ -316,6 +389,29 @@ def _clean_ddg_url(raw: str) -> str:
             from urllib.parse import unquote
             return unquote(match.group(1))
     return raw
+
+
+def _clean_bing_url(raw: str) -> str:
+    """Bing wraps outbound URLs in /ck/a links. Decode the real target."""
+    if not raw:
+        return ""
+
+    parsed = urlparse(raw)
+    if parsed.netloc.endswith("bing.com") and parsed.path.startswith("/ck/"):
+        encoded_values = parse_qs(parsed.query).get("u", [])
+        if encoded_values:
+            encoded = encoded_values[0]
+            if encoded.startswith("a1"):
+                encoded = encoded[2:]
+            try:
+                padding = "=" * (-len(encoded) % 4)
+                decoded = base64.urlsafe_b64decode(f"{encoded}{padding}").decode("utf-8")
+                if decoded.startswith(("http://", "https://")):
+                    return decoded
+            except Exception:
+                pass
+
+    return unquote(raw)
 
 
 # ---------------------------------------------------------------------------
