@@ -85,7 +85,7 @@ export function Sidebar() {
     return (
         <aside
             className={cn(
-                "relative flex h-screen shrink-0 flex-col border-r border-border bg-card transition-[width] duration-200",
+                "holo-surface relative flex h-screen shrink-0 flex-col border-r border-border/70 bg-card/65 transition-[width] duration-200",
                 collapsed ? "w-[4.5rem]" : "w-60",
             )}
         >
@@ -94,7 +94,7 @@ export function Sidebar() {
                 variant="outline"
                 size="icon"
                 onClick={toggleCollapsed}
-                className="absolute -right-4 top-14 z-20 h-8 w-8 rounded-full border-border bg-background shadow-sm"
+                className="absolute -right-4 top-14 z-20 h-8 w-8 rounded-full border-border bg-card shadow-sm"
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -110,20 +110,20 @@ export function Sidebar() {
                 href="/"
                 aria-label="Go to home"
                 className={cn(
-                    "flex items-center border-b border-border py-5 transition-colors hover:bg-accent/30",
+                    "flex items-center border-b border-border/70 py-5 transition-colors hover:bg-accent/30",
                     collapsed ? "justify-center px-3" : "gap-2.5 px-5",
                 )}
             >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary text-primary-foreground shadow-sm">
                     <BrainCircuit className="h-4 w-4" />
                 </div>
                 {!collapsed ? (
                     <div className="flex min-w-0 flex-1 flex-col leading-tight">
-                        <span className="text-sm font-semibold text-foreground">
+                        <span className="holo-text font-display text-sm font-semibold">
                             NoteMesh
                         </span>
-                        <span className="text-[10px] text-muted-foreground">
-                            AI Research
+                        <span className="text-[10px] font-medium text-muted-foreground">
+                            Research OS
                         </span>
                     </div>
                 ) : null}
@@ -146,15 +146,16 @@ export function Sidebar() {
                             href={href}
                             title={collapsed ? label : undefined}
                             className={cn(
-                                "group flex items-center rounded-lg text-sm font-medium transition-all duration-150",
+                                "group relative flex items-center overflow-hidden rounded-lg text-sm font-medium transition-all duration-150",
                                 collapsed
                                     ? "justify-center px-2 py-2.5"
                                     : "gap-3 px-3 py-2",
                                 active
-                                    ? "bg-primary/10 text-primary"
-                                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                                    ? "border border-primary/25 bg-primary/10 text-primary"
+                                    : "text-muted-foreground hover:bg-accent/70 hover:text-accent-foreground",
                             )}
                         >
+                            <span className="pointer-events-none absolute inset-y-1 left-0 w-px rounded-full bg-primary opacity-0 transition-opacity group-hover:opacity-70" />
                             <Icon
                                 className={cn(
                                     "h-4 w-4 shrink-0 transition-colors",
@@ -191,22 +192,22 @@ export function Sidebar() {
                                         ? "justify-center px-2 py-2.5"
                                         : "gap-3 px-3 py-2",
                                     active
-                                        ? "bg-[#6c63ff]/15 text-[#6c63ff]"
-                                        : "text-muted-foreground hover:bg-[#6c63ff]/10 hover:text-[#6c63ff]",
+                                        ? "border border-primary/20 bg-primary/15 text-primary"
+                                        : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
                                 )}
                             >
                                 {/* Glow background */}
-                                <span className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-r from-[#6c63ff]/0 via-[#6c63ff]/5 to-[#00d8ff]/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <span className="pointer-events-none absolute inset-0 rounded-lg bg-primary/5 opacity-0 transition-opacity group-hover:opacity-100" />
                                 <Icon
                                     className={cn(
                                         "h-4 w-4 shrink-0 transition-colors",
-                                        active ? "text-[#6c63ff]" : "text-muted-foreground group-hover:text-[#6c63ff]",
+                                        active ? "text-primary" : "text-muted-foreground group-hover:text-primary",
                                     )}
                                 />
                                 {!collapsed ? (
                                     <>
                                         {label}
-                                        <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-[#6c63ff]/20 text-[#6c63ff] font-semibold">
+                                        <span className="ml-auto rounded-full border border-primary/20 bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
                                             NEW
                                         </span>
                                     </>
@@ -220,12 +221,12 @@ export function Sidebar() {
             {/* Footer */}
             <div
                 className={cn(
-                    "border-t border-border py-3",
+                    "border-t border-border/70 py-3",
                     collapsed ? "px-2" : "px-3",
                 )}
             >
                 {!collapsed && user ? (
-                    <div className="mb-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                    <div className="mb-2 rounded-lg border border-border/70 bg-muted/35 px-3 py-2 backdrop-blur">
                         <p className="text-xs font-medium text-foreground truncate">
                             {user.display_name}
                         </p>
