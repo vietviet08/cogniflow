@@ -37,6 +37,7 @@ interface WebSourceDiscoveryProps {
     /** Set of source URLs already added to the project */
     addedUrls: Set<string>;
     onSourceAdded: () => void;
+    compact?: boolean;
 }
 
 export function WebSourceDiscovery({
@@ -44,6 +45,7 @@ export function WebSourceDiscovery({
     canMutate,
     addedUrls,
     onSourceAdded,
+    compact = false,
 }: WebSourceDiscoveryProps) {
     const [query, setQuery] = useState("");
     const [isSearching, setIsSearching] = useState(false);
@@ -58,7 +60,6 @@ export function WebSourceDiscovery({
     // Track URLs added during this session for instant feedback
     const [locallyAdded, setLocallyAdded] = useState<Set<string>>(new Set());
 
-    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     const isAdded = (url: string) => addedUrls.has(url) || locallyAdded.has(url);
@@ -95,13 +96,10 @@ export function WebSourceDiscovery({
 
     function handleQueryChange(value: string) {
         setQuery(value);
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => runSearch(value), 600);
     }
 
     function handleSearchSubmit(e: React.FormEvent) {
         e.preventDefault();
-        if (debounceRef.current) clearTimeout(debounceRef.current);
         runSearch(query);
     }
 
@@ -160,7 +158,7 @@ export function WebSourceDiscovery({
     // ----------------------------------------------------------------
 
     return (
-        <div className="flex flex-col gap-4 h-full">
+        <div className="flex h-full flex-col gap-4">
             {/* Search Bar */}
             <form onSubmit={handleSearchSubmit} className="flex gap-2">
                 <div className="relative flex-1">
@@ -189,9 +187,9 @@ export function WebSourceDiscovery({
             </form>
 
             {/* Body: split pane when results exist */}
-            <div className="flex gap-4 flex-col lg:flex-row min-h-0 flex-1">
+            <div className={compact ? "flex min-h-0 flex-1 flex-col gap-4" : "flex min-h-0 flex-1 flex-col gap-4 lg:flex-row"}>
                 {/* Left: Results List */}
-                <div className="flex flex-col gap-2 lg:w-96 lg:min-w-96 min-h-[200px]">
+                <div className={compact ? "flex min-h-[200px] flex-col gap-2" : "flex min-h-[200px] flex-col gap-2 lg:w-96 lg:min-w-96"}>
                     {isSearching && (
                         <div className="flex flex-col items-center justify-center gap-3 py-10 text-muted-foreground">
                             <Loader2 className="h-6 w-6 animate-spin text-primary" />
