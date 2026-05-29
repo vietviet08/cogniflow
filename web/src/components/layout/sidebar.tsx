@@ -94,7 +94,7 @@ export function Sidebar() {
                 variant="outline"
                 size="icon"
                 onClick={toggleCollapsed}
-                className="absolute -right-4 top-14 z-20 h-8 w-8 rounded-full border-primary/20 bg-card/80 shadow-[0_0_20px_color-mix(in_oklch,var(--color-primary)_18%,transparent)]"
+                className="absolute -right-4 top-14 z-20 h-8 w-8 rounded-full border-border bg-card shadow-sm"
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
@@ -114,7 +114,7 @@ export function Sidebar() {
                     collapsed ? "justify-center px-3" : "gap-2.5 px-5",
                 )}
             >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-[linear-gradient(135deg,var(--color-primary),var(--color-accent),oklch(0.66_0.19_286))] text-primary-foreground shadow-[0_0_24px_color-mix(in_oklch,var(--color-primary)_28%,transparent)]">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary text-primary-foreground shadow-sm">
                     <BrainCircuit className="h-4 w-4" />
                 </div>
                 {!collapsed ? (
@@ -151,7 +151,7 @@ export function Sidebar() {
                                     ? "justify-center px-2 py-2.5"
                                     : "gap-3 px-3 py-2",
                                 active
-                                    ? "border border-primary/20 bg-primary/10 text-primary shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-primary)_16%,transparent),0_0_22px_color-mix(in_oklch,var(--color-primary)_12%,transparent)]"
+                                    ? "border border-primary/25 bg-primary/10 text-primary"
                                     : "text-muted-foreground hover:bg-accent/70 hover:text-accent-foreground",
                             )}
                         >
@@ -166,7 +166,7 @@ export function Sidebar() {
                             />
                             {!collapsed ? label : null}
                             {active && !collapsed && (
-                                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_10px_var(--color-primary)]" />
+                                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
                             )}
                         </Link>
                     );
@@ -197,7 +197,7 @@ export function Sidebar() {
                                 )}
                             >
                                 {/* Glow background */}
-                                <span className="pointer-events-none absolute inset-0 rounded-lg bg-gradient-to-r from-primary/0 via-primary/10 to-accent/10 opacity-0 transition-opacity group-hover:opacity-100" />
+                                <span className="pointer-events-none absolute inset-0 rounded-lg bg-primary/5 opacity-0 transition-opacity group-hover:opacity-100" />
                                 <Icon
                                     className={cn(
                                         "h-4 w-4 shrink-0 transition-colors",

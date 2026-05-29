@@ -9,14 +9,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "border border-primary/30 bg-[linear-gradient(135deg,var(--color-primary),var(--color-accent),oklch(0.66_0.19_286))] text-primary-foreground shadow-[0_10px_28px_color-mix(in_oklch,var(--color-primary)_22%,transparent)] hover:brightness-110 hover:shadow-[0_14px_36px_color-mix(in_oklch,var(--color-primary)_30%,transparent)]",
+          "border border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:shadow",
         destructive:
-          "border border-destructive/25 bg-destructive text-destructive-foreground shadow-[0_10px_26px_color-mix(in_oklch,var(--color-destructive)_18%,transparent)] hover:bg-destructive/90",
+          "border border-destructive bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:
-          "border border-input bg-card/50 shadow-sm backdrop-blur hover:border-primary/35 hover:bg-primary/10 hover:text-foreground hover:shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_14%,transparent)]",
+          "border border-input bg-card shadow-sm hover:border-primary/45 hover:bg-accent hover:text-accent-foreground",
         secondary:
-          "border border-border/80 bg-secondary/75 text-secondary-foreground shadow-sm backdrop-blur hover:border-accent/40 hover:bg-secondary",
-        ghost: "hover:bg-accent/70 hover:text-accent-foreground hover:shadow-[inset_0_0_0_1px_var(--color-border)]",
+          "border border-border bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/85",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

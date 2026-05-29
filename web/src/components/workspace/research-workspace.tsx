@@ -471,7 +471,7 @@ export function ResearchWorkspace() {
 function WorkspaceResizeHandle() {
   return (
     <ResizableHandle className="group flex w-3 cursor-col-resize items-center justify-center bg-transparent transition-colors hover:bg-primary/5">
-      <div className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-hover:shadow-[0_0_14px_var(--color-primary)]" />
+      <div className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/50" />
     </ResizableHandle>
   );
 }
@@ -535,7 +535,7 @@ function MobileWorkspaceTabs({
             className={cn(
               "flex flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors",
               activeTab === value
-                ? "bg-primary/15 text-primary shadow-[0_0_18px_color-mix(in_oklch,var(--color-primary)_16%,transparent)]"
+                ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
             )}
           >
@@ -705,7 +705,7 @@ function WorkspaceEmptyState() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-transparent p-6">
       <div className="holo-surface holo-edge w-full max-w-lg rounded-xl p-8 text-center shadow-xl">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary shadow-[0_0_28px_color-mix(in_oklch,var(--color-primary)_22%,transparent)]">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-sm">
           <BrainCircuit className="h-6 w-6" />
         </div>
         <h1 className="holo-text font-display text-xl font-semibold">Select a project first</h1>
@@ -735,7 +735,7 @@ function WorkspaceTopBar({ activeProject }: { activeProject: StoredProject }) {
   return (
     <header className="holo-surface flex h-14 shrink-0 items-center justify-between rounded-none border-x-0 border-t-0 border-border/70 bg-card/80 px-4 backdrop-blur-xl">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-[linear-gradient(135deg,var(--color-primary),var(--color-accent),oklch(0.66_0.19_286))] text-primary-foreground shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_24%,transparent)]">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary text-primary-foreground shadow-sm">
           <BrainCircuit className="h-4 w-4" />
         </div>
         <div className="min-w-0">
@@ -803,7 +803,7 @@ function PanelFrame({
     <section className="flex h-full min-h-0 flex-col bg-transparent">
       <div className="holo-surface flex shrink-0 items-start justify-between gap-3 rounded-none border-x-0 border-t-0 border-border/70 bg-card/60 px-4 py-3 backdrop-blur-xl">
         <div className="flex min-w-0 items-start gap-2.5">
-          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/15 text-primary shadow-[0_0_18px_color-mix(in_oklch,var(--color-primary)_14%,transparent)] dark:bg-primary/15">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary dark:bg-primary/15">
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
@@ -1133,9 +1133,9 @@ function SourceRow({
       className={cn(
         "holo-edge rounded-lg border bg-card/68 p-3 backdrop-blur transition-colors",
         selected
-          ? "border-primary/50 bg-primary/10 shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_14%,transparent)] dark:bg-primary/10"
+          ? "border-primary/50 bg-primary/10 dark:bg-primary/10"
           : "border-border/70 hover:border-primary/25",
-        highlighted && "border-warning bg-warning/10 shadow-[0_0_26px_color-mix(in_oklch,var(--color-warning)_18%,transparent)] dark:bg-warning/15",
+        highlighted && "border-warning bg-warning/10 shadow-sm dark:bg-warning/15",
       )}
     >
       <div className="flex items-start gap-3">
@@ -1473,7 +1473,7 @@ function ChatMessageCard({
       className={cn(
         "holo-edge rounded-lg border p-4 backdrop-blur",
         isAssistant
-          ? "border-primary/20 bg-card/82 shadow-[0_0_24px_color-mix(in_oklch,var(--color-primary)_8%,transparent)] dark:bg-card/80"
+          ? "border-primary/20 bg-card/82 shadow-sm dark:bg-card/80"
           : "ml-auto max-w-[88%] border-border/70 bg-muted/55 dark:bg-muted/40",
       )}
     >
@@ -2144,7 +2144,7 @@ function ArtifactCard({
       className={cn(
         "holo-edge w-full rounded-lg border bg-card/78 p-3 text-left backdrop-blur transition-colors hover:border-primary/30 dark:bg-card/75",
         selected
-          ? "border-primary/50 bg-primary/10 shadow-[0_0_24px_color-mix(in_oklch,var(--color-primary)_14%,transparent)] dark:bg-primary/10"
+          ? "border-primary/50 bg-primary/10 dark:bg-primary/10"
           : "border-border/70",
       )}
     >
@@ -2176,7 +2176,7 @@ function ArtifactSkeletonCard({ type }: { type: ReportType }) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="holo-edge rounded-lg border border-primary/20 bg-primary/10 p-3 shadow-[0_0_22px_color-mix(in_oklch,var(--color-primary)_12%,transparent)]"
+      className="holo-edge rounded-lg border border-primary/20 bg-primary/10 p-3 shadow-sm"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-background text-primary">

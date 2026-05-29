@@ -98,7 +98,7 @@ export default function HomePage() {
     return (
         <PageWrapper>
             {/* Hero */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-border p-8">
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-8 shadow-sm">
                 <div className="relative z-10 flex flex-col gap-3 max-w-xl">
                     <div className="flex items-center gap-2">
                         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md">
@@ -118,8 +118,6 @@ export default function HomePage() {
                         natural language.
                     </p>
                 </div>
-                {/* Decorative */}
-                <div className="pointer-events-none absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-primary/5 to-transparent" />
             </div>
 
             {/* Quick Links */}

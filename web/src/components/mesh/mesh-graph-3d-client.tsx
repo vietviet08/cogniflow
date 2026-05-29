@@ -100,7 +100,6 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
     return (
         <div className={graphShellClass}>
             <div ref={containerRef} className="relative h-full min-w-0 flex-1 overflow-hidden border-r border-border/70 bg-background">
-                <div className="pointer-events-none absolute inset-0 z-10 bg-[radial-gradient(circle_at_18%_12%,color-mix(in_oklch,var(--color-primary)_18%,transparent),transparent_34%),radial-gradient(circle_at_85%_8%,color-mix(in_oklch,var(--color-accent)_18%,transparent),transparent_30%)]" />
                 <ForceGraph3D
                     ref={graphRef}
                     width={dimensions.width}
