@@ -4,6 +4,42 @@ from app.services import report_service
 from app.storage.models import Chunk, Document, ProcessingRun, Project, Report, Source
 
 
+def test_combine_mp3_segments_strips_nested_id3_metadata(tmp_path):
+    first = tmp_path / "first.mp3"
+    second = tmp_path / "second.mp3"
+    output = tmp_path / "combined.mp3"
+    first.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x64" + (b"\x00" * 256))
+    second.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x64" + (b"\x01" * 256))
+
+    report_service._combine_mp3_segments([str(first), str(second)], str(output))
+
+    combined = output.read_bytes()
+    assert report_service.podcast_audio_file_is_playable(str(output))
+    assert combined.startswith(b"ID3")
+    assert combined.count(b"ID3") == 1
+    assert combined.count(b"\xff\xfb") == 2
+
+
+def test_podcast_tts_text_is_sanitized_and_split_for_edge_tts():
+    text = (
+        "Xin chào **Host A**, xem https://example.com để biết thêm. "
+        + "Đây là một câu rất dài " * 80
+    )
+
+    chunks = report_service._split_podcast_tts_text(text, max_chars=120)
+
+    assert chunks
+    assert all(len(chunk) <= 120 for chunk in chunks)
+    assert all("http" not in chunk for chunk in chunks)
+    assert all("*" not in chunk for chunk in chunks)
+
+
+def test_vietnamese_detection_handles_diacritics_and_common_unaccented_words():
+    assert report_service.is_vietnamese("Xin chào, đây là nội dung tiếng Việt.")
+    assert report_service.is_vietnamese("Chung ta se noi ve cac phat hien trong tai lieu nay.")
+    assert not report_service.is_vietnamese("This is an English podcast script.")
+
+
 def test_generate_action_items_report_persists_structured_payload(db_session, monkeypatch):
     project = Project(name="Actionable Outputs", description="test")
     db_session.add(project)

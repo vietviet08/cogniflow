@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 from app.api.routes import reports as report_route_module
 from app.storage.models import (
@@ -275,6 +276,86 @@ def test_generate_mind_map_report_returns_structured_payload(client, monkeypatch
     body = response.json()
     assert body["data"]["type"] == "mind_map"
     assert body["data"]["structured_payload"]["nodes"][0]["label"] == "Main topic"
+
+
+def test_get_podcast_audio_returns_playable_mpeg(client, db_session, monkeypatch, tmp_path):
+    project = _create_project(client)
+    report = Report(
+        project_id=uuid.UUID(project["id"]),
+        query="Create a podcast",
+        title="Podcast: Create a podcast",
+        report_type="podcast",
+        format="markdown",
+        content="# Podcast",
+        structured_payload={
+            "overview": "A source-grounded discussion.",
+            "dialogue": [
+                {"speaker": "Host A", "text": "What should we review?", "citations": []},
+                {"speaker": "Host B", "text": "Review the indexed findings.", "citations": []},
+            ],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    audio_bytes = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x64" + (b"\x00" * 256)
+
+    def fake_generate_podcast_audio(report_id, dialogue_payload):
+        podcast_dir = tmp_path / "podcasts"
+        podcast_dir.mkdir(parents=True, exist_ok=True)
+        audio_path = podcast_dir / f"{report_id}.mp3"
+        audio_path.write_bytes(audio_bytes)
+        return str(audio_path)
+
+    monkeypatch.setattr(report_route_module, "get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
+    monkeypatch.setattr(report_route_module, "generate_podcast_audio", fake_generate_podcast_audio)
+
+    response = client.get(f"/api/v1/reports/{report.id}/podcast-audio")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert response.content == audio_bytes
+
+
+def test_get_podcast_audio_generation_failure_returns_edge_tts_error(
+    client, db_session, monkeypatch, tmp_path
+):
+    project = _create_project(client)
+    report = Report(
+        project_id=uuid.UUID(project["id"]),
+        query="Create a podcast",
+        title="Podcast: Create a podcast",
+        report_type="podcast",
+        format="markdown",
+        content="# Podcast",
+        structured_payload={
+            "overview": "A source-grounded discussion.",
+            "dialogue": [{"speaker": "Host A", "text": "Start the show.", "citations": []}],
+        },
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    def fake_generate_podcast_audio(report_id, dialogue_payload):
+        raise RuntimeError("403 wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud")
+
+    monkeypatch.setattr(report_route_module, "get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
+    monkeypatch.setattr(report_route_module, "generate_podcast_audio", fake_generate_podcast_audio)
+
+    response = client.get(f"/api/v1/reports/{report.id}/podcast-audio")
+
+    assert response.status_code == 502
+    body = response.json()
+    assert body["error"]["code"] == "PODCAST_AUDIO_GENERATION_FAILED"
+    assert body["error"]["message"] == "Failed to generate podcast audio with edge-tts."
+    assert body["error"]["details"]["reason"] == "RuntimeError"
+    assert "speech.platform.bing.com" not in body["error"]["message"]
 
 
 def test_get_report_returns_structured_payload(client, db_session):

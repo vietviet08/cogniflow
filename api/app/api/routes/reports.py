@@ -1,26 +1,32 @@
+import os
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.contracts.common import error_response, success_response
+from app.contracts.common import APIError, error_response, success_response
 from app.core.config import get_settings
 from app.core.security import require_current_user, require_project_role
 from app.services.evaluation_service import evaluate_report_quality
 from app.services.report_service import (
     ReportError,
     create_quiz_attempt,
+    generate_podcast_audio,
     generate_report,
     get_report_lineage,
     list_quiz_attempts,
+    podcast_audio_file_is_playable,
     serialize_report,
     update_action_item_status,
 )
 from app.storage.models import User
+from app.storage.repositories.auth_token_repository import AuthTokenRepository
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.report_repository import ReportRepository
+from app.storage.repositories.user_repository import UserRepository
 from app.workers.tasks import run_job
 
 router = APIRouter(prefix="/reports")
@@ -256,3 +262,91 @@ def get_report_quality_route(
         )
     require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
     return success_response(request, evaluate_report_quality(db, report_id))
+
+def require_current_user_podcast(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> User:
+    raw_token = token
+    if not raw_token:
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise APIError(
+                code="AUTH_REQUIRED",
+                message="Missing bearer token.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+        raw_token = authorization.split(" ", maxsplit=1)[1]
+
+    token_obj = AuthTokenRepository(db).resolve(raw_token)
+    if token_obj is None:
+        raise APIError(
+            code="AUTH_INVALID_TOKEN",
+            message="Bearer token is invalid or revoked.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    user = UserRepository(db).get(token_obj.user_id)
+    if user is None or not user.is_active:
+        raise APIError(
+            code="AUTH_USER_INACTIVE",
+            message="Authenticated user is unavailable.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    return user
+
+
+@router.get("/{report_id}/podcast-audio")
+def get_report_podcast_audio_route(
+    report_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_current_user_podcast),
+):
+    report = ReportRepository(db).get(report_id)
+    if not report:
+        raise APIError(
+            code="REPORT_NOT_FOUND",
+            message="Report does not exist",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    require_project_role(db, project_id=report.project_id, user=current_user, minimum_role="viewer")
+
+    if report.report_type != "podcast":
+        raise APIError(
+            code="REPORT_TYPE_INVALID",
+            message="Audio generation is only supported for podcast reports.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Resolve audio path
+    podcast_dir = os.path.join(get_settings().upload_dir, "podcasts")
+    audio_path = os.path.join(podcast_dir, f"{report.id}.mp3")
+
+    # If audio does not exist yet or a previous attempt left a corrupt file, generate it on-the-fly.
+    if not podcast_audio_file_is_playable(audio_path):
+        try:
+            generate_podcast_audio(report.id, report.structured_payload or {})
+        except Exception as exc:
+            raise APIError(
+                code="PODCAST_AUDIO_GENERATION_FAILED",
+                message="Failed to generate podcast audio with edge-tts.",
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                details={"reason": exc.__class__.__name__},
+            ) from exc
+
+    if not podcast_audio_file_is_playable(audio_path):
+        raise APIError(
+            code="PODCAST_AUDIO_MISSING",
+            message="Podcast audio file could not be found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    return FileResponse(
+        audio_path,
+        media_type="audio/mpeg",
+        filename=f"podcast-{report_id}.mp3",
+        content_disposition_type="inline",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

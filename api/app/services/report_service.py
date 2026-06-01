@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import unicodedata
 import uuid
@@ -329,6 +330,42 @@ Evidence:
 {evidence}
 """
 
+_PODCAST_PROMPT_TEMPLATE = """\
+You are an expert podcast scriptwriter. Based ONLY on the evidence below, write an engaging and informative podcast script.
+The podcast features two hosts:
+- Host A (the interviewer/curious host): asks insightful questions, sets the stage, and keeps the conversation lively.
+- Host B (the expert/subject matter expert): explains the concepts clearly based on the provided evidence, uses analogies, and breaks down complex details.
+
+Return a JSON object with EXACTLY this shape:
+{{
+  "overview": "<short overview of the podcast topic>",
+  "dialogue": [
+    {{
+      "speaker": "Host A",
+      "text": "<dialogue text>",
+      "citation_indexes": [1]
+    }},
+    {{
+      "speaker": "Host B",
+      "text": "<dialogue text>",
+      "citation_indexes": [1, 2]
+    }}
+  ]
+}}
+
+Rules:
+- Write between 6 to 12 dialogue turns in total.
+- Keep the tone conversational, natural, and educational.
+- Do not add outside knowledge. Every fact stated by Host B must be grounded in the provided evidence.
+- Do not use markdown inside the dialogue text. Keep it as clean, readable text that can be spoken by a TTS reader.
+- Each dialogue turn must include a "citation_indexes" list containing the integer index of the evidence that supports the statements in that turn.
+
+User request / topic: {query}
+
+Evidence:
+{evidence}
+"""
+
 _STRUCTURED_REPORT_TYPES = {
     "action_items",
     "risk_analysis",
@@ -337,10 +374,12 @@ _STRUCTURED_REPORT_TYPES = {
     "quiz",
     "study_guide",
     "mind_map",
+    "podcast",
 }
 _ACTIONABLE_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief"}
 _FLASHCARDS_MAX_CARDS = 40
 _FLASHCARDS_BATCH_SIZE = 10
+
 _QUIZ_MAX_QUESTIONS = 30
 _QUIZ_BATCH_SIZE = 10
 _STUDY_GUIDE_MAX_SECTIONS = 12
@@ -400,6 +439,16 @@ def generate_report(
         )
     if report_type == "mind_map":
         return _generate_mind_map_report(
+            db=db,
+            project_id=project_id,
+            query=query,
+            report_type=report_type,
+            format=format,
+            provider=provider,
+            parent_run_id=parent_run_id,
+        )
+    if report_type == "podcast":
+        return _generate_podcast_report(
             db=db,
             project_id=project_id,
             query=query,
@@ -1239,6 +1288,487 @@ def _generate_mind_map_report(
         "run_id": str(run.id),
         "source_ids": source_ids,
         "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
+    }
+
+
+def is_vietnamese(text: str) -> bool:
+    """Detect Vietnamese text so the podcast uses Vietnamese-capable voices."""
+    normalized = unicodedata.normalize("NFC", text or "").lower()
+    vietnamese_chars = set(
+        "àáảãạăằắẳẵặâầấẩẫậ"
+        "èéẻẽẹêềếểễệ"
+        "ìíỉĩị"
+        "òóỏõọôồốổỗộơờớởỡợ"
+        "ùúủũụưừứửữự"
+        "ỳýỷỹỵđ"
+    )
+    if any(char in vietnamese_chars for char in normalized):
+        return True
+
+    words = set(re.findall(r"\b[a-z]+\b", normalized))
+    vietnamese_markers = {
+        "ban",
+        "cac",
+        "cho",
+        "chung",
+        "cua",
+        "dung",
+        "duoc",
+        "hien",
+        "khong",
+        "la",
+        "lieu",
+        "mot",
+        "nay",
+        "nguoi",
+        "nhung",
+        "noi",
+        "phat",
+        "qua",
+        "rang",
+        "se",
+        "ta",
+        "tai",
+        "the",
+        "tieng",
+        "trong",
+        "va",
+        "ve",
+        "viet",
+        "voi",
+    }
+    return len(words & vietnamese_markers) >= 3
+
+
+def _sanitize_podcast_tts_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFC", text or "")
+    normalized = re.sub(r"https?://\S+|www\.\S+", "", normalized)
+    normalized = re.sub(r"[\*_`#>\[\]{}|~^]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return "".join(
+        char
+        for char in normalized.strip()
+        if unicodedata.category(char)[0] != "C" and unicodedata.category(char) != "So"
+    )
+
+
+def _split_long_tts_text(text: str, max_chars: int) -> list[str]:
+    chunks: list[str] = []
+    remaining = text.strip()
+    while len(remaining) > max_chars:
+        split_at = max(
+            remaining.rfind(separator, 0, max_chars)
+            for separator in (", ", "; ", ": ", " - ", " ")
+        )
+        if split_at <= 0:
+            split_at = max_chars
+        chunk = remaining[:split_at].strip(" ,;:-")
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _split_podcast_tts_text(text: str, max_chars: int = 700) -> list[str]:
+    sanitized = _sanitize_podcast_tts_text(text)
+    if not sanitized:
+        return []
+
+    chunks: list[str] = []
+    current = ""
+    sentences = re.split(r"(?<=[.!?;:])\s+", sanitized)
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_long_tts_text(sentence, max_chars))
+            continue
+        candidate = f"{current} {sentence}".strip()
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        current = sentence
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _has_mp3_frame(data: bytes) -> bool:
+    offset = 0
+    if data.startswith(b"ID3") and len(data) >= 10:
+        tag_size = (
+            ((data[6] & 0x7F) << 21)
+            | ((data[7] & 0x7F) << 14)
+            | ((data[8] & 0x7F) << 7)
+            | (data[9] & 0x7F)
+        )
+        footer_size = 10 if data[5] & 0x10 else 0
+        offset = 10 + tag_size + footer_size
+    return any(
+        data[index] == 0xFF and (data[index + 1] & 0xE0) == 0xE0
+        for index in range(offset, max(offset, len(data) - 1))
+    )
+
+
+def _is_valid_mp3_file(path: str) -> bool:
+    if not os.path.exists(path) or os.path.getsize(path) < 128:
+        return False
+    with open(path, "rb") as file:
+        return _has_mp3_frame(file.read(4096))
+
+
+def podcast_audio_file_is_playable(path: str) -> bool:
+    return _is_valid_mp3_file(path)
+
+
+def _strip_id3v1(data: bytes) -> bytes:
+    if len(data) >= 128 and data[-128:-125] == b"TAG":
+        return data[:-128]
+    return data
+
+
+def _strip_id3v2(data: bytes) -> bytes:
+    if not data.startswith(b"ID3") or len(data) < 10:
+        return data
+    tag_size = (
+        ((data[6] & 0x7F) << 21)
+        | ((data[7] & 0x7F) << 14)
+        | ((data[8] & 0x7F) << 7)
+        | (data[9] & 0x7F)
+    )
+    footer_size = 10 if data[5] & 0x10 else 0
+    return data[10 + tag_size + footer_size :]
+
+
+def _combine_mp3_segments(segment_paths: list[str], output_path: str) -> None:
+    combined = bytearray()
+    for index, path in enumerate(segment_paths):
+        if not _is_valid_mp3_file(path):
+            raise ValueError(f"Generated podcast segment is not a valid MP3: {path}")
+        with open(path, "rb") as file:
+            data = _strip_id3v1(file.read())
+        if index > 0:
+            data = _strip_id3v2(data)
+        combined.extend(data)
+    if not _has_mp3_frame(bytes(combined[:4096])):
+        raise ValueError("Combined podcast audio is not a valid MP3 stream.")
+    with open(output_path, "wb") as file:
+        file.write(combined)
+
+
+import threading
+
+_podcast_locks: dict[uuid.UUID, threading.Lock] = {}
+_podcast_locks_lock = threading.Lock()
+
+
+def get_podcast_lock(report_id: uuid.UUID) -> threading.Lock:
+    with _podcast_locks_lock:
+        if report_id not in _podcast_locks:
+            _podcast_locks[report_id] = threading.Lock()
+        return _podcast_locks[report_id]
+
+
+def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any]) -> str:
+    """Generate and concatenate the speech audio for the podcast dialogue using edge-tts.
+    Returns the absolute path to the combined MP3 file.
+    """
+    import asyncio
+
+    import edge_tts
+
+    from app.core.config import get_settings
+
+    # 1. Create uploads/podcasts folder if missing
+    podcast_dir = os.path.join(get_settings().upload_dir, "podcasts")
+    os.makedirs(podcast_dir, exist_ok=True)
+
+    output_path = os.path.join(podcast_dir, f"{report_id}.mp3")
+
+    # Use a lock per report_id to prevent concurrent generations/writes for the same podcast
+    lock = get_podcast_lock(report_id)
+    with lock:
+        # If already generated, return path immediately
+        if _is_valid_mp3_file(output_path):
+            return output_path
+        if os.path.exists(output_path):
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
+
+        dialogue = dialogue_payload.get("dialogue") or []
+        if not dialogue:
+            raise ValueError("Dialogue is empty")
+
+        # Check all dialogue text so Vietnamese without diacritics in early turns still selects Vietnamese voices.
+        sample_text = " ".join(_coerce_string(turn.get("text")) for turn in dialogue)
+        is_vn = is_vietnamese(sample_text)
+
+        voice_a = "vi-VN-HoaiMyNeural" if is_vn else "en-US-JennyNeural"
+        voice_b = "vi-VN-NamMinhNeural" if is_vn else "en-US-GuyNeural"
+
+        # We will generate each speech turn into a unique temp folder per report
+        temp_dir = os.path.join(get_settings().upload_dir, f"temp_podcast_{report_id}")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        temp_paths: list[str] = []
+
+        async def synthesize_turn(text: str, voice: str, path: str) -> None:
+            last_error: Exception | None = None
+            for attempt in range(3):
+                try:
+                    if os.path.exists(path):
+                        os.unlink(path)
+                    communicate = edge_tts.Communicate(
+                        text,
+                        voice,
+                        receive_timeout=90,
+                    )
+                    await communicate.save(path)
+                    if _is_valid_mp3_file(path):
+                        return
+                    raise ValueError("edge-tts returned an invalid MP3 segment")
+                except Exception as exc:
+                    last_error = exc
+                    if os.path.exists(path):
+                        try:
+                            os.unlink(path)
+                        except OSError:
+                            pass
+                    if attempt < 2:
+                        await asyncio.sleep(0.75 * (attempt + 1))
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError(f"edge-tts did not return playable audio for voice {voice}")
+
+        async def run_synthesis() -> None:
+            for i, turn in enumerate(dialogue):
+                speaker = turn.get("speaker", "Host A")
+                text_chunks = _split_podcast_tts_text(_coerce_string(turn.get("text")))
+                if not text_chunks:
+                    continue
+                voice = voice_a if speaker == "Host A" else voice_b
+                for chunk_index, text_chunk in enumerate(text_chunks):
+                    temp_path = os.path.join(
+                        temp_dir,
+                        f"turn_{i}_{chunk_index}.mp3",
+                    )
+                    temp_paths.append(temp_path)
+                    await synthesize_turn(text_chunk, voice, temp_path)
+
+        temp_output_path = os.path.join(podcast_dir, f"{report_id}.tmp.mp3")
+
+        try:
+            asyncio.run(run_synthesis())
+
+            if not temp_paths:
+                raise ValueError("Dialogue contains no speakable text")
+
+            _combine_mp3_segments(temp_paths, temp_output_path)
+            if not _is_valid_mp3_file(temp_output_path):
+                raise ValueError("Combined podcast audio is not a valid MP3 file.")
+            os.replace(temp_output_path, output_path)
+        finally:
+            # Clean up temporary files and folder
+            if os.path.exists(temp_output_path):
+                try:
+                    os.unlink(temp_output_path)
+                except OSError:
+                    pass
+            for path in temp_paths:
+                if os.path.exists(path):
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+            if os.path.exists(temp_dir):
+                try:
+                    for fname in os.listdir(temp_dir):
+                        try:
+                            os.unlink(os.path.join(temp_dir, fname))
+                        except OSError:
+                            pass
+                    os.rmdir(temp_dir)
+                except OSError:
+                    pass
+
+        return output_path
+
+
+def _generate_podcast_report(
+    *,
+    db: Session,
+    project_id: uuid.UUID,
+    query: str,
+    report_type: str,
+    format: str,
+    provider: str,
+    parent_run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.provider_settings_service import (
+        ProviderSettingsError,
+        normalize_provider,
+        resolve_chat_provider_config,
+    )
+
+    try:
+        answer_provider = normalize_provider(provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
+    except ProviderSettingsError as exc:
+        raise ReportError(str(exc)) from exc
+
+    indexing_result = ensure_project_sources_indexed(
+        db,
+        project_id=project_id,
+        filters=None,
+        trigger="podcast_indexing",
+    )
+    chunks = _load_flashcard_chunks(db, project_id)
+    if not chunks:
+        raise ReportError(
+            "No indexed chunks are available for podcast generation.",
+            code="REPORT_PODCAST_NO_CHUNKS",
+            status_code=409,
+            details={"indexing": indexing_result},
+        )
+
+    # Take up to 15 chunks for the podcast discussion to keep context compact and relevant
+    podcast_chunks = chunks[:15]
+    evidence_blocks, citations = _format_flashcard_evidence(podcast_chunks)
+
+    prompt = _PODCAST_PROMPT_TEMPLATE.format(
+        query=query,
+        evidence=evidence_blocks,
+    )
+
+    raw_payload = _call_llm_json(
+        prompt=prompt,
+        provider=answer_provider,
+        api_key=generation_config["api_key"],
+        base_url=generation_config.get("base_url"),
+        model=generation_config["chat_model"],
+    )
+    parsed = _load_json_object(raw_payload)
+
+    # Normalize dialogue turn formats
+    dialogue_turns = []
+    raw_dialogue = parsed.get("dialogue") or []
+    if not isinstance(raw_dialogue, list):
+        raw_dialogue = []
+
+    for turn in raw_dialogue:
+        if not isinstance(turn, dict):
+            continue
+        speaker = _coerce_string(turn.get("speaker"), "Host A")
+        text = _coerce_string(turn.get("text"), "").strip()
+        if not text:
+            continue
+        # Clean markdown formatting characters
+        text = re.sub(r'[*_`#\[\]]', '', text)
+
+        # Attach matching citation indexes if mentioned, or just map all citations
+        turn_citations = []
+        raw_cit_indexes = turn.get("citation_indexes")
+        if isinstance(raw_cit_indexes, list):
+            for idx in raw_cit_indexes:
+                try:
+                    c_idx = int(idx) - 1
+                    if 0 <= c_idx < len(citations):
+                        turn_citations.append(citations[c_idx])
+                except (ValueError, TypeError):
+                    pass
+        if not turn_citations:
+            # Default to mapping all citations if none are specifically indexed
+            turn_citations = citations
+
+        dialogue_turns.append({
+            "speaker": speaker,
+            "text": text,
+            "citations": _unique_citations(turn_citations)
+        })
+
+    payload = {
+        "overview": _coerce_string(parsed.get("overview"), "Discussion on project findings."),
+        "dialogue": dialogue_turns
+    }
+
+    title = _derive_title(query, report_type)
+
+    # Render script as Markdown for standard content display
+    markdown_lines = [f"# {title}", f"\n{payload['overview']}\n"]
+    for turn in payload["dialogue"]:
+        markdown_lines.append(f"**{turn['speaker']}**: {turn['text']}\n")
+    report_content = "\n".join(markdown_lines)
+
+    prompt_hash = hashlib.sha256(_PODCAST_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
+    config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    evidence_snapshot = _build_evidence_snapshot(citations)
+
+    run = ProcessingRunRepository(db).create(
+        project_id=project_id,
+        job_id=None,
+        run_type="report",
+        model_id=generation_config["chat_model"],
+        prompt_hash=prompt_hash,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata={
+            "report_type": report_type,
+            "format": format,
+            "query": query,
+            "provider": answer_provider,
+            "structured_output": True,
+            "indexed_chunk_count": len(chunks),
+            "generated_turns_count": len(payload["dialogue"]),
+            "indexing": indexing_result,
+            "evidence_snapshot": evidence_snapshot,
+        },
+        parent_run_id=parent_run_id,
+    )
+
+    report = Report(
+        project_id=project_id,
+        query=query,
+        title=title,
+        report_type=report_type,
+        format=format,
+        content=report_content,
+        structured_payload=payload,
+        status="completed",
+        run_id=run.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    structured_payload = hydrate_report_payload_citations(db, payload)
+
+    # Collect all unique source IDs
+    source_ids = list({citation["source_id"] for citation in citations if citation.get("source_id")})
+    hydrated_citations = hydrate_citations(db, citations)
+
+    return {
+        "report_id": str(report.id),
+        "query": query,
+        "title": title,
+        "type": report_type,
+        "format": format,
+        "content": report_content,
+        "structured_payload": structured_payload,
+        "status": "completed",
+        "run_id": str(run.id),
+        "source_ids": source_ids,
+        "citations": hydrated_citations,
         "evidence_snapshot": evidence_snapshot,
     }
 
