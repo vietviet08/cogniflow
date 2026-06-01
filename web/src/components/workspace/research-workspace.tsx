@@ -78,6 +78,7 @@ import type {
   IntegrationConnectionData,
   JobStatusData,
   ProjectRole,
+  QuizQuestionData,
   ReportListItem,
   ReportResult,
   ReportType,
@@ -324,7 +325,7 @@ export function ResearchWorkspace() {
 
   function openArtifact(artifact: ReportResult) {
     setSelectedArtifact(artifact);
-    setActiveTab("research");
+    setActiveTab("studio");
   }
 
   function registerWorkspaceActions(actions: Partial<WorkspaceActions>) {
@@ -378,10 +379,8 @@ export function ResearchWorkspace() {
             <ResearchCanvasPanel
               activeProject={activeProject}
               canMutate={canMutate}
-              selectedArtifact={selectedArtifact}
               selectedSourceIds={selectedSourceIds}
               onClearSourceScope={clearSourceScope}
-              onCloseArtifact={() => setSelectedArtifact(null)}
               onRequestArtifact={requestArtifact}
               onCitationHover={setHighlightedSourceId}
               registerActions={registerWorkspaceActions}
@@ -398,8 +397,12 @@ export function ResearchWorkspace() {
               activeProject={activeProject}
               canMutate={canMutate}
               request={studioRequest}
+              selectedArtifact={selectedArtifact}
               selectedArtifactId={selectedArtifact?.report_id ?? null}
               onOpenArtifact={openArtifact}
+              onCloseArtifact={() => setSelectedArtifact(null)}
+              onRequestArtifact={requestArtifact}
+              onCitationHover={setHighlightedSourceId}
               registerActions={registerWorkspaceActions}
             />
           </ResizablePanel>
@@ -417,10 +420,8 @@ export function ResearchWorkspace() {
               <ResearchCanvasPanel
                 activeProject={activeProject}
                 canMutate={canMutate}
-                selectedArtifact={selectedArtifact}
                 selectedSourceIds={selectedSourceIds}
                 onClearSourceScope={clearSourceScope}
-                onCloseArtifact={() => setSelectedArtifact(null)}
                 onRequestArtifact={requestArtifact}
                 onCitationHover={setHighlightedSourceId}
                 registerActions={registerWorkspaceActions}
@@ -458,8 +459,12 @@ export function ResearchWorkspace() {
             activeProject={activeProject}
             canMutate={canMutate}
             request={studioRequest}
+            selectedArtifact={selectedArtifact}
             selectedArtifactId={selectedArtifact?.report_id ?? null}
             onOpenArtifact={openArtifact}
+            onCloseArtifact={() => setSelectedArtifact(null)}
+            onRequestArtifact={requestArtifact}
+            onCitationHover={setHighlightedSourceId}
             registerActions={registerWorkspaceActions}
           />
             </MobileWorkspaceDrawer>
@@ -1485,20 +1490,16 @@ function SourceRow({
 function ResearchCanvasPanel({
   activeProject,
   canMutate,
-  selectedArtifact,
   selectedSourceIds,
   onClearSourceScope,
-  onCloseArtifact,
   onRequestArtifact,
   onCitationHover,
   registerActions,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
-  selectedArtifact: ReportResult | null;
   selectedSourceIds: Set<string>;
   onClearSourceScope: () => void;
-  onCloseArtifact: () => void;
   onRequestArtifact: (query: string, type: ReportType) => void;
   onCitationHover: (sourceId: string | null) => void;
   registerActions: (actions: Partial<WorkspaceActions>) => void;
@@ -1555,11 +1556,9 @@ function ResearchCanvasPanel({
   useEffect(() => {
     registerActions({
       focusAsk: () => {
-        onCloseArtifact();
         askInputRef.current?.focus();
       },
       newChat: () => {
-        onCloseArtifact();
         setActiveSessionId(null);
       },
     });
@@ -1629,32 +1628,18 @@ function ResearchCanvasPanel({
       description="Ask, verify citations, and branch answers into artifacts"
       icon={MessageSquare}
       action={
-        selectedArtifact ? (
-          <Button type="button" variant="ghost" size="sm" onClick={onCloseArtifact}>
-            <MessageSquare className="h-4 w-4" />
-            Chat
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setActiveSessionId(null)}
-            disabled={!canMutate}
-          >
-            <Plus className="h-4 w-4" />
-            New
-          </Button>
-        )
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setActiveSessionId(null)}
+          disabled={!canMutate}
+        >
+          <Plus className="h-4 w-4" />
+          New
+        </Button>
       }
     >
-      {selectedArtifact ? (
-        <ArtifactCanvas
-          report={selectedArtifact}
-          onRequestArtifact={onRequestArtifact}
-          onCitationHover={onCitationHover}
-        />
-      ) : (
       <div className="flex h-full min-h-0 flex-col">
         <div className="border-b border-border bg-card/30 px-4 py-2">
           <div className="flex gap-2 overflow-x-auto">
@@ -1748,7 +1733,6 @@ function ResearchCanvasPanel({
           </div>
         </form>
       </div>
-      )}
     </PanelFrame>
   );
 }
@@ -1982,7 +1966,11 @@ function ArtifactCanvas({
           animate={{ opacity: 1, y: 0 }}
           className="mx-auto max-w-5xl space-y-5"
         >
-          <ArtifactStructuredView report={report} />
+          {report.type === "quiz" ? (
+            <QuizAttemptView report={report} onCitationHover={onCitationHover} />
+          ) : (
+            <ArtifactStructuredView report={report} />
+          )}
           <CitationChips citations={report.citations ?? []} onCitationHover={onCitationHover} />
 
           <div className="rounded-lg border border-border bg-card p-4">
@@ -2201,6 +2189,201 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
   );
 }
 
+function QuizAttemptView({
+  report,
+  onCitationHover,
+}: {
+  report: ReportResult;
+  onCitationHover: (sourceId: string | null) => void;
+}) {
+  const payload = report.structured_payload;
+  const questions =
+    payload && typeof payload === "object" && "questions" in payload && Array.isArray(payload.questions)
+      ? (payload.questions as QuizQuestionData[])
+      : [];
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+    setAnswers({});
+    setSubmitted(false);
+  }, [report.report_id]);
+
+  if (!questions.length) {
+    return <ArtifactStructuredView report={report} />;
+  }
+
+  const currentQuestion = questions[Math.min(currentIndex, questions.length - 1)];
+  const selectedOptionId = answers[currentQuestion.id];
+  const answeredCount = questions.filter((question) => answers[question.id]).length;
+  const score = questions.reduce(
+    (total, question) => total + (answers[question.id] === question.correct_option_id ? 1 : 0),
+    0,
+  );
+  const scorePercent = Math.round((score / questions.length) * 100);
+  const progressPercent = Math.round(((currentIndex + 1) / questions.length) * 100);
+
+  function selectAnswer(optionId: string) {
+    if (submitted) return;
+    setAnswers((current) => ({
+      ...current,
+      [currentQuestion.id]: optionId,
+    }));
+  }
+
+  function goNext() {
+    if (!selectedOptionId) return;
+    if (currentIndex < questions.length - 1) {
+      setCurrentIndex((index) => index + 1);
+      return;
+    }
+    setSubmitted(true);
+  }
+
+  function resetAttempt() {
+    setCurrentIndex(0);
+    setAnswers({});
+    setSubmitted(false);
+  }
+
+  if (submitted) {
+    return (
+      <ArtifactSection title="Quiz results" description={`${score} of ${questions.length} correct`}>
+        <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
+          <p className="text-xs font-semibold uppercase text-primary">Score</p>
+          <p className="mt-2 text-4xl font-semibold text-foreground">{scorePercent}%</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {score} correct answers out of {questions.length}.
+          </p>
+          <Button type="button" size="sm" variant="outline" className="mt-4" onClick={resetAttempt}>
+            Retry quiz
+          </Button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {questions.map((question, index) => {
+            const selected = question.options.find((option) => option.id === answers[question.id]);
+            const correct = question.options.find((option) => option.id === question.correct_option_id);
+            const isCorrect = selected?.id === question.correct_option_id;
+
+            return (
+              <div key={question.id} className="rounded-lg border border-border bg-background p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm font-semibold leading-6 text-foreground">
+                    {index + 1}. {question.question}
+                  </p>
+                  <Badge variant={isCorrect ? "success" : "destructive"} className="shrink-0 text-[10px]">
+                    {isCorrect ? "Correct" : "Review"}
+                  </Badge>
+                </div>
+                <div className="mt-3 space-y-2 text-xs leading-5">
+                  <p className="text-muted-foreground">
+                    Your answer:{" "}
+                    <span className={cn("font-semibold", isCorrect ? "text-foreground" : "text-destructive")}>
+                      {selected?.text ?? "No answer"}
+                    </span>
+                  </p>
+                  {!isCorrect ? (
+                    <p className="text-muted-foreground">
+                      Correct answer: <span className="font-semibold text-foreground">{correct?.text ?? "Unknown"}</span>
+                    </p>
+                  ) : null}
+                  {question.explanation ? (
+                    <p className="rounded-md border border-border bg-card p-3 text-muted-foreground">
+                      {question.explanation}
+                    </p>
+                  ) : null}
+                </div>
+                <CitationChips citations={question.citations ?? []} onCitationHover={onCitationHover} />
+              </div>
+            );
+          })}
+        </div>
+      </ArtifactSection>
+    );
+  }
+
+  return (
+    <ArtifactSection title="Quiz" description={`Answer ${questions.length} questions, then submit for a score.`}>
+      <div className="mb-4">
+        <div className="flex items-center justify-between gap-3">
+          <Badge variant="secondary" className="text-[10px]">
+            Question {currentIndex + 1} of {questions.length}
+          </Badge>
+          <span className="text-[11px] text-muted-foreground">{answeredCount} answered</span>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border bg-background p-4">
+        <div className="flex flex-wrap gap-1.5">
+          <Badge variant="outline" className="text-[10px]">
+            {currentQuestion.type === "true_false" ? "True/False" : "Multiple choice"}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {currentQuestion.difficulty}
+          </Badge>
+        </div>
+        <p className="mt-3 text-base font-semibold leading-7 text-foreground">
+          {currentQuestion.question}
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {currentQuestion.options.map((option, optionIndex) => {
+            const selected = selectedOptionId === option.id;
+
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => selectAnswer(option.id)}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-lg border p-3 text-left text-sm transition-colors",
+                  selected
+                    ? "border-primary/50 bg-primary/10 text-foreground"
+                    : "border-border bg-card hover:border-primary/30 hover:bg-primary/5",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                    selected ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground",
+                  )}
+                >
+                  {String.fromCharCode(65 + optionIndex)}
+                </span>
+                <span className="leading-6">{option.text}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <CitationChips citations={currentQuestion.citations ?? []} onCitationHover={onCitationHover} />
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentIndex((index) => Math.max(index - 1, 0))}
+          disabled={currentIndex === 0}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Previous
+        </Button>
+        <Button type="button" size="sm" onClick={goNext} disabled={!selectedOptionId}>
+          {currentIndex === questions.length - 1 ? "Submit" : "Next"}
+        </Button>
+      </div>
+    </ArtifactSection>
+  );
+}
+
 function ArtifactSection({
   title,
   description,
@@ -2233,15 +2416,23 @@ function StudioOutputsPanel({
   activeProject,
   canMutate,
   request,
+  selectedArtifact,
   selectedArtifactId,
   onOpenArtifact,
+  onCloseArtifact,
+  onRequestArtifact,
+  onCitationHover,
   registerActions,
 }: {
   activeProject: StoredProject;
   canMutate: boolean;
   request: StudioRequest | null;
+  selectedArtifact: ReportResult | null;
   selectedArtifactId: string | null;
   onOpenArtifact: (artifact: ReportResult) => void;
+  onCloseArtifact: () => void;
+  onRequestArtifact: (query: string, type: ReportType) => void;
+  onCitationHover: (sourceId: string | null) => void;
   registerActions: (actions: Partial<WorkspaceActions>) => void;
 }) {
   const queryClient = useQueryClient();
@@ -2308,6 +2499,30 @@ function StudioOutputsPanel({
     } finally {
       setLoadingReportId(null);
     }
+  }
+
+  if (selectedArtifact) {
+    const Icon = getReportIcon(selectedArtifact.type);
+
+    return (
+      <PanelFrame
+        title="Artifact Detail"
+        description={REPORT_LABELS[selectedArtifact.type] ?? selectedArtifact.type}
+        icon={Icon}
+        action={
+          <Button type="button" variant="ghost" size="sm" onClick={onCloseArtifact}>
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </Button>
+        }
+      >
+        <ArtifactCanvas
+          report={selectedArtifact}
+          onRequestArtifact={onRequestArtifact}
+          onCitationHover={onCitationHover}
+        />
+      </PanelFrame>
+    );
   }
 
   return (
