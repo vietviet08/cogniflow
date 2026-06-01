@@ -1724,7 +1724,7 @@ function ResearchCanvasPanel({
         </div>
 
         <form onSubmit={handleSubmit} className="holo-surface shrink-0 rounded-none border-x-0 border-b-0 border-t border-border/70 bg-card/78 p-3 pb-20 lg:pb-3">
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Textarea
               ref={askInputRef}
               value={inputValue}
