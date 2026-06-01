@@ -140,39 +140,160 @@ function CitationList({ citations }: { citations: CitationData[] }) {
   );
 }
 
-function buildMindMapFlow(payload: MindMapPayload): {
+export function buildMindMapFlow(payload: MindMapPayload): {
   nodes: Array<FlowNode<MindMapNodeFlowData>>;
   edges: Array<FlowEdge<MindMapEdgeFlowData>>;
 } {
   const validIds = new Set(payload.nodes.map((node) => node.id));
-  const nodesByLevel = payload.nodes.reduce<Record<number, MindMapNodeData[]>>(
-    (acc, node) => {
-      const level = Math.max(0, Number(node.level) || 0);
-      acc[level] = [...(acc[level] ?? []), node];
-      return acc;
-    },
-    {},
+
+  if (payload.nodes.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+
+  // Map each child to its parent ID
+  const parentMap = new Map<string, string>();
+
+  // First pass: node.parent_id
+  payload.nodes.forEach((node) => {
+    if (node.parent_id && validIds.has(node.parent_id) && node.parent_id !== node.id) {
+      parentMap.set(node.id, node.parent_id);
+    }
+  });
+
+  // Second pass: parent_child edges
+  payload.edges.forEach((edge) => {
+    if (edge.type === "parent_child" && validIds.has(edge.source) && validIds.has(edge.target)) {
+      if (!parentMap.has(edge.target) && edge.source !== edge.target) {
+        parentMap.set(edge.target, edge.source);
+      }
+    }
+  });
+
+  // Find the primary root node
+  let primaryRoot = payload.nodes.find(
+    (n) => n.type === "central" || Math.max(0, Number(n.level) || 0) === 0
   );
 
+  if (!primaryRoot) {
+    primaryRoot = payload.nodes.find((n) => !parentMap.has(n.id));
+  }
+
+  if (!primaryRoot && payload.nodes.length > 0) {
+    primaryRoot = payload.nodes[0];
+  }
+
+  // Detect cycle utility
+  function isReachable(startId: string, targetId: string): boolean {
+    const checked = new Set<string>();
+    let curr: string | undefined = startId;
+    while (curr) {
+      if (curr === targetId) return true;
+      if (checked.has(curr)) break;
+      checked.add(curr);
+      curr = parentMap.get(curr);
+    }
+    return false;
+  }
+
+  // Group children under parent
+  const adjacencyList = new Map<string, string[]>();
+
+  payload.nodes.forEach((node) => {
+    if (!primaryRoot || node.id === primaryRoot.id) return;
+
+    let pId = parentMap.get(node.id);
+    if (!pId || !validIds.has(pId) || isReachable(pId, node.id)) {
+      pId = primaryRoot.id;
+    }
+
+    const list = adjacencyList.get(pId) || [];
+    list.push(node.id);
+    adjacencyList.set(pId, list);
+  });
+
+  // Sort children by original index in the payload list to maintain stability
+  const nodeIndexMap = new Map<string, number>();
+  payload.nodes.forEach((node, i) => {
+    nodeIndexMap.set(node.id, i);
+  });
+
+  adjacencyList.forEach((children) => {
+    children.sort((a, b) => (nodeIndexMap.get(a) || 0) - (nodeIndexMap.get(b) || 0));
+  });
+
+  // Calculate coordinates using radial branching tree layout
+  const positions = new Map<string, { x: number; y: number; level: number }>();
+  const visited = new Set<string>();
+
+  function layoutSubtree(
+    nodeId: string,
+    angle: number,
+    sectorWidth: number,
+    depth: number
+  ) {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+
+    const radius = depth * 240;
+    const x = depth === 0 ? 0 : Math.cos(angle) * radius * 1.35;
+    const y = depth === 0 ? 0 : Math.sin(angle) * radius;
+
+    positions.set(nodeId, { x, y, level: depth });
+
+    const children = adjacencyList.get(nodeId) || [];
+    const M = children.length;
+    if (M > 0) {
+      if (depth === 0) {
+        // Root's children partition the full 2 * PI circle
+        children.forEach((childId, i) => {
+          const childAngle = (i * 2 * Math.PI) / M;
+          const childSector = (2 * Math.PI) / M;
+          layoutSubtree(childId, childAngle, childSector, 1);
+        });
+      } else {
+        // Nested children share their parent's sector with a spacing margin
+        const activeSector = sectorWidth * 0.85;
+        children.forEach((childId, i) => {
+          let childAngle: number;
+          if (M === 1) {
+            childAngle = angle;
+          } else {
+            childAngle = angle - activeSector / 2 + (i + 0.5) * (activeSector / M);
+          }
+          const childSector = sectorWidth / M;
+          layoutSubtree(childId, childAngle, childSector, depth + 1);
+        });
+      }
+    }
+  }
+
+  if (primaryRoot) {
+    layoutSubtree(primaryRoot.id, 0, 2 * Math.PI, 0);
+  }
+
+  // Final check to handle any disconnected nodes
+  payload.nodes.forEach((node) => {
+    if (!positions.has(node.id)) {
+      positions.set(node.id, { x: 0, y: 0, level: 1 });
+    }
+  });
+
   const positionedNodes = payload.nodes.map((node, index) => {
-    const level = Math.max(0, Number(node.level) || 0);
-    const peers = nodesByLevel[level] ?? [node];
-    const peerIndex = peers.findIndex((candidate) => candidate.id === node.id);
-    const angle = level === 0 ? 0 : (Math.PI * 2 * Math.max(peerIndex, 0)) / peers.length;
-    const radius = level === 0 ? 0 : 230 * level;
-    const x = level === 0 ? 0 : Math.cos(angle) * radius;
-    const y = level === 0 ? 0 : Math.sin(angle) * radius;
+    const pos = positions.get(node.id) || { x: 0, y: 0, level: 1 };
+    const x = pos.x;
+    const y = pos.y;
     const color = getNodeColor(node.type);
+    const width = node.type === "central" ? 190 : 170;
     return {
       id: node.id,
       type: "default",
-      position: { x: x - 90, y: y - 28 },
+      position: { x: x - width / 2, y: y - 28 },
       data: {
         label: node.label,
         item: node,
       },
       style: {
-        width: node.type === "central" ? 190 : 170,
+        width,
         minHeight: 56,
         borderRadius: 8,
         border: `1px solid ${color}`,
@@ -200,7 +321,7 @@ function buildMindMapFlow(payload: MindMapPayload): {
         target: edge.target,
         label: edge.type.replace("_", " "),
         data: { item: edge },
-        type: "smoothstep",
+        type: "default", // smooth bezier curve layout fits radial branches perfectly
         animated: edge.type === "supports",
         markerEnd: { type: MarkerType.ArrowClosed, color },
         style: {

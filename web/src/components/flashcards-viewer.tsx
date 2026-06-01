@@ -9,7 +9,9 @@ import {
   Layers,
   RefreshCcw,
   RotateCcw,
+  Sparkles,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 import {
@@ -182,29 +184,67 @@ function FlashcardDeck({
             <CardDescription>{payload.overview}</CardDescription>
           </CardHeader>
           <Separator />
-          <CardContent className="flex min-h-[340px] flex-col justify-between gap-6 p-6">
-            <button
-              type="button"
+          <CardContent className="flex min-h-[360px] flex-col justify-between gap-6 p-6">
+            {/* 3D Flip Card Container */}
+            <div 
               onClick={onFlip}
-              className="flex min-h-[230px] w-full flex-col items-center justify-center rounded-md border border-border bg-muted/20 p-8 text-center transition-colors hover:bg-muted/40"
+              className="perspective-1000 cursor-pointer w-full min-h-[260px] select-none group"
             >
-              <span className="text-xs font-medium uppercase text-muted-foreground">
-                {showBack ? "Back" : "Front"}
-              </span>
-              <p className="mt-4 text-xl font-semibold leading-relaxed">
-                {showBack ? selectedCard.back : selectedCard.front}
-              </p>
-              {showBack ? (
-                <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  {selectedCard.explanation}
-                </p>
-              ) : null}
-            </button>
+              <div 
+                className={cn(
+                  "relative w-full h-full min-h-[260px] transition-transform duration-500 preserve-3d",
+                  showBack ? "rotate-y-180" : ""
+                )}
+              >
+                {/* Front Face */}
+                <div className="absolute inset-0 w-full h-full backface-hidden rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between p-8 transition-all duration-300 group-hover:border-primary/30 group-hover:shadow-md">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline" className="text-[10px] font-semibold uppercase tracking-wider opacity-60 bg-background/50">Front</Badge>
+                    <Sparkles className="h-4 w-4 text-primary opacity-45 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="flex-1 flex items-center justify-center py-4">
+                    <p className="text-lg font-semibold text-center leading-relaxed text-foreground max-h-full overflow-y-auto px-2">
+                      {selectedCard.front}
+                    </p>
+                  </div>
+                  <div className="text-[11px] text-center text-muted-foreground opacity-55 group-hover:opacity-90 transition-opacity">
+                    Click to reveal definition
+                  </div>
+                </div>
+
+                {/* Back Face */}
+                <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between p-8 transition-all duration-300 group-hover:border-primary/30 group-hover:shadow-md">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="secondary" className="text-[10px] font-semibold uppercase tracking-wider">Back</Badge>
+                    <RotateCcw className="h-4 w-4 text-primary opacity-45" />
+                  </div>
+                  <div className="flex-1 flex flex-col justify-center py-2 overflow-y-auto px-2">
+                    <p className="text-lg font-medium text-center leading-relaxed text-foreground">
+                      {selectedCard.back}
+                    </p>
+                    {selectedCard.explanation && (
+                      <div className="mt-3 pt-3 border-t border-border/50">
+                        <p className="text-sm text-left leading-relaxed text-muted-foreground italic border-l-2 border-primary/30 pl-2">
+                          {selectedCard.explanation}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-center text-muted-foreground opacity-55">
+                    Click to flip back
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={onFlip}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFlip();
+                }}
                 className="gap-2"
               >
                 <RotateCcw className="h-4 w-4" />
