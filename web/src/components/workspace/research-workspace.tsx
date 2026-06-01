@@ -8,6 +8,7 @@ import {
   RefObject,
   SetStateAction,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -28,6 +29,7 @@ import {
   BrainCircuit,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   CircleHelp,
   Copy,
   ExternalLink,
@@ -41,6 +43,7 @@ import {
   PanelBottomOpen,
   Plus,
   RefreshCcw,
+  RotateCcw,
   Search,
   Send,
   Settings,
@@ -92,6 +95,9 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-provider";
 import { useCitationViewer } from "@/components/citation-viewer-provider";
 import { WebSourceDiscovery } from "@/components/web-source-discovery";
+import MeshGraph from "@/components/mesh/mesh-graph";
+import { ReactFlow, Background, Controls } from "@xyflow/react";
+import { buildMindMapFlow } from "@/components/mind-map-viewer";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1912,52 +1918,8 @@ function ArtifactCanvas({
   onRequestArtifact: (query: string, type: ReportType) => void;
   onCitationHover: (sourceId: string | null) => void;
 }) {
-  const Icon = getReportIcon(report.type);
-
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border bg-card/30 px-5 py-4">
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start justify-between gap-4"
-        >
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Icon className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-lg font-semibold text-foreground">
-                  {report.title}
-                </h3>
-                <Badge variant="outline" className="text-[10px]">
-                  {REPORT_LABELS[report.type] ?? report.type}
-                </Badge>
-                <Badge
-                  variant={report.status === "completed" ? "success" : "secondary"}
-                  className="text-[10px]"
-                >
-                  {report.status}
-                </Badge>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {formatDate(report.created_at)} · Run {report.run_id?.slice(0, 8) ?? "n/a"}
-              </p>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                {report.query}
-              </p>
-            </div>
-          </div>
-          <Link
-            href={getArtifactFullViewerRoute(report.type)}
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-          >
-            <ExternalLink className="h-4 w-4" />
-            Full viewer
-          </Link>
-        </motion.div>
-      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <motion.div
@@ -2030,6 +1992,146 @@ function ArtifactCanvas({
 function ArtifactStructuredView({ report }: { report: ReportResult }) {
   const payload = report.structured_payload;
 
+  if (payload && typeof payload === "object") {
+    if ("cards" in payload && Array.isArray(payload.cards)) {
+      return (
+        <ArtifactSection title="Flashcards" description={describeStructuredPayload(payload)}>
+          <WorkspaceFlashcardDeck cards={payload.cards} />
+        </ArtifactSection>
+      );
+    }
+
+    if ("questions" in payload && Array.isArray(payload.questions)) {
+      return (
+        <ArtifactSection title="Quiz" description={describeStructuredPayload(payload)}>
+          <div className="space-y-3">
+            {payload.questions.map((question, index) => {
+              const item = question as Record<string, unknown>;
+              const options = Array.isArray(item.options) ? item.options : [];
+              return (
+                <ArtifactItemCard key={String(item.id ?? index)}>
+                  <p className="text-sm font-semibold text-foreground">
+                    {index + 1}. {String(item.question ?? "Untitled question")}
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {options.map((option, optionIndex) => {
+                      const optionItem = option as Record<string, unknown>;
+                      return (
+                        <div
+                          key={String(optionItem.id ?? optionIndex)}
+                          className="rounded-md border border-border bg-background px-3 py-2 text-xs"
+                        >
+                          <span className="font-semibold">
+                            {String(optionItem.id ?? optionIndex + 1)}.
+                          </span>{" "}
+                          {String(optionItem.text ?? "")}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {item.explanation ? (
+                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                      {String(item.explanation)}
+                    </p>
+                  ) : null}
+                </ArtifactItemCard>
+              );
+            })}
+          </div>
+        </ArtifactSection>
+      );
+    }
+
+    if ("sections" in payload && Array.isArray(payload.sections)) {
+      return (
+        <ArtifactSection title="Study Guide" description={describeStructuredPayload(payload)}>
+          <div className="space-y-3">
+            {payload.sections.map((section, index) => {
+              const item = section as Record<string, unknown>;
+              const points = Array.isArray(item.key_points) ? item.key_points : [];
+              return (
+                <ArtifactItemCard key={String(item.id ?? index)}>
+                  <p className="text-sm font-semibold text-foreground">
+                    {String(item.title ?? `Section ${index + 1}`)}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {String(item.summary ?? "")}
+                  </p>
+                  {points.length ? (
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
+                      {points.map((point, pointIndex) => (
+                        <li key={pointIndex}>{String(point)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </ArtifactItemCard>
+              );
+            })}
+          </div>
+        </ArtifactSection>
+      );
+    }
+
+    if ("nodes" in payload && Array.isArray(payload.nodes)) {
+      if (report.type === "conflict_mesh") {
+        return (
+          <ArtifactSection title="Conflict Mesh Graph" description={describeStructuredPayload(payload)}>
+            <div className="h-[380px] w-full border border-border rounded-xl overflow-hidden bg-background">
+              <MeshGraph payload={payload as any} compact={true} />
+            </div>
+          </ArtifactSection>
+        );
+      }
+
+      if (report.type === "mind_map") {
+        return (
+          <ArtifactSection title="Mind Map Graph" description={describeStructuredPayload(payload)}>
+            <WorkspaceMindMap payload={payload} />
+          </ArtifactSection>
+        );
+      }
+
+      const nodes = payload.nodes as Array<Record<string, unknown>>;
+      const edges = "edges" in payload && Array.isArray(payload.edges) ? payload.edges : [];
+      return (
+        <ArtifactSection title="Mesh" description={describeStructuredPayload(payload)}>
+          <div className="grid gap-3 md:grid-cols-[1fr_0.85fr]">
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
+              <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Nodes</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {nodes.slice(0, 18).map((node, index) => (
+                  <div key={String(node.id ?? index)} className="rounded-md border border-border bg-card p-3">
+                    <p className="truncate text-xs font-semibold text-foreground">
+                      {String(node.label ?? `Node ${index + 1}`)}
+                    </p>
+                    <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-muted-foreground">
+                      {String(node.summary ?? node.description ?? "")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Relationships</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{edges.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Open the full viewer for interactive 2D/3D exploration.
+              </p>
+            </div>
+          </div>
+        </ArtifactSection>
+      );
+    }
+
+    return (
+      <ArtifactSection title={REPORT_LABELS[report.type] ?? "Artifact"} description={describeStructuredPayload(payload)}>
+        <pre className="max-h-[520px] overflow-auto rounded-lg bg-muted p-4 text-xs text-muted-foreground">
+          {JSON.stringify(payload, null, 2)}
+        </pre>
+      </ArtifactSection>
+    );
+  }
+
   if (report.content) {
     return (
       <div className="rounded-lg border border-border bg-card p-5">
@@ -2040,152 +2142,11 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
     );
   }
 
-  if (!payload || typeof payload !== "object") {
-    return (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center">
-        <FileText className="mx-auto h-9 w-9 text-muted-foreground" />
-        <p className="mt-3 text-sm font-medium text-foreground">Artifact has no preview payload</p>
-      </div>
-    );
-  }
-
-  if ("cards" in payload && Array.isArray(payload.cards)) {
-    return (
-      <ArtifactSection title="Flashcards" description={describeStructuredPayload(payload)}>
-        <div className="grid gap-3 md:grid-cols-2">
-          {payload.cards.map((card, index) => {
-            const item = card as Record<string, unknown>;
-            return (
-              <ArtifactItemCard key={String(item.id ?? index)}>
-                <p className="text-xs font-semibold text-primary">
-                  {String(item.front ?? `Card ${index + 1}`)}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-foreground">
-                  {String(item.back ?? "")}
-                </p>
-                {item.explanation ? (
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    {String(item.explanation)}
-                  </p>
-                ) : null}
-              </ArtifactItemCard>
-            );
-          })}
-        </div>
-      </ArtifactSection>
-    );
-  }
-
-  if ("questions" in payload && Array.isArray(payload.questions)) {
-    return (
-      <ArtifactSection title="Quiz" description={describeStructuredPayload(payload)}>
-        <div className="space-y-3">
-          {payload.questions.map((question, index) => {
-            const item = question as Record<string, unknown>;
-            const options = Array.isArray(item.options) ? item.options : [];
-            return (
-              <ArtifactItemCard key={String(item.id ?? index)}>
-                <p className="text-sm font-semibold text-foreground">
-                  {index + 1}. {String(item.question ?? "Untitled question")}
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {options.map((option, optionIndex) => {
-                    const optionItem = option as Record<string, unknown>;
-                    return (
-                      <div
-                        key={String(optionItem.id ?? optionIndex)}
-                        className="rounded-md border border-border bg-background px-3 py-2 text-xs"
-                      >
-                        <span className="font-semibold">
-                          {String(optionItem.id ?? optionIndex + 1)}.
-                        </span>{" "}
-                        {String(optionItem.text ?? "")}
-                      </div>
-                    );
-                  })}
-                </div>
-                {item.explanation ? (
-                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                    {String(item.explanation)}
-                  </p>
-                ) : null}
-              </ArtifactItemCard>
-            );
-          })}
-        </div>
-      </ArtifactSection>
-    );
-  }
-
-  if ("sections" in payload && Array.isArray(payload.sections)) {
-    return (
-      <ArtifactSection title="Study Guide" description={describeStructuredPayload(payload)}>
-        <div className="space-y-3">
-          {payload.sections.map((section, index) => {
-            const item = section as Record<string, unknown>;
-            const points = Array.isArray(item.key_points) ? item.key_points : [];
-            return (
-              <ArtifactItemCard key={String(item.id ?? index)}>
-                <p className="text-sm font-semibold text-foreground">
-                  {String(item.title ?? `Section ${index + 1}`)}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {String(item.summary ?? "")}
-                </p>
-                {points.length ? (
-                  <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
-                    {points.map((point, pointIndex) => (
-                      <li key={pointIndex}>{String(point)}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </ArtifactItemCard>
-            );
-          })}
-        </div>
-      </ArtifactSection>
-    );
-  }
-
-  if ("nodes" in payload && Array.isArray(payload.nodes)) {
-    const nodes = payload.nodes as Array<Record<string, unknown>>;
-    const edges = "edges" in payload && Array.isArray(payload.edges) ? payload.edges : [];
-    return (
-      <ArtifactSection title={report.type === "mind_map" ? "Mind Map" : "Mesh"} description={describeStructuredPayload(payload)}>
-        <div className="grid gap-3 md:grid-cols-[1fr_0.85fr]">
-          <div className="rounded-lg border border-border bg-muted/30 p-4">
-            <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Nodes</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {nodes.slice(0, 18).map((node, index) => (
-                <div key={String(node.id ?? index)} className="rounded-md border border-border bg-card p-3">
-                  <p className="truncate text-xs font-semibold text-foreground">
-                    {String(node.label ?? `Node ${index + 1}`)}
-                  </p>
-                  <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-muted-foreground">
-                    {String(node.summary ?? node.description ?? "")}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Relationships</p>
-            <p className="mt-2 text-3xl font-semibold text-foreground">{edges.length}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Open the full viewer for interactive 2D/3D exploration.
-            </p>
-          </div>
-        </div>
-      </ArtifactSection>
-    );
-  }
-
   return (
-    <ArtifactSection title={REPORT_LABELS[report.type] ?? "Artifact"} description={describeStructuredPayload(payload)}>
-      <pre className="max-h-[520px] overflow-auto rounded-lg bg-muted p-4 text-xs text-muted-foreground">
-        {JSON.stringify(payload, null, 2)}
-      </pre>
-    </ArtifactSection>
+    <div className="rounded-lg border border-dashed border-border p-8 text-center">
+      <FileText className="mx-auto h-9 w-9 text-muted-foreground" />
+      <p className="mt-3 text-sm font-medium text-foreground">Artifact has no preview payload</p>
+    </div>
   );
 }
 
@@ -2404,6 +2365,205 @@ function ArtifactSection({
   );
 }
 
+function getDifficultyVariant(difficulty: string) {
+  if (difficulty === "hard") return "destructive";
+  if (difficulty === "easy") return "secondary";
+  return "warning";
+}
+
+function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  if (!cards.length) return null;
+
+  const currentCard = cards[currentIndex] as Record<string, any>;
+  const progressPercent = Math.round(((currentIndex + 1) / cards.length) * 100);
+
+  const handleNext = () => {
+    setIsFlipped(false);
+    setTimeout(() => {
+      setCurrentIndex((prev) => (prev + 1) % cards.length);
+    }, 150);
+  };
+
+  const handlePrev = () => {
+    setIsFlipped(false);
+    setTimeout(() => {
+      setCurrentIndex((prev) => (prev - 1 + cards.length) % cards.length);
+    }, 150);
+  };
+
+  const handleCardClick = () => {
+    setIsFlipped((prev) => !prev);
+  };
+
+  const tags = Array.isArray(currentCard.tags) ? currentCard.tags : [];
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Progress Indicator */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+        <div className="flex flex-col">
+          <span className="font-semibold text-foreground">Card {currentIndex + 1} of {cards.length}</span>
+          <span className="text-[10px]">{progressPercent}% completed</span>
+        </div>
+        <Link
+          href="/flashcards"
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 gap-1 px-2.5 text-[11px] shrink-0")}
+        >
+          <ExternalLink className="h-3 w-3" />
+          Full viewer
+        </Link>
+      </div>
+      <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-primary transition-all duration-300 ease-out"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+
+      {/* 3D Flip Card Container */}
+      <div 
+        onClick={handleCardClick}
+        className="perspective-1000 cursor-pointer w-full aspect-[4/3] min-h-[220px] select-none group"
+      >
+        <div 
+          className={cn(
+            "relative w-full h-full transition-transform duration-500 preserve-3d",
+            isFlipped ? "rotate-y-180" : ""
+          )}
+        >
+          {/* Front Face */}
+          <div className="absolute inset-0 w-full h-full backface-hidden rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between p-6 transition-all duration-300 group-hover:border-primary/30 group-hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <Badge variant="outline" className="text-[9px] font-semibold uppercase tracking-wider opacity-60 bg-background/50">Front</Badge>
+              <Sparkles className="h-3.5 w-3.5 text-primary opacity-40 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div className="flex-1 flex items-center justify-center py-4">
+              <p className="text-sm font-semibold text-center leading-relaxed text-foreground max-h-full overflow-y-auto px-2">
+                {String(currentCard.front ?? `Card ${currentIndex + 1}`)}
+              </p>
+            </div>
+            <div className="text-[10px] text-center text-muted-foreground opacity-50 group-hover:opacity-80 transition-opacity">
+              Click to reveal back
+            </div>
+          </div>
+
+          {/* Back Face */}
+          <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between p-6 transition-all duration-300 group-hover:border-primary/30 group-hover:shadow-md">
+            <div className="flex items-center justify-between">
+              <Badge variant="secondary" className="text-[9px] font-semibold uppercase tracking-wider">Back</Badge>
+              <RotateCcw className="h-3.5 w-3.5 text-primary opacity-40" />
+            </div>
+            <div className="flex-1 flex flex-col justify-center py-2 overflow-y-auto px-2">
+              <p className="text-sm font-medium text-center leading-relaxed text-foreground">
+                {String(currentCard.back ?? "")}
+              </p>
+              {currentCard.explanation && (
+                <div className="mt-3 pt-3 border-t border-border/50">
+                  <p className="text-xs text-left leading-relaxed text-muted-foreground italic border-l-2 border-primary/30 pl-2">
+                    {String(currentCard.explanation)}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="text-[10px] text-center text-muted-foreground opacity-50">
+              Click to flip back
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Controls */}
+      <div className="flex items-center justify-between mt-1">
+        <Button 
+          type="button" 
+          variant="outline" 
+          size="sm" 
+          onClick={(e) => {
+            e.stopPropagation();
+            handlePrev();
+          }}
+          className="h-8 gap-1 text-xs"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+          Prev
+        </Button>
+        
+        <Button 
+          type="button" 
+          variant="ghost" 
+          size="sm" 
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsFlipped((prev) => !prev);
+          }}
+          className="h-8 text-[11px] text-muted-foreground gap-1 hover:text-foreground"
+        >
+          <RotateCcw className="h-3 w-3" />
+          Flip
+        </Button>
+
+        <Button 
+          type="button" 
+          variant="outline" 
+          size="sm" 
+          onClick={(e) => {
+            e.stopPropagation();
+            handleNext();
+          }}
+          className="h-8 gap-1 text-xs"
+        >
+          Next
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Tags and difficulty info if available */}
+      {(currentCard.difficulty || tags.length > 0) && (
+        <div className="flex flex-wrap gap-1.5 items-center bg-muted/20 p-2 rounded-lg border border-border/40">
+          {currentCard.difficulty && (
+            <Badge variant={getDifficultyVariant(String(currentCard.difficulty))} className="text-[9px] h-5 py-0">
+              {String(currentCard.difficulty)}
+            </Badge>
+          )}
+          {tags.map((tag: any, idx: number) => (
+            <Badge key={idx} variant="outline" className="text-[9px] h-5 py-0 bg-background/50">
+              {String(tag)}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceMindMap({ payload }: { payload: any }) {
+  const flow = useMemo(() => buildMindMapFlow(payload), [payload]);
+
+  return (
+    <div className="h-[380px] w-full border border-border rounded-xl bg-background overflow-hidden relative">
+      <ReactFlow
+        nodes={flow.nodes}
+        edges={flow.edges}
+        fitView
+        minZoom={0.1}
+        maxZoom={1.5}
+        nodesConnectable={false}
+        nodesDraggable={true}
+        elementsSelectable={true}
+      >
+        <Background />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+      <div className="absolute left-3 top-3 z-10 rounded-md border border-border/80 bg-background/90 px-2 py-1 text-[10px] font-semibold shadow-sm backdrop-blur">
+        Drag nodes to reorganize
+      </div>
+    </div>
+  );
+}
+
 function ArtifactItemCard({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-background p-4 shadow-sm">
@@ -2510,10 +2670,19 @@ function StudioOutputsPanel({
         description={REPORT_LABELS[selectedArtifact.type] ?? selectedArtifact.type}
         icon={Icon}
         action={
-          <Button type="button" variant="ghost" size="sm" onClick={onCloseArtifact}>
-            <ChevronLeft className="h-4 w-4" />
-            Back
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Link
+              href={getArtifactFullViewerRoute(selectedArtifact.type)}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 gap-1 px-2.5 text-[11px] shrink-0 bg-background/50 hover:bg-accent")}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Full
+            </Link>
+            <Button type="button" variant="ghost" size="sm" onClick={onCloseArtifact} className="h-7 px-2">
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Back
+            </Button>
+          </div>
         }
       >
         <ArtifactCanvas

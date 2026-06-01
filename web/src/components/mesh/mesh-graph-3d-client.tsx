@@ -10,7 +10,7 @@ import { Info, ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react
 import { NodeDetailPanel } from "./node-detail-panel";
 import type { ConflictMeshPayload, MeshNodeData, MeshEdgeData } from "@/lib/api/types";
 
-export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPayload }) {
+export default function MeshGraph3DClient({ payload, compact }: { payload: ConflictMeshPayload; compact?: boolean }) {
     const { theme, systemTheme } = useTheme();
     const isDark = theme === "dark" || (theme === "system" && systemTheme === "dark");
 
@@ -39,7 +39,7 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
     const graphRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-    const [isInfoExpanded, setIsInfoExpanded] = useState(true);
+    const [isInfoExpanded, setIsInfoExpanded] = useState(!compact);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [detailOpen, setDetailOpen] = useState(true);
 
@@ -95,7 +95,9 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
 
     const graphShellClass = isFullscreen
         ? "fixed inset-0 z-50 flex h-screen w-screen bg-background"
-        : "flex h-[100%] w-full min-h-[500px] overflow-hidden rounded-xl";
+        : compact
+        ? "flex h-[380px] w-full overflow-hidden rounded-xl bg-background"
+        : "flex h-[100%] w-full min-h-[500px] overflow-hidden rounded-xl bg-background";
 
     return (
         <div className={graphShellClass}>
@@ -211,15 +213,17 @@ export default function MeshGraph3DClient({ payload }: { payload: ConflictMeshPa
             </div>
 
             {/* Detail Panel */}
-            <div
-                className={
-                    isFullscreen
-                        ? `${detailOpen ? "translate-y-0" : "translate-y-full lg:translate-y-0"} holo-surface fixed inset-x-0 bottom-0 z-30 h-[42vh] overflow-hidden rounded-t-xl border-t border-border/70 bg-card/85 transition-transform lg:static lg:h-full lg:w-[360px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0`
-                        : "holo-surface h-full w-[350px] shrink-0 overflow-hidden rounded-none bg-card/70"
-                }
-            >
-                <NodeDetailPanel element={selectedElement} payload={payload} />
-            </div>
+            {(!compact || isFullscreen) && (
+                <div
+                    className={
+                        isFullscreen
+                            ? `${detailOpen ? "translate-y-0" : "translate-y-full lg:translate-y-0"} holo-surface fixed inset-x-0 bottom-0 z-30 h-[42vh] overflow-hidden rounded-t-xl border-t border-border/70 bg-card/85 transition-transform lg:static lg:h-full lg:w-[360px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0`
+                            : "holo-surface h-full w-[350px] shrink-0 overflow-hidden rounded-none bg-card/70"
+                    }
+                >
+                    <NodeDetailPanel element={selectedElement} payload={payload} />
+                </div>
+            )}
         </div>
     );
 }

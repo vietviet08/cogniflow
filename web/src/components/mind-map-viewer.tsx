@@ -140,7 +140,7 @@ function CitationList({ citations }: { citations: CitationData[] }) {
   );
 }
 
-function buildMindMapFlow(payload: MindMapPayload): {
+export function buildMindMapFlow(payload: MindMapPayload): {
   nodes: Array<FlowNode<MindMapNodeFlowData>>;
   edges: Array<FlowEdge<MindMapEdgeFlowData>>;
 } {
