@@ -26,6 +26,21 @@ from app.storage.repositories.processing_run_repository import ProcessingRunRepo
 from app.storage.repositories.report_repository import ReportRepository
 
 
+def _detect_language_instruction(query: str) -> str:
+    """Detect query language and return a language instruction for the LLM prompt."""
+    vietnamese_chars = "àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ"
+    lower_query = query.lower()
+    vietnamese_count = sum(1 for c in lower_query if c in vietnamese_chars)
+    if vietnamese_count >= 2 or any(word in lower_query for word in ["của", "và", "là", "cho", "từ", "những", "các"]):
+        return (
+            "\n\nLANGUAGE REQUIREMENT: You MUST write ALL content in Vietnamese (Tiếng Việt). "
+            "All text fields including titles, questions, answers, explanations, descriptions, "
+            "dialogue, and summaries must be in Vietnamese. "
+            "Do NOT mix English unless it is a technical term with no Vietnamese equivalent."
+        )
+    return ""
+
+
 class ReportError(Exception):
     def __init__(
         self,
@@ -65,7 +80,7 @@ Instructions:
 - Include ## Executive Summary
 - Include ## Key Findings (use the themes from the analysis)
 - Include ## Sources Consulted listing the unique source titles
-- Keep the report factual and grounded in the evidence provided.
+- Keep the report factual and grounded in the evidence provided.{language_instruction}
 """
 
 _ACTION_ITEMS_PROMPT_TEMPLATE = """\
@@ -92,7 +107,7 @@ Rules:
 - Produce 3-7 action items when evidence supports it.
 - Each item must include at least one citation index from the evidence list.
 - If due dates or owners are not explicit, use empty string.
-- If evidence is weak, mark status as "needs_review".
+- If evidence is weak, mark status as "needs_review".{language_instruction}
 
 User request: {query}
 
@@ -125,7 +140,7 @@ Rules:
 - Use only the evidence below.
 - Produce 3-6 risks when supported by the evidence.
 - Each item must include at least one citation index.
-- If risk severity is unclear, use "needs_review" and conservative wording.
+- If risk severity is unclear, use "needs_review" and conservative wording.{language_instruction}
 
 User request: {query}
 
@@ -152,7 +167,7 @@ Rules:
 - Use only the evidence below.
 - Keep points concise and decision-oriented.
 - Include 2-5 items for each list when supported.
-- Add citation indexes that best support the brief overall.
+- Add citation indexes that best support the brief overall.{language_instruction}
 
 User request: {query}
 
@@ -167,19 +182,19 @@ _FLASHCARDS_PROMPT_TEMPLATE = """\
 You are creating study flashcards from indexed source material.
 
 Return a JSON object with EXACTLY this shape:
-{{
+{{{{
   "overview": "<short overview for this batch>",
   "cards": [
-    {{
+    {{{{
       "front": "<question, concept, or term prompt>",
       "back": "<short answer>",
       "explanation": "<why this answer is correct, grounded in the evidence>",
       "difficulty": "easy|medium|hard",
       "tags": ["<short topic tag>"],
       "citation_indexes": [1]
-    }}
+    }}}}
   ]
-}}
+}}}}
 
 Rules:
 - Use only the evidence below. Do not add outside knowledge.
@@ -187,12 +202,12 @@ Rules:
 - Prefer key concepts, definitions, processes, timelines, comparisons, and exam-worthy facts.
 - Each card must include at least one citation index from the evidence list.
 - Avoid duplicate cards in this batch.
-- Produce up to {card_limit} cards.
+- Produce up to {{card_limit}} cards.{language_instruction}
 
-User request: {query}
+User request: {{query}}
 
 Evidence:
-{evidence}
+{{evidence}}
 """
 
 _QUIZ_PROMPT_TEMPLATE = """\
@@ -226,7 +241,7 @@ Rules:
 - true_false questions must have exactly 2 options with ids "true" and "false".
 - Each question must include at least one citation index from the evidence list.
 - Avoid duplicate questions in this batch.
-- Produce up to {question_limit} questions.
+- Produce up to {question_limit} questions.{language_instruction}
 
 User request: {query}
 
@@ -278,7 +293,7 @@ Rules:
 - Timeline can be empty if the evidence does not contain clear dates, periods, stages, or ordered events.
 - Every non-empty section, concept, timeline item, and review question must include at least one citation index.
 - Avoid duplicates in this batch.
-- Produce up to {section_limit} sections, {concept_limit} key concepts, {timeline_limit} timeline items, and {question_limit} review questions.
+- Produce up to {section_limit} sections, {concept_limit} key concepts, {timeline_limit} timeline items, and {question_limit} review questions.{language_instruction}
 
 User request: {query}
 
@@ -324,7 +339,7 @@ Rules:
 - Use parent_child edges for hierarchy and relates_to/supports only when evidence supports cross-links.
 - Every non-empty node and edge should include at least one citation index from the evidence list.
 - Avoid duplicate nodes in this batch.
-- Produce up to {node_limit} nodes and {edge_limit} edges.
+- Produce up to {node_limit} nodes and {edge_limit} edges.{language_instruction}
 
 User request: {query}
 
@@ -360,7 +375,7 @@ Rules:
 - Keep the tone conversational, natural, and educational.
 - Do not add outside knowledge. Every fact stated by Host B must be grounded in the provided evidence.
 - Do not use markdown inside the dialogue text. Keep it as clean, readable text that can be spoken by a TTS reader.
-- Each dialogue turn must include a "citation_indexes" list containing the integer index of the evidence that supports the statements in that turn.
+- Each dialogue turn must include a "citation_indexes" list containing the integer index of the evidence that supports the statements in that turn.{language_instruction}
 
 User request / topic: {query}
 
@@ -481,6 +496,7 @@ def generate_report(
     evidence_blocks, evidence_citations = _build_evidence_blocks(db, insight_result.get("citations", []))
     prompt_template = _REPORT_PROMPT_TEMPLATE
     structured_payload: dict[str, Any] | None = None
+    language_instruction = _detect_language_instruction(query)
 
     if report_type in _ACTIONABLE_REPORT_TYPES:
         prompt_template = _get_actionable_prompt_template(report_type)
@@ -488,12 +504,14 @@ def generate_report(
             query=query,
             analysis=findings_text,
             evidence=evidence_blocks,
+            language_instruction=language_instruction,
         )
     else:
         prompt = _REPORT_PROMPT_TEMPLATE.format(
             report_type=report_type,
             query=query,
             analysis=findings_text,
+            language_instruction=language_instruction,
         )
 
     # Step 3: Render the report
@@ -663,6 +681,7 @@ def _generate_flashcards_report(
     collected_cards: list[dict[str, Any]] = []
     seen_fronts: set[str] = set()
     overview_parts: list[str] = []
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if len(collected_cards) >= _FLASHCARDS_MAX_CARDS:
@@ -672,6 +691,7 @@ def _generate_flashcards_report(
             query=query,
             evidence=evidence_blocks,
             card_limit=cards_per_batch,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -817,6 +837,7 @@ def _generate_quiz_report(
     collected_questions: list[dict[str, Any]] = []
     seen_questions: set[str] = set()
     overview_parts: list[str] = []
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if len(collected_questions) >= _QUIZ_MAX_QUESTIONS:
@@ -826,6 +847,7 @@ def _generate_quiz_report(
             query=query,
             evidence=evidence_blocks,
             question_limit=questions_per_batch,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -980,6 +1002,7 @@ def _generate_study_guide_report(
     seen_timeline: set[str] = set()
     seen_questions: set[str] = set()
     overview_parts: list[str] = []
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if (
@@ -997,6 +1020,7 @@ def _generate_study_guide_report(
             concept_limit=concept_limit,
             timeline_limit=timeline_limit,
             question_limit=question_limit,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -1175,6 +1199,7 @@ def _generate_mind_map_report(
     seen_edges: set[str] = set()
     overview_parts: list[str] = []
     central_topic = _preview(query, limit=80) or "Mind Map"
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if len(collected_nodes) >= _MIND_MAP_MAX_NODES and len(collected_edges) >= _MIND_MAP_MAX_EDGES:
@@ -1186,6 +1211,7 @@ def _generate_mind_map_report(
             node_limit=nodes_per_batch,
             edge_limit=edges_per_batch,
             max_depth=_MIND_MAP_MAX_DEPTH,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -1676,10 +1702,12 @@ def _generate_podcast_report(
     # Take up to 15 chunks for the podcast discussion to keep context compact and relevant
     podcast_chunks = chunks[:15]
     evidence_blocks, citations = _format_flashcard_evidence(podcast_chunks)
+    language_instruction = _detect_language_instruction(query)
 
     prompt = _PODCAST_PROMPT_TEMPLATE.format(
         query=query,
         evidence=evidence_blocks,
+        language_instruction=language_instruction,
     )
 
     raw_payload = _call_llm_json(

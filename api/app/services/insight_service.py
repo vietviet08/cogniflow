@@ -47,25 +47,25 @@ _SYNTHESIS_PROMPT_TEMPLATE = """\
 You are a research analyst. Based ONLY on the evidence below, produce a structured analysis.
 
 Return a JSON object with EXACTLY this shape:
-{{
+{{{{
   "summary": "<2-3 sentence overall summary>",
   "findings": [
-    {{
+    {{{{
       "theme": "<theme title>",
       "points": ["<finding 1>", "<finding 2>", ...]
-    }}
+    }}}}
   ]
-}}
+}}}}
 
 Rules:
 - Use only information from the evidence. Do not add outside knowledge.
 - Produce 2-5 themes. Each theme should have 2-4 bullet points.
-- If the evidence is insufficient, set summary to "Insufficient evidence" and findings to [].
+- If the evidence is insufficient, set summary to "Insufficient evidence" and findings to [{{]}}.{language_instruction}
 
-Research question: {query}
+Research question: {{query}}
 
 Evidence:
-{context}
+{{context}}
 """
 
 
@@ -151,7 +151,14 @@ def generate_insight(
         context_blocks.append(f"[{index}] {title}\n{document}")
     context = "\n\n".join(context_blocks)
 
-    prompt = _SYNTHESIS_PROMPT_TEMPLATE.format(query=query, context=context)
+    from app.services.report_service import _detect_language_instruction
+    language_instruction = _detect_language_instruction(query)
+
+    prompt = _SYNTHESIS_PROMPT_TEMPLATE.format(
+        query=query,
+        context=context,
+        language_instruction=language_instruction,
+    )
 
     # --- Generate structured findings ---
     raw = _call_llm(
