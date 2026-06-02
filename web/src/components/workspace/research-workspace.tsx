@@ -3034,7 +3034,7 @@ function WorkspacePodcastPlayer({
       audio.removeEventListener("error", handleAudioError);
       audioRef.current = null;
     };
-  }, [isMuted, serverAudioUrl, volume]);
+  }, [serverAudioUrl]);
 
   useEffect(() => {
     if (audioRef.current) {
