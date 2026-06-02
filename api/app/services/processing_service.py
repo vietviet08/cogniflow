@@ -3,14 +3,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
+import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import fitz
 import google.genai as genai
-import pdfplumber
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
 from google.genai import types as genai_types
@@ -24,7 +26,6 @@ from app.services.embedding_service import (
     LOCAL_EMBEDDING_MODEL,
     LOCAL_EMBEDDING_PROVIDER,
     chunk_text,
-    count_tokens,
     embed_texts_with_local_model,
 )
 from app.services.ingestion_service import SUPPORTED_DOCUMENT_SUFFIXES
@@ -36,6 +37,10 @@ from app.services.storage_backend import get_storage_backend
 from app.storage.models import Chunk, Document, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
+logger = logging.getLogger("app.processing")
+
+_NUL_PATTERN = re.compile(r"\x00")
+
 
 class ProcessingError(Exception):
     pass
@@ -43,7 +48,15 @@ class ProcessingError(Exception):
 
 PDF_VISION_MAX_PAGES = 80
 PDF_VISION_TIMEOUT_SECONDS = 45
+PDF_VISION_MAX_WORKERS = 2  # parallel vision calls (keep low to avoid rate limits)
+PDF_VISION_RETRY_ATTEMPTS = 3
+PDF_VISION_RETRY_BASE_DELAY = 2.0  # seconds
 TEXT_DOCUMENT_SUFFIXES = frozenset({".txt", ".md", ".csv", ".json", ".html", ".htm", ".xml"})
+
+
+def _sanitize_text(text: str) -> str:
+    """Remove NUL bytes and other control chars that PostgreSQL cannot store."""
+    return _NUL_PATTERN.sub("", text)
 
 
 @dataclass
@@ -106,20 +119,41 @@ def process_sources(
     documents_created = 0
     chunks_created = 0
 
-    for source in sources:
+    for source_index, source in enumerate(sources, start=1):
+        logger.info(
+            "processing_source_start",
+            extra={
+                "source_id": str(source.id),
+                "source_index": source_index,
+                "total_sources": len(sources),
+                "source_type": source.type,
+            },
+        )
         _replace_source_documents(db, source)
         extracted = _extract_source_content(db, source)
+        extracted.text = _sanitize_text(extracted.text)
+        if extracted.page_texts:
+            extracted.page_texts = [_sanitize_text(p) for p in extracted.page_texts]
         document = Document(
             source_id=source.id,
             title=extracted.title,
             raw_path=source.storage_path,
             clean_text=extracted.text,
-            token_count=count_tokens(extracted.text, model_name=embedding_model),
         )
         db.add(document)
         db.commit()
         db.refresh(document)
         documents_created += 1
+
+        logger.info(
+            "processing_source_extracted",
+            extra={
+                "source_id": str(source.id),
+                "text_length": len(extracted.text),
+                "has_page_texts": extracted.page_texts is not None,
+                "page_count": len(extracted.page_texts) if extracted.page_texts else 0,
+            },
+        )
 
         chunk_payloads = _build_chunk_payloads(
             source=source,
@@ -131,6 +165,12 @@ def process_sources(
             chunk_overlap=chunk_overlap,
             embedding_model=embedding_model,
         )
+
+        logger.info(
+            "processing_source_embedding",
+            extra={"source_id": str(source.id), "chunk_count": len(chunk_payloads)},
+        )
+
         vectors = embed_texts_with_local_model(
             [item["content"] for item in chunk_payloads],
             model_name=embedding_model,
@@ -162,10 +202,27 @@ def process_sources(
 
         db.commit()
 
+        logger.info(
+            "processing_source_done",
+            extra={
+                "source_id": str(source.id),
+                "chunks_created": len(chunk_models),
+            },
+        )
+
     run = run_repo.update_metadata(
         run,
         {
             **run_metadata,
+            "documents_created": documents_created,
+            "chunks_created": chunks_created,
+        },
+    )
+
+    logger.info(
+        "processing_complete",
+        extra={
+            "run_id": str(run.id),
             "documents_created": documents_created,
             "chunks_created": chunks_created,
         },
@@ -375,52 +432,22 @@ def _extract_pdf_pages(
     path: Path,
     vision_config: VisionExtractionConfig | None = None,
 ) -> list[str]:
-    fitz_pages: list[str] = []
+    pages: list[str] = []
     page_is_landscape: list[bool] = []
 
     with fitz.open(path) as document:
         for page in document:
-            fitz_pages.append(page.get_text("text"))
+            pages.append(page.get_text("text"))
             page_is_landscape.append(page.rect.width > page.rect.height)
 
-    with pdfplumber.open(path) as pdf:
-        plumber_pages = [(page.extract_text() or "") for page in pdf.pages]
-
-    text_pages = _choose_pdf_text_pages(fitz_pages, plumber_pages)
-    if vision_config is None or not _should_use_pdf_vision(text_pages, page_is_landscape):
-        return text_pages
+    if vision_config is None or not _should_use_pdf_vision(pages, page_is_landscape):
+        return pages
 
     return _augment_pdf_pages_with_vision(
         path,
-        text_pages=text_pages,
+        text_pages=pages,
         vision_config=vision_config,
     )
-
-
-def _choose_pdf_text_pages(fitz_pages: list[str], plumber_pages: list[str]) -> list[str]:
-    page_count = max(len(fitz_pages), len(plumber_pages))
-    selected_pages: list[str] = []
-    for index in range(page_count):
-        fitz_text = fitz_pages[index].strip() if index < len(fitz_pages) else ""
-        plumber_text = plumber_pages[index].strip() if index < len(plumber_pages) else ""
-        selected_pages.append(_choose_better_page_text(fitz_text, plumber_text))
-    return selected_pages
-
-
-def _choose_better_page_text(fitz_text: str, plumber_text: str) -> str:
-    if not fitz_text:
-        return plumber_text
-    if not plumber_text:
-        return fitz_text
-    if _pdf_text_quality_score(plumber_text) >= _pdf_text_quality_score(fitz_text):
-        return plumber_text
-    return fitz_text
-
-
-def _pdf_text_quality_score(text: str) -> int:
-    word_separators = text.count(" ") + text.count("\n") * 2
-    replacement_penalty = text.count("\ufffd") * 20
-    return len(text.strip()) + word_separators - replacement_penalty
 
 
 def _resolve_vision_config(
@@ -462,27 +489,75 @@ def _augment_pdf_pages_with_vision(
     text_pages: list[str],
     vision_config: VisionExtractionConfig,
 ) -> list[str]:
-    augmented_pages: list[str] = []
-    consecutive_vision_failures = 0
+    logger.info(
+        "pdf_vision_augmentation_start",
+        extra={"path": str(path), "page_count": len(text_pages)},
+    )
+
+    # Render all pages to PNG first (fast, CPU-bound)
+    page_images: list[tuple[int, bytes, str]] = []  # (index, image_bytes, text_layer)
     with fitz.open(path) as document:
-        for index, page in enumerate(document, start=1):
-            text_layer = text_pages[index - 1] if index - 1 < len(text_pages) else ""
-            if index > PDF_VISION_MAX_PAGES or consecutive_vision_failures >= 3:
-                augmented_pages.append(text_layer)
-                continue
-            try:
-                image_bytes = _render_pdf_page_png(page)
-                visual_text = _describe_slide_image(
-                    image_bytes=image_bytes,
-                    page_number=index,
-                    vision_config=vision_config,
-                )
-            except Exception:
-                consecutive_vision_failures += 1
-                visual_text = ""
+        for index, page in enumerate(document):
+            if index >= PDF_VISION_MAX_PAGES:
+                break
+            text_layer = text_pages[index] if index < len(text_pages) else ""
+            image_bytes = _render_pdf_page_png(page)
+            page_images.append((index, image_bytes, text_layer))
+
+    # Process vision calls in parallel
+    results: dict[int, str] = {}
+    consecutive_failures = 0
+
+    def _process_page(index: int, image_bytes: bytes, text_layer: str) -> tuple[int, str]:
+        try:
+            visual_text = _describe_slide_image(
+                image_bytes=image_bytes,
+                page_number=index + 1,
+                vision_config=vision_config,
+            )
+            return index, visual_text
+        except Exception:
+            return index, ""
+
+    with ThreadPoolExecutor(max_workers=PDF_VISION_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_process_page, idx, img, txt): idx
+            for idx, img, txt in page_images
+        }
+        for future in as_completed(futures):
+            index, visual_text = future.result()
+            if visual_text:
+                consecutive_failures = 0
             else:
-                consecutive_vision_failures = 0
+                consecutive_failures += 1
+            results[index] = visual_text
+
+            if consecutive_failures >= 3:
+                logger.warning(
+                    "pdf_vision_consecutive_failures",
+                    extra={"path": str(path), "failures": consecutive_failures},
+                )
+                executor.shutdown(wait=False, cancel_futures=True)
+                break
+
+    # Build augmented pages
+    augmented_pages: list[str] = []
+    for index in range(len(text_pages)):
+        text_layer = text_pages[index] if index < len(text_pages) else ""
+        if index >= PDF_VISION_MAX_PAGES or consecutive_failures >= 3:
+            augmented_pages.append(text_layer)
+        else:
+            visual_text = results.get(index, "")
             augmented_pages.append(_merge_text_and_visual_summary(text_layer, visual_text))
+
+    logger.info(
+        "pdf_vision_augmentation_done",
+        extra={
+            "path": str(path),
+            "pages_augmented": sum(1 for i in results if results[i]),
+            "total_pages": len(text_pages),
+        },
+    )
     return augmented_pages
 
 
@@ -524,6 +599,8 @@ def _describe_slide_image_with_openai(
     image_bytes: bytes,
     vision_config: VisionExtractionConfig,
 ) -> str:
+    import time
+
     kwargs: dict[str, Any] = {
         "api_key": vision_config.api_key,
         "max_retries": 0,
@@ -533,24 +610,40 @@ def _describe_slide_image_with_openai(
         kwargs["base_url"] = vision_config.base_url
     client = OpenAI(**kwargs)
     encoded_image = base64.b64encode(image_bytes).decode("ascii")
-    response = client.chat.completions.create(
-        model=vision_config.model,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+
+    last_error: Exception | None = None
+    for attempt in range(PDF_VISION_RETRY_ATTEMPTS):
+        try:
+            response = client.chat.completions.create(
+                model=vision_config.model,
+                messages=[
                     {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{encoded_image}"},
-                    },
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/png;base64,{encoded_image}"},
+                            },
+                        ],
+                    }
                 ],
-            }
-        ],
-        temperature=0.1,
-    )
-    content = response.choices[0].message.content
-    return content.strip() if content else ""
+                temperature=0.1,
+            )
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+        except Exception as exc:
+            last_error = exc
+            if "429" in str(exc) or "rate" in str(exc).lower():
+                delay = PDF_VISION_RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "vision_rate_limited",
+                    extra={"attempt": attempt + 1, "delay": delay},
+                )
+                time.sleep(delay)
+                continue
+            raise
+    raise last_error or RuntimeError("Vision API failed after retries")
 
 
 def _describe_slide_image_with_gemini(
@@ -559,22 +652,38 @@ def _describe_slide_image_with_gemini(
     image_bytes: bytes,
     vision_config: VisionExtractionConfig,
 ) -> str:
-    client = genai.Client(
-        api_key=vision_config.api_key,
-        http_options=genai_types.HttpOptions(timeout=PDF_VISION_TIMEOUT_SECONDS * 1000),
-    )
-    try:
-        response = client.models.generate_content(
-            model=vision_config.model,
-            contents=[
-                prompt,
-                genai_types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
-            ],
+    import time
+
+    last_error: Exception | None = None
+    for attempt in range(PDF_VISION_RETRY_ATTEMPTS):
+        client = genai.Client(
+            api_key=vision_config.api_key,
+            http_options=genai_types.HttpOptions(timeout=PDF_VISION_TIMEOUT_SECONDS * 1000),
         )
-        content = getattr(response, "text", None)
-        return content.strip() if content else ""
-    finally:
-        client.close()
+        try:
+            response = client.models.generate_content(
+                model=vision_config.model,
+                contents=[
+                    prompt,
+                    genai_types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                ],
+            )
+            content = getattr(response, "text", None)
+            return content.strip() if content else ""
+        except Exception as exc:
+            last_error = exc
+            if "429" in str(exc) or "rate" in str(exc).lower():
+                delay = PDF_VISION_RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "vision_rate_limited",
+                    extra={"attempt": attempt + 1, "delay": delay},
+                )
+                time.sleep(delay)
+                continue
+            raise
+        finally:
+            client.close()
+    raise last_error or RuntimeError("Vision API failed after retries")
 
 
 def _merge_text_and_visual_summary(text_layer: str, visual_text: str) -> str:
