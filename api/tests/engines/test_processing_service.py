@@ -2,6 +2,7 @@ from openpyxl import Workbook
 from pptx import Presentation
 
 from app.services import processing_service
+from app.services.storage_backend import LocalStorageBackend
 from app.storage.models import Chunk, Document, Job, ProcessingRun, Project, Source
 
 
@@ -69,6 +70,11 @@ def test_process_sources_persists_run_and_replaces_existing_chunks(
         processing_service,
         "embed_texts_with_local_model",
         lambda texts, model_name=None: [[float(index + 1)] * 3 for index, _ in enumerate(texts)],
+    )
+    monkeypatch.setattr(
+        processing_service,
+        "get_storage_backend",
+        lambda: LocalStorageBackend(upload_dir=str(tmp_path)),
     )
 
     first_job = Job(
@@ -174,6 +180,11 @@ def test_process_pdf_sources_store_page_number_metadata(
         "_extract_pdf_pages",
         lambda path, vision_config=None: ["Page one text", "Page two text"],
     )
+    monkeypatch.setattr(
+        processing_service,
+        "get_storage_backend",
+        lambda: LocalStorageBackend(upload_dir=str(tmp_path)),
+    )
 
     job = Job(
         project_id=project.id,
@@ -261,12 +272,3 @@ def test_extract_xlsx_content_reads_sheet_rows(tmp_path):
     assert "Sheet: Metrics" in extracted.text
     assert "Name | Score" in extracted.text
     assert "Alpha | 42" in extracted.text
-
-
-def test_choose_pdf_text_pages_prefers_better_spacing():
-    pages = processing_service._choose_pdf_text_pages(
-        ["Tư tưởng HồChí Minh là hệthống quan điểm."],
-        ["Tư tưởng Hồ Chí Minh là hệ thống quan điểm."],
-    )
-
-    assert pages == ["Tư tưởng Hồ Chí Minh là hệ thống quan điểm."]

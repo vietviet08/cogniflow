@@ -220,7 +220,8 @@ export type ReportType =
     | "flashcards"
     | "quiz"
     | "study_guide"
-    | "mind_map";
+    | "mind_map"
+    | "podcast";
 
 export interface ActionItemData {
     id: string;

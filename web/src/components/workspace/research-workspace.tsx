@@ -39,7 +39,10 @@ import {
   Link2,
   LogOut,
   MessageSquare,
+  Mic,
   Moon,
+  Pause,
+  Play,
   PanelBottomOpen,
   Plus,
   RefreshCcw,
@@ -51,6 +54,8 @@ import {
   Sparkles,
   Sun,
   Upload,
+  Volume2,
+  VolumeX,
   Workflow,
   X,
 } from "lucide-react";
@@ -73,7 +78,9 @@ import {
   listProjectIntegrations,
   updateChatMessage,
   uploadSourceFile,
+  createApiUrl,
 } from "@/lib/api/client";
+import { getStoredAuthToken } from "@/lib/auth-session";
 import type {
   ChatMessageData,
   CitationData,
@@ -145,6 +152,7 @@ const REPORT_TYPES: Array<{
   { value: "study_guide", label: "Study guide", icon: BookOpen },
   { value: "mind_map", label: "Mind map", icon: Workflow },
   { value: "conflict_mesh", label: "Conflict mesh", icon: Share2 },
+  { value: "podcast", label: "AI Podcast", icon: Mic },
 ];
 
 const REPORT_LABELS = Object.fromEntries(
@@ -215,7 +223,9 @@ function getArtifactFullViewerRoute(type: ReportType) {
   return "/reports";
 }
 
-function describeStructuredPayload(payload: StructuredReportPayload | null | undefined) {
+function describeStructuredPayload(
+  payload: StructuredReportPayload | null | undefined,
+) {
   if (!payload || typeof payload !== "object") {
     return "No structured payload.";
   }
@@ -284,7 +294,9 @@ function CitationChips({
             <span className="truncate">
               {citation.title || citation.chunk_id || `Source ${index + 1}`}
             </span>
-            {citation.page_number ? <span>p.{citation.page_number}</span> : null}
+            {citation.page_number ? (
+              <span>p.{citation.page_number}</span>
+            ) : null}
           </Badge>
         </button>
       ))}
@@ -293,12 +305,22 @@ function CitationChips({
 }
 
 export function ResearchWorkspace() {
-  const [activeProject, setActiveProjectState] = useState<StoredProject | null>(null);
+  const [activeProject, setActiveProjectState] = useState<StoredProject | null>(
+    null,
+  );
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("research");
-  const [studioRequest, setStudioRequest] = useState<StudioRequest | null>(null);
-  const [selectedArtifact, setSelectedArtifact] = useState<ReportResult | null>(null);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
-  const [highlightedSourceId, setHighlightedSourceId] = useState<string | null>(null);
+  const [studioRequest, setStudioRequest] = useState<StudioRequest | null>(
+    null,
+  );
+  const [selectedArtifact, setSelectedArtifact] = useState<ReportResult | null>(
+    null,
+  );
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [highlightedSourceId, setHighlightedSourceId] = useState<string | null>(
+    null,
+  );
   const [commandOpen, setCommandOpen] = useState(false);
   const workspaceActionsRef = useRef<WorkspaceActions>({});
   const reduceMotion = useReducedMotion();
@@ -322,7 +344,9 @@ export function ResearchWorkspace() {
     return <WorkspaceEmptyState />;
   }
 
-  const canMutate = canEditProject(activeProject.role as ProjectRole | undefined);
+  const canMutate = canEditProject(
+    activeProject.role as ProjectRole | undefined,
+  );
 
   function requestArtifact(query: string, type: ReportType) {
     setStudioRequest({ query, type, nonce: Date.now() });
@@ -444,14 +468,14 @@ export function ResearchWorkspace() {
               reduceMotion={reduceMotion}
               onClose={() => setActiveTab("research")}
             >
-          <KnowledgeSourcesPanel
-            activeProject={activeProject}
-            canMutate={canMutate}
-            selectedSourceIds={selectedSourceIds}
-            setSelectedSourceIds={setSelectedSourceIds}
-            highlightedSourceId={highlightedSourceId}
-            registerActions={registerWorkspaceActions}
-          />
+              <KnowledgeSourcesPanel
+                activeProject={activeProject}
+                canMutate={canMutate}
+                selectedSourceIds={selectedSourceIds}
+                setSelectedSourceIds={setSelectedSourceIds}
+                highlightedSourceId={highlightedSourceId}
+                registerActions={registerWorkspaceActions}
+              />
             </MobileWorkspaceDrawer>
           ) : null}
           {activeTab === "studio" ? (
@@ -461,18 +485,18 @@ export function ResearchWorkspace() {
               reduceMotion={reduceMotion}
               onClose={() => setActiveTab("research")}
             >
-          <StudioOutputsPanel
-            activeProject={activeProject}
-            canMutate={canMutate}
-            request={studioRequest}
-            selectedArtifact={selectedArtifact}
-            selectedArtifactId={selectedArtifact?.report_id ?? null}
-            onOpenArtifact={openArtifact}
-            onCloseArtifact={() => setSelectedArtifact(null)}
-            onRequestArtifact={requestArtifact}
-            onCitationHover={setHighlightedSourceId}
-            registerActions={registerWorkspaceActions}
-          />
+              <StudioOutputsPanel
+                activeProject={activeProject}
+                canMutate={canMutate}
+                request={studioRequest}
+                selectedArtifact={selectedArtifact}
+                selectedArtifactId={selectedArtifact?.report_id ?? null}
+                onOpenArtifact={openArtifact}
+                onCloseArtifact={() => setSelectedArtifact(null)}
+                onRequestArtifact={requestArtifact}
+                onCitationHover={setHighlightedSourceId}
+                registerActions={registerWorkspaceActions}
+              />
             </MobileWorkspaceDrawer>
           ) : null}
         </AnimatePresence>
@@ -537,7 +561,11 @@ function MobileWorkspaceTabs({
   setActiveTab: (tab: WorkspaceTab) => void;
   onCommand: () => void;
 }) {
-  const tabs: Array<{ value: WorkspaceTab; label: string; icon: typeof Layers }> = [
+  const tabs: Array<{
+    value: WorkspaceTab;
+    label: string;
+    icon: typeof Layers;
+  }> = [
     { value: "sources", label: "Sources", icon: Layers },
     { value: "research", label: "Research", icon: MessageSquare },
     { value: "studio", label: "Studio", icon: Sparkles },
@@ -681,7 +709,9 @@ function WorkspaceCommandPalette({
       <motion.div
         className="mx-auto mt-20 max-w-xl"
         onClick={(event) => event.stopPropagation()}
-        initial={reduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96 }}
+        initial={
+          reduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96 }
+        }
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.16 }}
       >
@@ -710,7 +740,9 @@ function WorkspaceCommandPalette({
                 )}
               >
                 <span>{command.label}</span>
-                <span className="text-xs text-muted-foreground">{command.hint}</span>
+                <span className="text-xs text-muted-foreground">
+                  {command.hint}
+                </span>
               </CmdkCommand.Item>
             ))}
           </CmdkCommand.List>
@@ -727,7 +759,9 @@ function WorkspaceEmptyState() {
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-sm">
           <BrainCircuit className="h-6 w-6" />
         </div>
-        <h1 className="holo-text font-display text-xl font-semibold">Select a project first</h1>
+        <h1 className="holo-text font-display text-xl font-semibold">
+          Select a project first
+        </h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           The research workspace is scoped to one active project so sources,
           chat, and studio artifacts stay connected.
@@ -737,7 +771,10 @@ function WorkspaceEmptyState() {
             <FolderOpen className="h-4 w-4" />
             Create/select project
           </Link>
-          <Link href="/projects" className={buttonVariants({ variant: "outline" })}>
+          <Link
+            href="/projects"
+            className={buttonVariants({ variant: "outline" })}
+          >
             Open projects
           </Link>
         </div>
@@ -759,21 +796,31 @@ function WorkspaceTopBar({ activeProject }: { activeProject: StoredProject }) {
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <p className="holo-text font-display truncate text-sm font-semibold">NoteMesh Workspace</p>
+            <p className="holo-text font-display truncate text-sm font-semibold">
+              NoteMesh Workspace
+            </p>
             {activeProject.role ? (
-              <Badge variant="secondary" className="hidden text-[10px] capitalize sm:inline-flex">
+              <Badge
+                variant="secondary"
+                className="hidden text-[10px] capitalize sm:inline-flex"
+              >
                 {activeProject.role}
               </Badge>
             ) : null}
           </div>
-          <p className="truncate text-xs text-muted-foreground">{activeProject.name}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {activeProject.name}
+          </p>
         </div>
       </div>
 
       <div className="flex items-center gap-1.5">
         <Link
           href="/projects"
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden sm:inline-flex")}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "hidden sm:inline-flex",
+          )}
         >
           <FolderOpen className="h-4 w-4" />
           Projects
@@ -797,7 +844,13 @@ function WorkspaceTopBar({ activeProject }: { activeProject: StoredProject }) {
         <div className="hidden max-w-36 truncate px-2 text-xs text-muted-foreground md:block">
           {user?.display_name ?? user?.email}
         </div>
-        <Button type="button" variant="ghost" size="icon" onClick={logout} title="Log out">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={logout}
+          title="Log out"
+        >
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
@@ -826,8 +879,12 @@ function PanelFrame({
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h2 className="font-display truncate text-sm font-semibold text-foreground">{title}</h2>
-            <p className="truncate text-xs text-muted-foreground">{description}</p>
+            <h2 className="font-display truncate text-sm font-semibold text-foreground">
+              {title}
+            </h2>
+            <p className="truncate text-xs text-muted-foreground">
+              {description}
+            </p>
           </div>
         </div>
         {action}
@@ -858,30 +915,29 @@ function KnowledgeSourcesPanel({
   const [busy, setBusy] = useState(false);
   const [processingActive, setProcessingActive] = useState(false);
   const [sourceTool, setSourceTool] = useState<SourceTool>("add");
-  const [driveFolderPath, setDriveFolderPath] = useState<Array<{ id: string; name: string }>>([
-    { id: "root", name: "My Drive" },
-  ]);
+  const [driveFolderPath, setDriveFolderPath] = useState<
+    Array<{ id: string; name: string }>
+  >([{ id: "root", name: "My Drive" }]);
   const [driveSearch, setDriveSearch] = useState("");
   const [driveItems, setDriveItems] = useState<GoogleDriveBrowseItemData[]>([]);
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveImportingId, setDriveImportingId] = useState<string | null>(null);
 
-  const {
-    data,
-    isLoading,
-    refetch,
-    isFetching,
-  } = useQuery({
+  const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["workspace-sources", activeProject.id],
     queryFn: () => listSources(activeProject.id),
   });
 
   const sources = data?.data.items ?? [];
-  const indexedCount = sources.filter((source) => source.indexing?.is_indexed).length;
+  const indexedCount = sources.filter(
+    (source) => source.indexing?.is_indexed,
+  ).length;
   const sourceUrls = new Set(
     sources
       .map((source) => source.file_name)
-      .filter((item) => item.startsWith("http://") || item.startsWith("https://")),
+      .filter(
+        (item) => item.startsWith("http://") || item.startsWith("https://"),
+      ),
   );
   const { data: jobsData } = useQuery({
     queryKey: ["workspace-processing-jobs", activeProject.id],
@@ -891,8 +947,7 @@ function KnowledgeSourcesPanel({
   });
   const processingJobs = (jobsData?.data.items ?? []).filter(
     (job) =>
-      job.type === "processing" &&
-      ["queued", "running"].includes(job.status),
+      job.type === "processing" && ["queued", "running"].includes(job.status),
   );
   const { data: integrationsData, refetch: refetchIntegrations } = useQuery({
     queryKey: ["workspace-integrations", activeProject.id],
@@ -923,10 +978,15 @@ function KnowledgeSourcesPanel({
   }
 
   async function refreshSources() {
-    await queryClient.invalidateQueries({ queryKey: ["workspace-sources", activeProject.id] });
+    await queryClient.invalidateQueries({
+      queryKey: ["workspace-sources", activeProject.id],
+    });
   }
 
-  async function loadDriveItems(folderId = driveFolderPath.at(-1)?.id ?? "root", query = driveSearch) {
+  async function loadDriveItems(
+    folderId = driveFolderPath.at(-1)?.id ?? "root",
+    query = driveSearch,
+  ) {
     setDriveLoading(true);
     try {
       const response = await browseGoogleDriveItems({
@@ -937,7 +997,11 @@ function KnowledgeSourcesPanel({
       });
       setDriveItems(response.data.items);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to browse Google Drive.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to browse Google Drive.",
+      );
       setDriveItems([]);
     } finally {
       setDriveLoading(false);
@@ -977,10 +1041,16 @@ function KnowledgeSourcesPanel({
         provider: "google_drive",
         itemReference: item.id,
       });
-      toast.success("Google Drive source imported. Run processing to index it.", { id: toastId });
+      toast.success(
+        "Google Drive source imported. Run processing to index it.",
+        { id: toastId },
+      );
       await refreshSources();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to import Drive file.", { id: toastId });
+      toast.error(
+        error instanceof Error ? error.message : "Failed to import Drive file.",
+        { id: toastId },
+      );
     } finally {
       setDriveImportingId(null);
     }
@@ -1005,7 +1075,9 @@ function KnowledgeSourcesPanel({
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
     setBusy(true);
-    const toastId = toast.loading(`Uploading ${files.length} source${files.length > 1 ? "s" : ""}...`);
+    const toastId = toast.loading(
+      `Uploading ${files.length} source${files.length > 1 ? "s" : ""}...`,
+    );
     try {
       for (const file of files) {
         await uploadSourceFile({ projectId: activeProject.id, file });
@@ -1013,7 +1085,9 @@ function KnowledgeSourcesPanel({
       toast.success("Sources uploaded.", { id: toastId });
       await refreshSources();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Upload failed.", { id: toastId });
+      toast.error(error instanceof Error ? error.message : "Upload failed.", {
+        id: toastId,
+      });
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1031,7 +1105,10 @@ function KnowledgeSourcesPanel({
       toast.success("Web source added.", { id: toastId });
       await refreshSources();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not add source.", { id: toastId });
+      toast.error(
+        error instanceof Error ? error.message : "Could not add source.",
+        { id: toastId },
+      );
     } finally {
       setBusy(false);
     }
@@ -1051,7 +1128,10 @@ function KnowledgeSourcesPanel({
       toast.success("Processing job started.", { id: toastId });
       await refreshSources();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Processing failed.", { id: toastId });
+      toast.error(
+        error instanceof Error ? error.message : "Processing failed.",
+        { id: toastId },
+      );
     } finally {
       setBusy(false);
     }
@@ -1063,19 +1143,34 @@ function KnowledgeSourcesPanel({
       description={`${sources.length} sources, ${indexedCount} indexed`}
       icon={Layers}
       action={
-        <Button type="button" variant="ghost" size="icon" onClick={() => void refetch()}>
-          {isFetching ? <Spinner className="h-4 w-4" /> : <RefreshCcw className="h-4 w-4" />}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => void refetch()}
+        >
+          {isFetching ? (
+            <Spinner className="h-4 w-4" />
+          ) : (
+            <RefreshCcw className="h-4 w-4" />
+          )}
         </Button>
       }
     >
       <div className="space-y-4 p-4">
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-muted/45 p-1">
-            {([
-              { value: "add", label: "Add", icon: Upload },
-              { value: "web", label: "Web", icon: Search },
-              { value: "drive", label: "Drive", icon: FolderOpen },
-            ] as Array<{ value: SourceTool; label: string; icon: typeof Upload }>).map(({ value, label, icon: Icon }) => (
+            {(
+              [
+                { value: "add", label: "Add", icon: Upload },
+                { value: "web", label: "Web", icon: Search },
+                { value: "drive", label: "Drive", icon: FolderOpen },
+              ] as Array<{
+                value: SourceTool;
+                label: string;
+                icon: typeof Upload;
+              }>
+            ).map(({ value, label, icon: Icon }) => (
               <button
                 key={value}
                 type="button"
@@ -1097,8 +1192,12 @@ function KnowledgeSourcesPanel({
             <>
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-foreground">Add source</p>
-                  <p className="text-[11px] text-muted-foreground">PDF, DOCX, URL, arXiv and web pages.</p>
+                  <p className="text-xs font-semibold text-foreground">
+                    Add source
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    PDF, DOCX, URL, arXiv and web pages.
+                  </p>
                 </div>
                 <Button
                   type="button"
@@ -1126,7 +1225,11 @@ function KnowledgeSourcesPanel({
                   disabled={!canMutate || busy}
                   className="h-8 text-xs"
                 />
-                <Button type="submit" size="icon" disabled={!canMutate || busy || !url.trim()}>
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={!canMutate || busy || !url.trim()}
+                >
                   <Link2 className="h-4 w-4" />
                 </Button>
               </form>
@@ -1204,7 +1307,9 @@ function KnowledgeSourcesPanel({
         ) : (
           <div className="rounded-lg border border-dashed border-border p-6 text-center">
             <DatabaseIcon />
-            <p className="mt-3 text-sm font-medium text-foreground">No sources yet</p>
+            <p className="mt-3 text-sm font-medium text-foreground">
+              No sources yet
+            </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Add a file or URL to build the project knowledge base.
             </p>
@@ -1271,7 +1376,9 @@ function GoogleDriveSourceTool({
     return (
       <div className="rounded-lg border border-dashed border-border p-4 text-center">
         <Spinner className="mx-auto h-5 w-5" />
-        <p className="mt-2 text-xs text-muted-foreground">Loading Google Drive integration...</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Loading Google Drive integration...
+        </p>
       </div>
     );
   }
@@ -1280,16 +1387,24 @@ function GoogleDriveSourceTool({
     return (
       <div className="rounded-lg border border-dashed border-border p-4 text-center">
         <FolderOpen className="mx-auto h-7 w-7 text-muted-foreground" />
-        <p className="mt-2 text-sm font-medium text-foreground">Google Drive is not connected</p>
+        <p className="mt-2 text-sm font-medium text-foreground">
+          Google Drive is not connected
+        </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Connect Google Drive from the Sources page, then import Docs, Sheets, Slides, PDFs, and Office files here.
+          Connect Google Drive from the Sources page, then import Docs, Sheets,
+          Slides, PDFs, and Office files here.
         </p>
         <div className="mt-4 flex justify-center gap-2">
           <Link href="/sources" className={buttonVariants({ size: "sm" })}>
             Connect Drive
             <ExternalLink className="h-3.5 w-3.5" />
           </Link>
-          <Button type="button" size="sm" variant="outline" onClick={onRefreshIntegration}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onRefreshIntegration}
+          >
             Refresh
           </Button>
         </div>
@@ -1303,13 +1418,25 @@ function GoogleDriveSourceTool({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-xs font-semibold text-foreground">Google Drive</p>
+          <p className="truncate text-xs font-semibold text-foreground">
+            Google Drive
+          </p>
           <p className="truncate text-[11px] text-muted-foreground">
             {integration.account_label || integration.display_name}
           </p>
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={onReload} disabled={driveLoading}>
-          {driveLoading ? <Spinner className="h-3.5 w-3.5" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onReload}
+          disabled={driveLoading}
+        >
+          {driveLoading ? (
+            <Spinner className="h-3.5 w-3.5" />
+          ) : (
+            <RefreshCcw className="h-3.5 w-3.5" />
+          )}
           Reload
         </Button>
       </div>
@@ -1337,7 +1464,9 @@ function GoogleDriveSourceTool({
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="truncate">{driveFolderPath.map((item) => item.name).join(" / ")}</span>
+        <span className="truncate">
+          {driveFolderPath.map((item) => item.name).join(" / ")}
+        </span>
       </div>
 
       {driveLoading ? (
@@ -1352,26 +1481,45 @@ function GoogleDriveSourceTool({
               className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/40 p-2"
             >
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                {item.is_folder ? <FolderOpen className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+                {item.is_folder ? (
+                  <FolderOpen className="h-3.5 w-3.5" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5" />
+                )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-foreground">{item.name}</p>
+                <p className="truncate text-xs font-medium text-foreground">
+                  {item.name}
+                </p>
                 <p className="truncate text-[10px] text-muted-foreground">
                   {item.is_folder ? "Folder" : item.mime_type}
                 </p>
               </div>
               {item.is_folder ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => onOpenFolder(item)}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onOpenFolder(item)}
+                >
                   Open
                 </Button>
               ) : (
                 <Button
                   type="button"
                   size="sm"
-                  disabled={!canMutate || !item.is_supported_import || driveImportingId === item.id}
+                  disabled={
+                    !canMutate ||
+                    !item.is_supported_import ||
+                    driveImportingId === item.id
+                  }
                   onClick={() => onImport(item)}
                 >
-                  {driveImportingId === item.id ? <Spinner className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                  {driveImportingId === item.id ? (
+                    <Spinner className="h-3.5 w-3.5" />
+                  ) : (
+                    <Plus className="h-3.5 w-3.5" />
+                  )}
                   Import
                 </Button>
               )}
@@ -1399,7 +1547,9 @@ function SourceProcessingProgress({ jobs }: { jobs: JobStatusData[] }) {
   const activeJobs = jobs.length;
   const averageProgress =
     activeJobs > 0
-      ? Math.round(jobs.reduce((sum, job) => sum + job.progress, 0) / activeJobs)
+      ? Math.round(
+          jobs.reduce((sum, job) => sum + job.progress, 0) / activeJobs,
+        )
       : 5;
 
   return (
@@ -1410,9 +1560,13 @@ function SourceProcessingProgress({ jobs }: { jobs: JobStatusData[] }) {
     >
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold text-foreground">Indexing sources</p>
+          <p className="text-xs font-semibold text-foreground">
+            Indexing sources
+          </p>
           <p className="text-[11px] text-muted-foreground">
-            {activeJobs ? `${activeJobs} processing job${activeJobs > 1 ? "s" : ""} active` : "Waiting for job status..."}
+            {activeJobs
+              ? `${activeJobs} processing job${activeJobs > 1 ? "s" : ""} active`
+              : "Waiting for job status..."}
           </p>
         </div>
         <Spinner className="h-4 w-4 text-primary" />
@@ -1451,15 +1605,25 @@ function SourceRow({
         selected
           ? "border-primary/50 bg-primary/10 dark:bg-primary/10"
           : "border-border/70 hover:border-primary/25",
-        highlighted && "border-warning bg-warning/10 shadow-sm dark:bg-warning/15",
+        highlighted &&
+          "border-warning bg-warning/10 shadow-sm dark:bg-warning/15",
       )}
     >
       <div className="flex items-start gap-3">
-        <Checkbox checked={selected} onCheckedChange={onToggle} className="mt-1" />
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onToggle}
+          className="mt-1"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-xs font-semibold text-foreground">{source.file_name}</p>
-            <Badge variant={getSourceStatusVariant(source.status)} className="text-[10px]">
+            <p className="truncate text-xs font-semibold text-foreground">
+              {source.file_name}
+            </p>
+            <Badge
+              variant={getSourceStatusVariant(source.status)}
+              className="text-[10px]"
+            >
               {source.status}
             </Badge>
           </div>
@@ -1473,7 +1637,9 @@ function SourceRow({
                 {source.indexing.chunk_count} chunks
               </Badge>
             ) : (
-              <Badge variant="secondary" className="text-[10px]">Not indexed</Badge>
+              <Badge variant="secondary" className="text-[10px]">
+                Not indexed
+              </Badge>
             )}
             {typeof trust === "number" ? (
               <Badge variant="outline" className="text-[10px]">
@@ -1486,7 +1652,9 @@ function SourceRow({
               </Badge>
             ) : null}
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">{formatDate(source.created_at)}</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {formatDate(source.created_at)}
+          </p>
         </div>
       </div>
     </motion.div>
@@ -1514,7 +1682,9 @@ function ResearchCanvasPanel({
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [sending, setSending] = useState(false);
-  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
+  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(
+    null,
+  );
   const [assistantStage, setAssistantStage] = useState("Retrieving evidence");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const askInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1549,7 +1719,11 @@ function ResearchCanvasPanel({
 
   useEffect(() => {
     if (!sending) return;
-    const stages = ["Retrieving evidence", "Ranking citations", "Drafting answer"];
+    const stages = [
+      "Retrieving evidence",
+      "Ranking citations",
+      "Drafting answer",
+    ];
     let index = 0;
     setAssistantStage(stages[index]);
     const interval = window.setInterval(() => {
@@ -1587,8 +1761,12 @@ function ResearchCanvasPanel({
 
     try {
       if (!sessionId) {
-        const title = content.length > 42 ? `${content.slice(0, 42)}...` : content;
-        const session = await createChatSession({ projectId: activeProject.id, title });
+        const title =
+          content.length > 42 ? `${content.slice(0, 42)}...` : content;
+        const session = await createChatSession({
+          projectId: activeProject.id,
+          title,
+        });
         sessionId = session.data.id;
         setActiveSessionId(sessionId);
         await queryClient.invalidateQueries({
@@ -1601,7 +1779,9 @@ function ResearchCanvasPanel({
         content,
         provider: "openai",
         topK: 5,
-        filters: scopedSourceIds.length ? { source_ids: scopedSourceIds } : undefined,
+        filters: scopedSourceIds.length
+          ? { source_ids: scopedSourceIds }
+          : undefined,
       });
       await queryClient.invalidateQueries({
         queryKey: ["workspace-chat-messages", sessionId],
@@ -1617,7 +1797,10 @@ function ResearchCanvasPanel({
     }
   }
 
-  async function handleMessageAction(messageId: string, patch: { isBookmarked?: boolean; rating?: number }) {
+  async function handleMessageAction(
+    messageId: string,
+    patch: { isBookmarked?: boolean; rating?: number },
+  ) {
     try {
       await updateChatMessage({ messageId, ...patch });
       await queryClient.invalidateQueries({
@@ -1690,9 +1873,7 @@ function ResearchCanvasPanel({
               {optimisticMessage ? (
                 <OptimisticChatBubble content={optimisticMessage} />
               ) : null}
-              {sending ? (
-                <AssistantSkeleton stage={assistantStage} />
-              ) : null}
+              {sending ? <AssistantSkeleton stage={assistantStage} /> : null}
               <div ref={messagesEndRef} />
             </div>
           ) : (
@@ -1701,10 +1882,13 @@ function ResearchCanvasPanel({
                 <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <MessageSquare className="h-6 w-6" />
                 </div>
-                <h3 className="text-lg font-semibold text-foreground">Start with a research question</h3>
+                <h3 className="text-lg font-semibold text-foreground">
+                  Start with a research question
+                </h3>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Ask across indexed sources, then turn strong answers into reports,
-                  flashcards, or a mind map without leaving the workspace.
+                  Ask across indexed sources, then turn strong answers into
+                  reports, flashcards, or a mind map without leaving the
+                  workspace.
                 </p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
                   {suggestedPrompts.map((prompt) => (
@@ -1723,7 +1907,10 @@ function ResearchCanvasPanel({
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="holo-surface shrink-0 rounded-none border-x-0 border-b-0 border-t border-border/70 bg-card/78 p-3 pb-20 lg:pb-3">
+        <form
+          onSubmit={handleSubmit}
+          className="holo-surface shrink-0 rounded-none border-x-0 border-b-0 border-t border-border/70 bg-card/78 p-3 pb-20 lg:pb-3"
+        >
           <div className="flex items-center gap-2">
             <Textarea
               ref={askInputRef}
@@ -1733,8 +1920,16 @@ function ResearchCanvasPanel({
               className="min-h-11 resize-none text-sm"
               disabled={!canMutate || sending}
             />
-            <Button type="submit" size="icon" disabled={!canMutate || sending || !inputValue.trim()}>
-              {sending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!canMutate || sending || !inputValue.trim()}
+            >
+              {sending ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
             </Button>
           </div>
         </form>
@@ -1751,7 +1946,10 @@ function ChatMessageCard({
 }: {
   message: ChatMessageData;
   onRequestArtifact: (query: string, type: ReportType) => void;
-  onMessageAction: (messageId: string, patch: { isBookmarked?: boolean; rating?: number }) => void;
+  onMessageAction: (
+    messageId: string,
+    patch: { isBookmarked?: boolean; rating?: number },
+  ) => void;
   onCitationHover: (sourceId: string | null) => void;
 }) {
   const isAssistant = message.role === "assistant";
@@ -1777,15 +1975,29 @@ function ChatMessageCard({
           <div
             className={cn(
               "flex h-7 w-7 items-center justify-center rounded-lg",
-              isAssistant ? "border border-primary/20 bg-primary/15 text-primary" : "bg-secondary text-secondary-foreground",
+              isAssistant
+                ? "border border-primary/20 bg-primary/15 text-primary"
+                : "bg-secondary text-secondary-foreground",
             )}
           >
-            {isAssistant ? <BrainCircuit className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+            {isAssistant ? (
+              <BrainCircuit className="h-4 w-4" />
+            ) : (
+              <MessageSquare className="h-4 w-4" />
+            )}
           </div>
-          <span className="text-xs font-semibold capitalize text-foreground">{message.role}</span>
+          <span className="text-xs font-semibold capitalize text-foreground">
+            {message.role}
+          </span>
         </div>
         <div className="flex items-center gap-1">
-          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={copyMessage}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={copyMessage}
+          >
             <Copy className="h-3.5 w-3.5" />
           </Button>
           {isAssistant ? (
@@ -1795,19 +2007,31 @@ function ChatMessageCard({
               size="icon"
               className="h-7 w-7"
               onClick={() =>
-                onMessageAction(message.id, { isBookmarked: !message.is_bookmarked })
+                onMessageAction(message.id, {
+                  isBookmarked: !message.is_bookmarked,
+                })
               }
             >
-              <BookOpen className={cn("h-3.5 w-3.5", message.is_bookmarked && "text-primary")} />
+              <BookOpen
+                className={cn(
+                  "h-3.5 w-3.5",
+                  message.is_bookmarked && "text-primary",
+                )}
+              />
             </Button>
           ) : null}
         </div>
       </div>
 
       <div className="prose prose-sm max-w-none dark:prose-invert">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {message.content}
+        </ReactMarkdown>
       </div>
-      <CitationChips citations={message.citations ?? []} onCitationHover={onCitationHover} />
+      <CitationChips
+        citations={message.citations ?? []}
+        onCitationHover={onCitationHover}
+      />
 
       {isAssistant ? (
         <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
@@ -1862,7 +2086,13 @@ function SourceScopeBar({
         </span>
       </div>
       {selectedCount > 0 ? (
-        <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={onClear}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2"
+          onClick={onClear}
+        >
           <X className="h-3.5 w-3.5" />
           Clear
         </Button>
@@ -1920,7 +2150,6 @@ function ArtifactCanvas({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <motion.div
           key={report.report_id}
@@ -1929,16 +2158,24 @@ function ArtifactCanvas({
           className="mx-auto max-w-5xl space-y-5"
         >
           {report.type === "quiz" ? (
-            <QuizAttemptView report={report} onCitationHover={onCitationHover} />
+            <QuizAttemptView
+              report={report}
+              onCitationHover={onCitationHover}
+            />
           ) : (
             <ArtifactStructuredView report={report} />
           )}
-          <CitationChips citations={report.citations ?? []} onCitationHover={onCitationHover} />
+          <CitationChips
+            citations={report.citations ?? []}
+            onCitationHover={onCitationHover}
+          />
 
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-foreground">Branch from this artifact</p>
+                <p className="text-sm font-semibold text-foreground">
+                  Branch from this artifact
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Reuse the artifact query to create another study output.
                 </p>
@@ -1981,6 +2218,15 @@ function ArtifactCanvas({
                 <Share2 className="h-3.5 w-3.5" />
                 Mesh
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onRequestArtifact(report.query, "podcast")}
+              >
+                <Mic className="h-3.5 w-3.5" />
+                Podcast
+              </Button>
             </div>
           </div>
         </motion.div>
@@ -1993,9 +2239,23 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
   const payload = report.structured_payload;
 
   if (payload && typeof payload === "object") {
+    if ("dialogue" in payload && Array.isArray(payload.dialogue)) {
+      return (
+        <ArtifactSection
+          title="AI Podcast"
+          description={describeStructuredPayload(payload)}
+        >
+          <WorkspacePodcastPlayer report={report} dialogue={payload.dialogue} />
+        </ArtifactSection>
+      );
+    }
+
     if ("cards" in payload && Array.isArray(payload.cards)) {
       return (
-        <ArtifactSection title="Flashcards" description={describeStructuredPayload(payload)}>
+        <ArtifactSection
+          title="Flashcards"
+          description={describeStructuredPayload(payload)}
+        >
           <WorkspaceFlashcardDeck cards={payload.cards} />
         </ArtifactSection>
       );
@@ -2003,7 +2263,10 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
 
     if ("questions" in payload && Array.isArray(payload.questions)) {
       return (
-        <ArtifactSection title="Quiz" description={describeStructuredPayload(payload)}>
+        <ArtifactSection
+          title="Quiz"
+          description={describeStructuredPayload(payload)}
+        >
           <div className="space-y-3">
             {payload.questions.map((question, index) => {
               const item = question as Record<string, unknown>;
@@ -2044,11 +2307,16 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
 
     if ("sections" in payload && Array.isArray(payload.sections)) {
       return (
-        <ArtifactSection title="Study Guide" description={describeStructuredPayload(payload)}>
+        <ArtifactSection
+          title="Study Guide"
+          description={describeStructuredPayload(payload)}
+        >
           <div className="space-y-3">
             {payload.sections.map((section, index) => {
               const item = section as Record<string, unknown>;
-              const points = Array.isArray(item.key_points) ? item.key_points : [];
+              const points = Array.isArray(item.key_points)
+                ? item.key_points
+                : [];
               return (
                 <ArtifactItemCard key={String(item.id ?? index)}>
                   <p className="text-sm font-semibold text-foreground">
@@ -2075,7 +2343,10 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
     if ("nodes" in payload && Array.isArray(payload.nodes)) {
       if (report.type === "conflict_mesh") {
         return (
-          <ArtifactSection title="Conflict Mesh Graph" description={describeStructuredPayload(payload)}>
+          <ArtifactSection
+            title="Conflict Mesh Graph"
+            description={describeStructuredPayload(payload)}
+          >
             <div className="h-[380px] w-full border border-border rounded-xl overflow-hidden bg-background">
               <MeshGraph payload={payload as any} compact={true} />
             </div>
@@ -2085,22 +2356,34 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
 
       if (report.type === "mind_map") {
         return (
-          <ArtifactSection title="Mind Map Graph" description={describeStructuredPayload(payload)}>
+          <ArtifactSection
+            title="Mind Map Graph"
+            description={describeStructuredPayload(payload)}
+          >
             <WorkspaceMindMap payload={payload} />
           </ArtifactSection>
         );
       }
 
       const nodes = payload.nodes as Array<Record<string, unknown>>;
-      const edges = "edges" in payload && Array.isArray(payload.edges) ? payload.edges : [];
+      const edges =
+        "edges" in payload && Array.isArray(payload.edges) ? payload.edges : [];
       return (
-        <ArtifactSection title="Mesh" description={describeStructuredPayload(payload)}>
+        <ArtifactSection
+          title="Mesh"
+          description={describeStructuredPayload(payload)}
+        >
           <div className="grid gap-3 md:grid-cols-[1fr_0.85fr]">
             <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Nodes</p>
+              <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">
+                Nodes
+              </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 {nodes.slice(0, 18).map((node, index) => (
-                  <div key={String(node.id ?? index)} className="rounded-md border border-border bg-card p-3">
+                  <div
+                    key={String(node.id ?? index)}
+                    className="rounded-md border border-border bg-card p-3"
+                  >
                     <p className="truncate text-xs font-semibold text-foreground">
                       {String(node.label ?? `Node ${index + 1}`)}
                     </p>
@@ -2112,8 +2395,12 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
               </div>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Relationships</p>
-              <p className="mt-2 text-3xl font-semibold text-foreground">{edges.length}</p>
+              <p className="text-xs font-semibold uppercase text-muted-foreground">
+                Relationships
+              </p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">
+                {edges.length}
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Open the full viewer for interactive 2D/3D exploration.
               </p>
@@ -2124,7 +2411,10 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
     }
 
     return (
-      <ArtifactSection title={REPORT_LABELS[report.type] ?? "Artifact"} description={describeStructuredPayload(payload)}>
+      <ArtifactSection
+        title={REPORT_LABELS[report.type] ?? "Artifact"}
+        description={describeStructuredPayload(payload)}
+      >
         <pre className="max-h-[520px] overflow-auto rounded-lg bg-muted p-4 text-xs text-muted-foreground">
           {JSON.stringify(payload, null, 2)}
         </pre>
@@ -2136,7 +2426,9 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
     return (
       <div className="rounded-lg border border-border bg-card p-5">
         <div className="prose prose-sm max-w-none dark:prose-invert">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {report.content}
+          </ReactMarkdown>
         </div>
       </div>
     );
@@ -2145,7 +2437,9 @@ function ArtifactStructuredView({ report }: { report: ReportResult }) {
   return (
     <div className="rounded-lg border border-dashed border-border p-8 text-center">
       <FileText className="mx-auto h-9 w-9 text-muted-foreground" />
-      <p className="mt-3 text-sm font-medium text-foreground">Artifact has no preview payload</p>
+      <p className="mt-3 text-sm font-medium text-foreground">
+        Artifact has no preview payload
+      </p>
     </div>
   );
 }
@@ -2159,7 +2453,10 @@ function QuizAttemptView({
 }) {
   const payload = report.structured_payload;
   const questions =
-    payload && typeof payload === "object" && "questions" in payload && Array.isArray(payload.questions)
+    payload &&
+    typeof payload === "object" &&
+    "questions" in payload &&
+    Array.isArray(payload.questions)
       ? (payload.questions as QuizQuestionData[])
       : [];
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -2176,15 +2473,21 @@ function QuizAttemptView({
     return <ArtifactStructuredView report={report} />;
   }
 
-  const currentQuestion = questions[Math.min(currentIndex, questions.length - 1)];
+  const currentQuestion =
+    questions[Math.min(currentIndex, questions.length - 1)];
   const selectedOptionId = answers[currentQuestion.id];
-  const answeredCount = questions.filter((question) => answers[question.id]).length;
+  const answeredCount = questions.filter(
+    (question) => answers[question.id],
+  ).length;
   const score = questions.reduce(
-    (total, question) => total + (answers[question.id] === question.correct_option_id ? 1 : 0),
+    (total, question) =>
+      total + (answers[question.id] === question.correct_option_id ? 1 : 0),
     0,
   );
   const scorePercent = Math.round((score / questions.length) * 100);
-  const progressPercent = Math.round(((currentIndex + 1) / questions.length) * 100);
+  const progressPercent = Math.round(
+    ((currentIndex + 1) / questions.length) * 100,
+  );
 
   function selectAnswer(optionId: string) {
     if (submitted) return;
@@ -2211,44 +2514,73 @@ function QuizAttemptView({
 
   if (submitted) {
     return (
-      <ArtifactSection title="Quiz results" description={`${score} of ${questions.length} correct`}>
+      <ArtifactSection
+        title="Quiz results"
+        description={`${score} of ${questions.length} correct`}
+      >
         <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
           <p className="text-xs font-semibold uppercase text-primary">Score</p>
-          <p className="mt-2 text-4xl font-semibold text-foreground">{scorePercent}%</p>
+          <p className="mt-2 text-4xl font-semibold text-foreground">
+            {scorePercent}%
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {score} correct answers out of {questions.length}.
           </p>
-          <Button type="button" size="sm" variant="outline" className="mt-4" onClick={resetAttempt}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-4"
+            onClick={resetAttempt}
+          >
             Retry quiz
           </Button>
         </div>
 
         <div className="mt-4 space-y-3">
           {questions.map((question, index) => {
-            const selected = question.options.find((option) => option.id === answers[question.id]);
-            const correct = question.options.find((option) => option.id === question.correct_option_id);
+            const selected = question.options.find(
+              (option) => option.id === answers[question.id],
+            );
+            const correct = question.options.find(
+              (option) => option.id === question.correct_option_id,
+            );
             const isCorrect = selected?.id === question.correct_option_id;
 
             return (
-              <div key={question.id} className="rounded-lg border border-border bg-background p-4">
+              <div
+                key={question.id}
+                className="rounded-lg border border-border bg-background p-4"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-semibold leading-6 text-foreground">
                     {index + 1}. {question.question}
                   </p>
-                  <Badge variant={isCorrect ? "success" : "destructive"} className="shrink-0 text-[10px]">
+                  <Badge
+                    variant={isCorrect ? "success" : "destructive"}
+                    className="shrink-0 text-[10px]"
+                  >
                     {isCorrect ? "Correct" : "Review"}
                   </Badge>
                 </div>
                 <div className="mt-3 space-y-2 text-xs leading-5">
                   <p className="text-muted-foreground">
                     Your answer:{" "}
-                    <span className={cn("font-semibold", isCorrect ? "text-foreground" : "text-destructive")}>
+                    <span
+                      className={cn(
+                        "font-semibold",
+                        isCorrect ? "text-foreground" : "text-destructive",
+                      )}
+                    >
                       {selected?.text ?? "No answer"}
                     </span>
                   </p>
                   {!isCorrect ? (
                     <p className="text-muted-foreground">
-                      Correct answer: <span className="font-semibold text-foreground">{correct?.text ?? "Unknown"}</span>
+                      Correct answer:{" "}
+                      <span className="font-semibold text-foreground">
+                        {correct?.text ?? "Unknown"}
+                      </span>
                     </p>
                   ) : null}
                   {question.explanation ? (
@@ -2257,7 +2589,10 @@ function QuizAttemptView({
                     </p>
                   ) : null}
                 </div>
-                <CitationChips citations={question.citations ?? []} onCitationHover={onCitationHover} />
+                <CitationChips
+                  citations={question.citations ?? []}
+                  onCitationHover={onCitationHover}
+                />
               </div>
             );
           })}
@@ -2267,23 +2602,33 @@ function QuizAttemptView({
   }
 
   return (
-    <ArtifactSection title="Quiz" description={`Answer ${questions.length} questions, then submit for a score.`}>
+    <ArtifactSection
+      title="Quiz"
+      description={`Answer ${questions.length} questions, then submit for a score.`}
+    >
       <div className="mb-4">
         <div className="flex items-center justify-between gap-3">
           <Badge variant="secondary" className="text-[10px]">
             Question {currentIndex + 1} of {questions.length}
           </Badge>
-          <span className="text-[11px] text-muted-foreground">{answeredCount} answered</span>
+          <span className="text-[11px] text-muted-foreground">
+            {answeredCount} answered
+          </span>
         </div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progressPercent}%` }} />
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${progressPercent}%` }}
+          />
         </div>
       </div>
 
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline" className="text-[10px]">
-            {currentQuestion.type === "true_false" ? "True/False" : "Multiple choice"}
+            {currentQuestion.type === "true_false"
+              ? "True/False"
+              : "Multiple choice"}
           </Badge>
           <Badge variant="outline" className="text-[10px]">
             {currentQuestion.difficulty}
@@ -2312,7 +2657,9 @@ function QuizAttemptView({
                 <span
                   className={cn(
                     "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                    selected ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground",
+                    selected
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border text-muted-foreground",
                   )}
                 >
                   {String.fromCharCode(65 + optionIndex)}
@@ -2323,7 +2670,10 @@ function QuizAttemptView({
           })}
         </div>
 
-        <CitationChips citations={currentQuestion.citations ?? []} onCitationHover={onCitationHover} />
+        <CitationChips
+          citations={currentQuestion.citations ?? []}
+          onCitationHover={onCitationHover}
+        />
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3">
@@ -2337,7 +2687,12 @@ function QuizAttemptView({
           <ChevronLeft className="h-4 w-4" />
           Previous
         </Button>
-        <Button type="button" size="sm" onClick={goNext} disabled={!selectedOptionId}>
+        <Button
+          type="button"
+          size="sm"
+          onClick={goNext}
+          disabled={!selectedOptionId}
+        >
           {currentIndex === questions.length - 1 ? "Submit" : "Next"}
         </Button>
       </div>
@@ -2358,7 +2713,9 @@ function ArtifactSection({
     <div className="rounded-lg border border-border bg-card p-5">
       <div className="mb-4">
         <h4 className="text-sm font-semibold text-foreground">{title}</h4>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {description}
+        </p>
       </div>
       {children}
     </div>
@@ -2405,39 +2762,49 @@ function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
       {/* Progress Indicator */}
       <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
         <div className="flex flex-col">
-          <span className="font-semibold text-foreground">Card {currentIndex + 1} of {cards.length}</span>
+          <span className="font-semibold text-foreground">
+            Card {currentIndex + 1} of {cards.length}
+          </span>
           <span className="text-[10px]">{progressPercent}% completed</span>
         </div>
         <Link
           href="/flashcards"
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 gap-1 px-2.5 text-[11px] shrink-0")}
+          className={cn(
+            buttonVariants({ variant: "outline", size: "sm" }),
+            "h-7 gap-1 px-2.5 text-[11px] shrink-0",
+          )}
         >
           <ExternalLink className="h-3 w-3" />
           Full viewer
         </Link>
       </div>
       <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-        <div 
+        <div
           className="h-full bg-primary transition-all duration-300 ease-out"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
 
       {/* 3D Flip Card Container */}
-      <div 
+      <div
         onClick={handleCardClick}
         className="perspective-1000 cursor-pointer w-full aspect-[4/3] min-h-[220px] select-none group"
       >
-        <div 
+        <div
           className={cn(
             "relative w-full h-full transition-transform duration-500 preserve-3d",
-            isFlipped ? "rotate-y-180" : ""
+            isFlipped ? "rotate-y-180" : "",
           )}
         >
           {/* Front Face */}
           <div className="absolute inset-0 w-full h-full backface-hidden rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between p-6 transition-all duration-300 group-hover:border-primary/30 group-hover:shadow-md">
             <div className="flex items-center justify-between">
-              <Badge variant="outline" className="text-[9px] font-semibold uppercase tracking-wider opacity-60 bg-background/50">Front</Badge>
+              <Badge
+                variant="outline"
+                className="text-[9px] font-semibold uppercase tracking-wider opacity-60 bg-background/50"
+              >
+                Front
+              </Badge>
               <Sparkles className="h-3.5 w-3.5 text-primary opacity-40 group-hover:opacity-100 transition-opacity" />
             </div>
             <div className="flex-1 flex items-center justify-center py-4">
@@ -2453,7 +2820,12 @@ function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
           {/* Back Face */}
           <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 rounded-xl border border-border bg-card shadow-sm flex flex-col justify-between p-6 transition-all duration-300 group-hover:border-primary/30 group-hover:shadow-md">
             <div className="flex items-center justify-between">
-              <Badge variant="secondary" className="text-[9px] font-semibold uppercase tracking-wider">Back</Badge>
+              <Badge
+                variant="secondary"
+                className="text-[9px] font-semibold uppercase tracking-wider"
+              >
+                Back
+              </Badge>
               <RotateCcw className="h-3.5 w-3.5 text-primary opacity-40" />
             </div>
             <div className="flex-1 flex flex-col justify-center py-2 overflow-y-auto px-2">
@@ -2477,10 +2849,10 @@ function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
 
       {/* Navigation Controls */}
       <div className="flex items-center justify-between mt-1">
-        <Button 
-          type="button" 
-          variant="outline" 
-          size="sm" 
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             handlePrev();
@@ -2490,11 +2862,11 @@ function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
           <ChevronLeft className="h-3.5 w-3.5" />
           Prev
         </Button>
-        
-        <Button 
-          type="button" 
-          variant="ghost" 
-          size="sm" 
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             setIsFlipped((prev) => !prev);
@@ -2505,10 +2877,10 @@ function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
           Flip
         </Button>
 
-        <Button 
-          type="button" 
-          variant="outline" 
-          size="sm" 
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             handleNext();
@@ -2524,17 +2896,339 @@ function WorkspaceFlashcardDeck({ cards }: { cards: any[] }) {
       {(currentCard.difficulty || tags.length > 0) && (
         <div className="flex flex-wrap gap-1.5 items-center bg-muted/20 p-2 rounded-lg border border-border/40">
           {currentCard.difficulty && (
-            <Badge variant={getDifficultyVariant(String(currentCard.difficulty))} className="text-[9px] h-5 py-0">
+            <Badge
+              variant={getDifficultyVariant(String(currentCard.difficulty))}
+              className="text-[9px] h-5 py-0"
+            >
               {String(currentCard.difficulty)}
             </Badge>
           )}
           {tags.map((tag: any, idx: number) => (
-            <Badge key={idx} variant="outline" className="text-[9px] h-5 py-0 bg-background/50">
+            <Badge
+              key={idx}
+              variant="outline"
+              className="text-[9px] h-5 py-0 bg-background/50"
+            >
               {String(tag)}
             </Badge>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function WorkspacePodcastPlayer({
+  report,
+  dialogue,
+}: {
+  report: any;
+  dialogue: any[];
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(0.8);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isPreparingAudio, setIsPreparingAudio] = useState(false);
+  const [serverAudioUrl, setServerAudioUrl] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const token = getStoredAuthToken();
+  const audioUrl = useMemo(() => {
+    const base = createApiUrl(`/reports/${report.report_id}/podcast-audio`);
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  }, [report.report_id, token]);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+
+    setIsPreparingAudio(true);
+    setServerAudioUrl(null);
+    setAudioError(null);
+
+    fetch(audioUrl, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!response.ok || !contentType.toLowerCase().startsWith("audio/")) {
+          const body = await response.json().catch(() => null);
+          const message =
+            body?.error?.message ??
+            "Failed to generate podcast audio with edge-tts.";
+          setAudioError(message);
+          return;
+        }
+        const blob = await response.blob();
+        if (blob.size < 128 || !blob.type.toLowerCase().startsWith("audio/")) {
+          setAudioError("Podcast endpoint returned an invalid audio file.");
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setServerAudioUrl(objectUrl);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setAudioError("Failed to load podcast audio from edge-tts.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsPreparingAudio(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [audioUrl, token]);
+
+  useEffect(() => {
+    if (!serverAudioUrl) {
+      audioRef.current = null;
+      return;
+    }
+
+    const audio = new Audio(serverAudioUrl);
+    audioRef.current = audio;
+    audio.preload = "metadata";
+    audio.volume = isMuted ? 0 : volume;
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleDurationChange = () => {
+      if (Number.isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+    const handleAudioError = () => {
+      setIsPlaying(false);
+      setAudioError("Podcast audio stream failed.");
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("durationchange", handleDurationChange);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleAudioError);
+
+    return () => {
+      audio.pause();
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("durationchange", handleDurationChange);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleAudioError);
+      audioRef.current = null;
+    };
+  }, [serverAudioUrl]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume;
+    }
+  }, [volume, isMuted]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) {
+      toast.error(audioError ?? "Podcast audio is not ready.");
+      return;
+    }
+
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch((err) => {
+        console.error(err);
+        setAudioError("Podcast audio stream failed.");
+        toast.error("Podcast audio stream failed.");
+      });
+    }
+  };
+
+  const handleSeek = (e: ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setCurrentTime(val);
+    if (audioRef.current) {
+      audioRef.current.currentTime = val;
+    }
+  };
+
+  const handleVolumeChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
+    if (val > 0) {
+      setIsMuted(false);
+    }
+  };
+
+  const toggleMute = () => {
+    setIsMuted((prev) => !prev);
+  };
+
+  const formatTime = (secs: number) => {
+    if (isNaN(secs) || secs === Infinity) return "00:00";
+    const minutes = Math.floor(secs / 60);
+    const seconds = Math.floor(secs % 60);
+    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Audio Player Card */}
+      <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4 shadow-sm">
+        {/* Abstract background waves */}
+        <div className="absolute right-0 top-0 -mr-6 -mt-6 h-24 w-24 rounded-full bg-primary/10 blur-2xl" />
+        <div className="absolute bottom-0 left-0 -ml-6 -mb-6 h-20 w-20 rounded-full bg-secondary/15 blur-2xl" />
+
+        <div className="relative flex flex-col gap-3">
+          {/* Header Info */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Mic className={cn("h-5 w-5", isPlaying && "animate-pulse")} />
+            </div>
+            <div className="min-w-0">
+              <h4 className="truncate text-sm font-semibold text-foreground">
+                AI Research Podcast
+              </h4>
+              <p className="truncate text-xs text-muted-foreground">
+                Host A & Host B discuss findings
+              </p>
+            </div>
+            {isPlaying && (
+              <div className="ml-auto flex items-center gap-0.5 h-3">
+                <span className="w-0.5 h-3 bg-primary rounded-full animate-pulse" />
+                <span className="w-0.5 h-2 bg-primary rounded-full animate-pulse [animation-delay:0.2s]" />
+                <span className="w-0.5 h-3.5 bg-primary rounded-full animate-pulse [animation-delay:0.4s]" />
+                <span className="w-0.5 h-1.5 bg-primary rounded-full animate-pulse [animation-delay:0.1s]" />
+              </div>
+            )}
+          </div>
+
+          {/* Slider and Time */}
+          <div className="flex flex-col gap-1 mt-1">
+            <input
+              type="range"
+              min={0}
+              max={duration || 100}
+              value={currentTime}
+              onChange={handleSeek}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-secondary accent-primary focus:outline-none"
+              style={{
+                background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${
+                  duration ? (currentTime / duration) * 100 : 0
+                }%, var(--color-secondary) ${
+                  duration ? (currentTime / duration) * 100 : 0
+                }%, var(--color-secondary) 100%)`,
+              }}
+            />
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+
+          {/* Controls Bar */}
+          <div className="flex items-center justify-between mt-1">
+            {/* Volume Control */}
+            <div className="flex items-center gap-1.5 w-24">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={toggleMute}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0"
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="h-4 w-4" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+              </Button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="h-1 w-full cursor-pointer appearance-none rounded-lg bg-secondary accent-muted-foreground focus:outline-none"
+              />
+            </div>
+
+            {/* Play Button */}
+            <Button
+              type="button"
+              size="icon"
+              onClick={togglePlay}
+              disabled={isPreparingAudio || !serverAudioUrl}
+              className="h-9 w-9 rounded-full bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 active:scale-95 transition-transform shrink-0"
+            >
+              {isPreparingAudio ? (
+                <Spinner className="h-4 w-4" />
+              ) : isPlaying ? (
+                <Pause className="h-4.5 w-4.5 fill-current" />
+              ) : (
+                <Play className="h-4.5 w-4.5 fill-current ml-0.5" />
+              )}
+            </Button>
+
+            <div className="w-24 flex justify-end">
+              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                Edge-TTS
+              </span>
+            </div>
+          </div>
+
+          {audioError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {audioError}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Timeline Transcript */}
+      <div className="max-h-[300px] overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+        {dialogue.map((turn, index) => {
+          const isHostA = turn.speaker === "Host A";
+          return (
+            <div
+              key={index}
+              className={cn(
+                "flex flex-col gap-1 max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed border shadow-[0_2px_8px_rgba(0,0,0,0.02)]",
+                isHostA
+                  ? "bg-card border-border/80 rounded-tl-none mr-auto"
+                  : "bg-primary/5 border-primary/10 rounded-tr-none ml-auto",
+              )}
+            >
+              <div className="flex items-center gap-1.5 font-bold mb-1">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    isHostA ? "bg-primary" : "bg-purple-500",
+                  )}
+                />
+                <span className="text-foreground">{turn.speaker}</span>
+              </div>
+              <p className="text-muted-foreground">{turn.text}</p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2619,7 +3313,11 @@ function StudioOutputsPanel({
   useEffect(() => {
     registerActions({
       refreshArtifacts: () => void refetch(),
-      generateArtifact: (reportType: ReportType) => void generateArtifact(query || "Create a source-grounded artifact from this project.", reportType),
+      generateArtifact: (reportType: ReportType) =>
+        void generateArtifact(
+          query || "Create a source-grounded artifact from this project.",
+          reportType,
+        ),
     });
   });
 
@@ -2631,7 +3329,9 @@ function StudioOutputsPanel({
       return;
     }
     setGenerating(true);
-    const toastId = toast.loading(`Generating ${REPORT_LABELS[nextType] ?? nextType}...`);
+    const toastId = toast.loading(
+      `Generating ${REPORT_LABELS[nextType] ?? nextType}...`,
+    );
     try {
       const result = await generateReport({
         projectId: activeProject.id,
@@ -2641,9 +3341,14 @@ function StudioOutputsPanel({
       });
       onOpenArtifact(result.data);
       toast.success("Artifact generated.", { id: toastId });
-      await queryClient.invalidateQueries({ queryKey: ["workspace-reports", activeProject.id] });
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-reports", activeProject.id],
+      });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Artifact generation failed.", { id: toastId });
+      toast.error(
+        error instanceof Error ? error.message : "Artifact generation failed.",
+        { id: toastId },
+      );
     } finally {
       setGenerating(false);
     }
@@ -2655,7 +3360,9 @@ function StudioOutputsPanel({
       const response = await getReport(report.report_id);
       onOpenArtifact(response.data);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not open report.");
+      toast.error(
+        error instanceof Error ? error.message : "Could not open report.",
+      );
     } finally {
       setLoadingReportId(null);
     }
@@ -2667,18 +3374,29 @@ function StudioOutputsPanel({
     return (
       <PanelFrame
         title="Artifact Detail"
-        description={REPORT_LABELS[selectedArtifact.type] ?? selectedArtifact.type}
+        description={
+          REPORT_LABELS[selectedArtifact.type] ?? selectedArtifact.type
+        }
         icon={Icon}
         action={
           <div className="flex items-center gap-1.5">
             <Link
               href={getArtifactFullViewerRoute(selectedArtifact.type)}
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 gap-1 px-2.5 text-[11px] shrink-0 bg-background/50 hover:bg-accent")}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "h-7 gap-1 px-2.5 text-[11px] shrink-0 bg-background/50 hover:bg-accent",
+              )}
             >
               <ExternalLink className="h-3.5 w-3.5" />
               Full
             </Link>
-            <Button type="button" variant="ghost" size="sm" onClick={onCloseArtifact} className="h-7 px-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onCloseArtifact}
+              className="h-7 px-2"
+            >
               <ChevronLeft className="h-3.5 w-3.5" />
               Back
             </Button>
@@ -2700,7 +3418,12 @@ function StudioOutputsPanel({
       description={`${reports.length} generated artifacts`}
       icon={Sparkles}
       action={
-        <Button type="button" variant="ghost" size="icon" onClick={() => void refetch()}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => void refetch()}
+        >
           <RefreshCcw className="h-4 w-4" />
         </Button>
       }
@@ -2715,15 +3438,24 @@ function StudioOutputsPanel({
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-semibold text-foreground">Create artifact</p>
-              <p className="text-[11px] text-muted-foreground">Generate from indexed evidence.</p>
+              <p className="text-xs font-semibold text-foreground">
+                Create artifact
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Generate from indexed evidence.
+              </p>
             </div>
-            <Badge variant="secondary" className="text-[10px]">OpenAI</Badge>
+            <Badge variant="secondary" className="text-[10px]">
+              OpenAI
+            </Badge>
           </div>
           <div className="mt-3 space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs">Type</Label>
-              <Select value={type} onValueChange={(value) => setType(value as ReportType)}>
+              <Select
+                value={type}
+                onValueChange={(value) => setType(value as ReportType)}
+              >
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -2749,7 +3481,11 @@ function StudioOutputsPanel({
               className="w-full"
               disabled={!canMutate || generating || !query.trim()}
             >
-              {generating ? <Spinner className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+              {generating ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
               Generate
             </Button>
           </div>
@@ -2757,7 +3493,9 @@ function StudioOutputsPanel({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-foreground">Recent artifacts</p>
+            <p className="text-xs font-semibold text-foreground">
+              Recent artifacts
+            </p>
           </div>
           {isLoading ? (
             <div className="flex h-28 items-center justify-center">
@@ -2765,26 +3503,30 @@ function StudioOutputsPanel({
             </div>
           ) : reports.length || generating ? (
             <>
-            {generating ? <ArtifactSkeletonCard type={type} /> : null}
-            {reports.map((report) => (
-              <ArtifactCard
-                key={report.report_id}
-                report={report}
-                selected={selectedArtifactId === report.report_id}
-                loading={loadingReportId === report.report_id}
-                onOpen={() => void openReport(report)}
-              />
-            ))}
+              {generating ? <ArtifactSkeletonCard type={type} /> : null}
+              {reports.map((report) => (
+                <ArtifactCard
+                  key={report.report_id}
+                  report={report}
+                  selected={selectedArtifactId === report.report_id}
+                  loading={loadingReportId === report.report_id}
+                  onOpen={() => void openReport(report)}
+                />
+              ))}
             </>
           ) : (
             <div className="rounded-lg border border-dashed border-border p-5 text-center">
               <FileText className="mx-auto h-8 w-8 text-muted-foreground" />
-              <p className="mt-2 text-sm font-medium text-foreground">No artifacts yet</p>
+              <p className="mt-2 text-sm font-medium text-foreground">
+                No artifacts yet
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Generate a report, quiz, study guide, or map from the canvas.
               </p>
               <div className="mt-4 grid gap-2">
-                {(["research_brief", "flashcards", "mind_map"] as ReportType[]).map((templateType) => {
+                {(
+                  ["research_brief", "flashcards", "mind_map"] as ReportType[]
+                ).map((templateType) => {
                   const Icon = getReportIcon(templateType);
                   return (
                     <button
@@ -2792,7 +3534,9 @@ function StudioOutputsPanel({
                       type="button"
                       onClick={() => {
                         setType(templateType);
-                        setQuery("Create a source-grounded artifact from this project.");
+                        setQuery(
+                          "Create a source-grounded artifact from this project.",
+                        );
                       }}
                       className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/60 px-3 py-2 text-left text-xs backdrop-blur transition-colors hover:border-primary/30 hover:bg-primary/10"
                     >
@@ -2805,7 +3549,6 @@ function StudioOutputsPanel({
             </div>
           )}
         </div>
-
       </div>
     </PanelFrame>
   );
@@ -2839,19 +3582,30 @@ function ArtifactCard({
     >
       <div className="flex items-start gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/60 text-muted-foreground">
-          {loading ? <Spinner className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+          {loading ? (
+            <Spinner className="h-4 w-4" />
+          ) : (
+            <Icon className="h-4 w-4" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-foreground">{report.title}</p>
+          <p className="truncate text-xs font-semibold text-foreground">
+            {report.title}
+          </p>
           <div className="mt-1 flex flex-wrap gap-1.5">
             <Badge variant="outline" className="text-[10px]">
               {REPORT_LABELS[report.type] ?? report.type}
             </Badge>
-            <Badge variant={report.status === "completed" ? "success" : "secondary"} className="text-[10px]">
+            <Badge
+              variant={report.status === "completed" ? "success" : "secondary"}
+              className="text-[10px]"
+            >
               {report.status}
             </Badge>
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">{formatDate(report.created_at)}</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {formatDate(report.created_at)}
+          </p>
         </div>
       </div>
     </motion.button>
@@ -2872,8 +3626,12 @@ function ArtifactSkeletonCard({ type }: { type: ReportType }) {
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-foreground">Generating {REPORT_LABELS[type] ?? type}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Retrieving evidence and drafting artifact...</p>
+          <p className="text-xs font-semibold text-foreground">
+            Generating {REPORT_LABELS[type] ?? type}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Retrieving evidence and drafting artifact...
+          </p>
           <div className="mt-3 space-y-1.5">
             <div className="h-2 w-4/5 animate-pulse rounded-full bg-primary/20" />
             <div className="h-2 w-2/3 animate-pulse rounded-full bg-primary/20" />

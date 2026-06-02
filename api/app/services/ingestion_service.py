@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from fastapi import UploadFile
 
 from app.core.config import get_settings
+from app.services.storage_backend import build_s3_key, get_storage_backend
 
 ARXIV_ID_PATTERN = re.compile(r"(?P<id>\d{4}\.\d{4,5}(?:v\d+)?)")
 ARXIV_ATOM_NAMESPACE = {"atom": "http://www.w3.org/2005/Atom"}
@@ -37,20 +38,15 @@ class IngestionError(Exception):
     pass
 
 
-def _upload_root() -> Path:
-    root = Path(get_settings().upload_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+def _sanitize_filename(filename: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._") or "upload.bin"
 
 
 def _source_directory(source_id: uuid.UUID) -> Path:
-    directory = _upload_root() / str(source_id)
+    """Return local source directory (used only for local backend temp paths)."""
+    directory = Path(get_settings().upload_dir) / str(source_id)
     directory.mkdir(parents=True, exist_ok=True)
     return directory
-
-
-def _sanitize_filename(filename: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._") or "upload.bin"
 
 
 def supported_document_extensions() -> list[str]:
@@ -68,18 +64,20 @@ def save_uploaded_file(source_id: uuid.UUID, upload: UploadFile) -> tuple[str, s
 
 
 def save_source_bytes(source_id: uuid.UUID, filename: str, content: bytes) -> tuple[str, str]:
-    destination = _source_directory(source_id) / _sanitize_filename(filename)
-    destination.write_bytes(content)
+    s3_key = build_s3_key(str(source_id), _sanitize_filename(filename))
+    storage = get_storage_backend()
+    storage_path = storage.save_bytes(s3_key, content)
     checksum = hashlib.sha256(content).hexdigest()
-    return str(destination), checksum
+    return storage_path, checksum
 
 
 def save_source_snapshot(source_id: uuid.UUID, payload: dict[str, Any]) -> tuple[str, str]:
-    destination = _source_directory(source_id) / "source.json"
+    s3_key = build_s3_key(str(source_id), "source.json")
     raw = json.dumps(payload, ensure_ascii=True, indent=2)
-    destination.write_text(raw, encoding="utf-8")
+    storage = get_storage_backend()
+    storage_path = storage.save_bytes(s3_key, raw.encode("utf-8"), content_type="application/json")
     checksum = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return str(destination), checksum
+    return storage_path, checksum
 
 
 def ingest_remote_source(source_id: uuid.UUID, url: str) -> tuple[str, str, str, dict[str, Any]]:

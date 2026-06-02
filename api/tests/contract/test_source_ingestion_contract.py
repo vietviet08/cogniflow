@@ -83,6 +83,37 @@ def test_upload_unsupported_file_source_is_rejected(client, db_session):
     assert db_session.query(Source).filter(Source.original_uri == "archive.zip").count() == 0
 
 
+def test_get_source_artifact_streams_s3_pdf_without_redirect(client, db_session, monkeypatch):
+    project = _create_project(client)
+    source = Source(
+        project_id=uuid.UUID(project["id"]),
+        type="file",
+        original_uri="source.pdf",
+        storage_path="s3://bucket/sources/source-id/source.pdf",
+        checksum="s3-pdf",
+        status="completed",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    class FakeS3Storage:
+        def exists(self, storage_path):
+            return storage_path == source.storage_path
+
+        def get_stream(self, storage_path, chunk_size=8192):
+            yield b"%PDF-1.4 fake"
+
+    monkeypatch.setattr(sources_route_module, "get_storage_backend", lambda: FakeS3Storage())
+
+    response = client.get(f"/api/v1/sources/{source.id}/artifact")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert "location" not in response.headers
+    assert response.content == b"%PDF-1.4 fake"
+
+
 def test_ingest_url_source_handles_arxiv_payload(client, monkeypatch, tmp_path):
     project = _create_project(client)
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
+import threading
 import unicodedata
 import uuid
 from typing import Any, Iterable
@@ -18,9 +20,25 @@ from app.services.citation_service import hydrate_citations, hydrate_report_payl
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.insight_service import InsightError, generate_insight
 from app.services.query_service import ensure_project_sources_indexed
+from app.services.storage_backend import build_s3_podcast_key, get_storage_backend
 from app.storage.models import Chunk, Document, QuizAttempt, Report, ReportInsight, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.report_repository import ReportRepository
+
+
+def _detect_language_instruction(query: str) -> str:
+    """Detect query language and return a language instruction for the LLM prompt."""
+    vietnamese_chars = "àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ"
+    lower_query = query.lower()
+    vietnamese_count = sum(1 for c in lower_query if c in vietnamese_chars)
+    if vietnamese_count >= 2 or any(word in lower_query for word in ["của", "và", "là", "cho", "từ", "những", "các"]):
+        return (
+            "\n\nLANGUAGE REQUIREMENT: You MUST write ALL content in Vietnamese (Tiếng Việt). "
+            "All text fields including titles, questions, answers, explanations, descriptions, "
+            "dialogue, and summaries must be in Vietnamese. "
+            "Do NOT mix English unless it is a technical term with no Vietnamese equivalent."
+        )
+    return ""
 
 
 class ReportError(Exception):
@@ -62,7 +80,7 @@ Instructions:
 - Include ## Executive Summary
 - Include ## Key Findings (use the themes from the analysis)
 - Include ## Sources Consulted listing the unique source titles
-- Keep the report factual and grounded in the evidence provided.
+- Keep the report factual and grounded in the evidence provided.{language_instruction}
 """
 
 _ACTION_ITEMS_PROMPT_TEMPLATE = """\
@@ -89,7 +107,7 @@ Rules:
 - Produce 3-7 action items when evidence supports it.
 - Each item must include at least one citation index from the evidence list.
 - If due dates or owners are not explicit, use empty string.
-- If evidence is weak, mark status as "needs_review".
+- If evidence is weak, mark status as "needs_review".{language_instruction}
 
 User request: {query}
 
@@ -122,7 +140,7 @@ Rules:
 - Use only the evidence below.
 - Produce 3-6 risks when supported by the evidence.
 - Each item must include at least one citation index.
-- If risk severity is unclear, use "needs_review" and conservative wording.
+- If risk severity is unclear, use "needs_review" and conservative wording.{language_instruction}
 
 User request: {query}
 
@@ -149,7 +167,7 @@ Rules:
 - Use only the evidence below.
 - Keep points concise and decision-oriented.
 - Include 2-5 items for each list when supported.
-- Add citation indexes that best support the brief overall.
+- Add citation indexes that best support the brief overall.{language_instruction}
 
 User request: {query}
 
@@ -164,19 +182,19 @@ _FLASHCARDS_PROMPT_TEMPLATE = """\
 You are creating study flashcards from indexed source material.
 
 Return a JSON object with EXACTLY this shape:
-{{
+{{{{
   "overview": "<short overview for this batch>",
   "cards": [
-    {{
+    {{{{
       "front": "<question, concept, or term prompt>",
       "back": "<short answer>",
       "explanation": "<why this answer is correct, grounded in the evidence>",
       "difficulty": "easy|medium|hard",
       "tags": ["<short topic tag>"],
       "citation_indexes": [1]
-    }}
+    }}}}
   ]
-}}
+}}}}
 
 Rules:
 - Use only the evidence below. Do not add outside knowledge.
@@ -184,12 +202,12 @@ Rules:
 - Prefer key concepts, definitions, processes, timelines, comparisons, and exam-worthy facts.
 - Each card must include at least one citation index from the evidence list.
 - Avoid duplicate cards in this batch.
-- Produce up to {card_limit} cards.
+- Produce up to {{card_limit}} cards.{language_instruction}
 
-User request: {query}
+User request: {{query}}
 
 Evidence:
-{evidence}
+{{evidence}}
 """
 
 _QUIZ_PROMPT_TEMPLATE = """\
@@ -223,7 +241,7 @@ Rules:
 - true_false questions must have exactly 2 options with ids "true" and "false".
 - Each question must include at least one citation index from the evidence list.
 - Avoid duplicate questions in this batch.
-- Produce up to {question_limit} questions.
+- Produce up to {question_limit} questions.{language_instruction}
 
 User request: {query}
 
@@ -275,7 +293,7 @@ Rules:
 - Timeline can be empty if the evidence does not contain clear dates, periods, stages, or ordered events.
 - Every non-empty section, concept, timeline item, and review question must include at least one citation index.
 - Avoid duplicates in this batch.
-- Produce up to {section_limit} sections, {concept_limit} key concepts, {timeline_limit} timeline items, and {question_limit} review questions.
+- Produce up to {section_limit} sections, {concept_limit} key concepts, {timeline_limit} timeline items, and {question_limit} review questions.{language_instruction}
 
 User request: {query}
 
@@ -321,9 +339,45 @@ Rules:
 - Use parent_child edges for hierarchy and relates_to/supports only when evidence supports cross-links.
 - Every non-empty node and edge should include at least one citation index from the evidence list.
 - Avoid duplicate nodes in this batch.
-- Produce up to {node_limit} nodes and {edge_limit} edges.
+- Produce up to {node_limit} nodes and {edge_limit} edges.{language_instruction}
 
 User request: {query}
+
+Evidence:
+{evidence}
+"""
+
+_PODCAST_PROMPT_TEMPLATE = """\
+You are an expert podcast scriptwriter. Based ONLY on the evidence below, write an engaging and informative podcast script.
+The podcast features two hosts:
+- Host A (the interviewer/curious host): asks insightful questions, sets the stage, and keeps the conversation lively.
+- Host B (the expert/subject matter expert): explains the concepts clearly based on the provided evidence, uses analogies, and breaks down complex details.
+
+Return a JSON object with EXACTLY this shape:
+{{
+  "overview": "<short overview of the podcast topic>",
+  "dialogue": [
+    {{
+      "speaker": "Host A",
+      "text": "<dialogue text>",
+      "citation_indexes": [1]
+    }},
+    {{
+      "speaker": "Host B",
+      "text": "<dialogue text>",
+      "citation_indexes": [1, 2]
+    }}
+  ]
+}}
+
+Rules:
+- Write between 6 to 12 dialogue turns in total.
+- Keep the tone conversational, natural, and educational.
+- Do not add outside knowledge. Every fact stated by Host B must be grounded in the provided evidence.
+- Do not use markdown inside the dialogue text. Keep it as clean, readable text that can be spoken by a TTS reader.
+- Each dialogue turn must include a "citation_indexes" list containing the integer index of the evidence that supports the statements in that turn.{language_instruction}
+
+User request / topic: {query}
 
 Evidence:
 {evidence}
@@ -337,10 +391,12 @@ _STRUCTURED_REPORT_TYPES = {
     "quiz",
     "study_guide",
     "mind_map",
+    "podcast",
 }
 _ACTIONABLE_REPORT_TYPES = {"action_items", "risk_analysis", "executive_brief"}
 _FLASHCARDS_MAX_CARDS = 40
 _FLASHCARDS_BATCH_SIZE = 10
+
 _QUIZ_MAX_QUESTIONS = 30
 _QUIZ_BATCH_SIZE = 10
 _STUDY_GUIDE_MAX_SECTIONS = 12
@@ -408,6 +464,16 @@ def generate_report(
             provider=provider,
             parent_run_id=parent_run_id,
         )
+    if report_type == "podcast":
+        return _generate_podcast_report(
+            db=db,
+            project_id=project_id,
+            query=query,
+            report_type=report_type,
+            format=format,
+            provider=provider,
+            parent_run_id=parent_run_id,
+        )
 
     # Step 1: Run insight synthesis
     try:
@@ -430,6 +496,7 @@ def generate_report(
     evidence_blocks, evidence_citations = _build_evidence_blocks(db, insight_result.get("citations", []))
     prompt_template = _REPORT_PROMPT_TEMPLATE
     structured_payload: dict[str, Any] | None = None
+    language_instruction = _detect_language_instruction(query)
 
     if report_type in _ACTIONABLE_REPORT_TYPES:
         prompt_template = _get_actionable_prompt_template(report_type)
@@ -437,12 +504,14 @@ def generate_report(
             query=query,
             analysis=findings_text,
             evidence=evidence_blocks,
+            language_instruction=language_instruction,
         )
     else:
         prompt = _REPORT_PROMPT_TEMPLATE.format(
             report_type=report_type,
             query=query,
             analysis=findings_text,
+            language_instruction=language_instruction,
         )
 
     # Step 3: Render the report
@@ -612,6 +681,7 @@ def _generate_flashcards_report(
     collected_cards: list[dict[str, Any]] = []
     seen_fronts: set[str] = set()
     overview_parts: list[str] = []
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if len(collected_cards) >= _FLASHCARDS_MAX_CARDS:
@@ -621,6 +691,7 @@ def _generate_flashcards_report(
             query=query,
             evidence=evidence_blocks,
             card_limit=cards_per_batch,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -766,6 +837,7 @@ def _generate_quiz_report(
     collected_questions: list[dict[str, Any]] = []
     seen_questions: set[str] = set()
     overview_parts: list[str] = []
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if len(collected_questions) >= _QUIZ_MAX_QUESTIONS:
@@ -775,6 +847,7 @@ def _generate_quiz_report(
             query=query,
             evidence=evidence_blocks,
             question_limit=questions_per_batch,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -929,6 +1002,7 @@ def _generate_study_guide_report(
     seen_timeline: set[str] = set()
     seen_questions: set[str] = set()
     overview_parts: list[str] = []
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if (
@@ -946,6 +1020,7 @@ def _generate_study_guide_report(
             concept_limit=concept_limit,
             timeline_limit=timeline_limit,
             question_limit=question_limit,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -1124,6 +1199,7 @@ def _generate_mind_map_report(
     seen_edges: set[str] = set()
     overview_parts: list[str] = []
     central_topic = _preview(query, limit=80) or "Mind Map"
+    language_instruction = _detect_language_instruction(query)
 
     for batch in batches:
         if len(collected_nodes) >= _MIND_MAP_MAX_NODES and len(collected_edges) >= _MIND_MAP_MAX_EDGES:
@@ -1135,6 +1211,7 @@ def _generate_mind_map_report(
             node_limit=nodes_per_batch,
             edge_limit=edges_per_batch,
             max_depth=_MIND_MAP_MAX_DEPTH,
+            language_instruction=language_instruction,
         )
         raw_payload = _call_llm_json(
             prompt=prompt,
@@ -1239,6 +1316,518 @@ def _generate_mind_map_report(
         "run_id": str(run.id),
         "source_ids": source_ids,
         "citations": citations,
+        "evidence_snapshot": evidence_snapshot,
+    }
+
+
+def is_vietnamese(text: str) -> bool:
+    """Detect Vietnamese text so the podcast uses Vietnamese-capable voices."""
+    normalized = unicodedata.normalize("NFC", text or "").lower()
+    vietnamese_chars = set(
+        "àáảãạăằắẳẵặâầấẩẫậ"
+        "èéẻẽẹêềếểễệ"
+        "ìíỉĩị"
+        "òóỏõọôồốổỗộơờớởỡợ"
+        "ùúủũụưừứửữự"
+        "ỳýỷỹỵđ"
+    )
+    if any(char in vietnamese_chars for char in normalized):
+        return True
+
+    words = set(re.findall(r"\b[a-z]+\b", normalized))
+    vietnamese_markers = {
+        "ban",
+        "cac",
+        "cho",
+        "chung",
+        "cua",
+        "dung",
+        "duoc",
+        "hien",
+        "khong",
+        "la",
+        "lieu",
+        "mot",
+        "nay",
+        "nguoi",
+        "nhung",
+        "noi",
+        "phat",
+        "qua",
+        "rang",
+        "se",
+        "ta",
+        "tai",
+        "the",
+        "tieng",
+        "trong",
+        "va",
+        "ve",
+        "viet",
+        "voi",
+    }
+    return len(words & vietnamese_markers) >= 3
+
+
+def _sanitize_podcast_tts_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFC", text or "")
+    normalized = re.sub(r"https?://\S+|www\.\S+", "", normalized)
+    normalized = re.sub(r"[\*_`#>\[\]{}|~^]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return "".join(
+        char
+        for char in normalized.strip()
+        if unicodedata.category(char)[0] != "C" and unicodedata.category(char) != "So"
+    )
+
+
+def _split_long_tts_text(text: str, max_chars: int) -> list[str]:
+    chunks: list[str] = []
+    remaining = text.strip()
+    while len(remaining) > max_chars:
+        split_at = max(
+            remaining.rfind(separator, 0, max_chars)
+            for separator in (", ", "; ", ": ", " - ", " ")
+        )
+        if split_at <= 0:
+            split_at = max_chars
+        chunk = remaining[:split_at].strip(" ,;:-")
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _split_podcast_tts_text(text: str, max_chars: int = 700) -> list[str]:
+    sanitized = _sanitize_podcast_tts_text(text)
+    if not sanitized:
+        return []
+
+    chunks: list[str] = []
+    current = ""
+    sentences = re.split(r"(?<=[.!?;:])\s+", sanitized)
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_long_tts_text(sentence, max_chars))
+            continue
+        candidate = f"{current} {sentence}".strip()
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        current = sentence
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _has_mp3_frame(data: bytes) -> bool:
+    offset = 0
+    if data.startswith(b"ID3") and len(data) >= 10:
+        tag_size = (
+            ((data[6] & 0x7F) << 21)
+            | ((data[7] & 0x7F) << 14)
+            | ((data[8] & 0x7F) << 7)
+            | (data[9] & 0x7F)
+        )
+        footer_size = 10 if data[5] & 0x10 else 0
+        offset = 10 + tag_size + footer_size
+    return any(
+        data[index] == 0xFF and (data[index + 1] & 0xE0) == 0xE0
+        for index in range(offset, max(offset, len(data) - 1))
+    )
+
+
+def _is_valid_mp3_file(path: str) -> bool:
+    if not os.path.exists(path) or os.path.getsize(path) < 128:
+        return False
+    with open(path, "rb") as file:
+        return _has_mp3_frame(file.read(4096))
+
+
+def _is_valid_mp3_bytes(data: bytes) -> bool:
+    return len(data) >= 128 and _has_mp3_frame(data[:4096])
+
+
+def podcast_audio_file_is_playable(path: str) -> bool:
+    storage = get_storage_backend()
+    if not storage.exists(path):
+        return False
+    try:
+        data = storage.get_bytes(path)
+        return _is_valid_mp3_bytes(data)
+    except Exception:
+        return False
+
+
+def _strip_id3v1(data: bytes) -> bytes:
+    if len(data) >= 128 and data[-128:-125] == b"TAG":
+        return data[:-128]
+    return data
+
+
+def _strip_id3v2(data: bytes) -> bytes:
+    if not data.startswith(b"ID3") or len(data) < 10:
+        return data
+    tag_size = (
+        ((data[6] & 0x7F) << 21)
+        | ((data[7] & 0x7F) << 14)
+        | ((data[8] & 0x7F) << 7)
+        | (data[9] & 0x7F)
+    )
+    footer_size = 10 if data[5] & 0x10 else 0
+    return data[10 + tag_size + footer_size :]
+
+
+def _combine_mp3_segments(segment_paths: list[str], output_path: str) -> None:
+    combined = bytearray()
+    for index, path in enumerate(segment_paths):
+        if not _is_valid_mp3_file(path):
+            raise ValueError(f"Generated podcast segment is not a valid MP3: {path}")
+        with open(path, "rb") as file:
+            data = _strip_id3v1(file.read())
+        if index > 0:
+            data = _strip_id3v2(data)
+        combined.extend(data)
+    if not _has_mp3_frame(bytes(combined[:4096])):
+        raise ValueError("Combined podcast audio is not a valid MP3 stream.")
+    with open(output_path, "wb") as file:
+        file.write(combined)
+
+
+_podcast_locks: dict[uuid.UUID, threading.Lock] = {}
+_podcast_locks_lock = threading.Lock()
+
+
+def get_podcast_lock(report_id: uuid.UUID) -> threading.Lock:
+    with _podcast_locks_lock:
+        if report_id not in _podcast_locks:
+            _podcast_locks[report_id] = threading.Lock()
+        return _podcast_locks[report_id]
+
+
+def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any]) -> str:
+    """Generate and concatenate the speech audio for the podcast dialogue using edge-tts.
+    Returns the storage_path (S3 key or local path) to the combined MP3 file.
+    """
+    import asyncio
+
+    import edge_tts
+
+    from app.core.config import get_settings
+
+    storage = get_storage_backend()
+    s3_key = build_s3_podcast_key(str(report_id))
+
+    # If already generated and valid, return storage path
+    if storage.exists(s3_key) and podcast_audio_file_is_playable(s3_key):
+        return s3_key
+
+    # 1. Create local temp folder for generation (edge-tts needs local files)
+    settings = get_settings()
+    podcast_dir = os.path.join(settings.upload_dir, "podcasts")
+    os.makedirs(podcast_dir, exist_ok=True)
+
+    local_output_path = os.path.join(podcast_dir, f"{report_id}.mp3")
+
+    # Use a lock per report_id to prevent concurrent generations/writes for the same podcast
+    lock = get_podcast_lock(report_id)
+    with lock:
+        # Check if already generated locally
+        if _is_valid_mp3_file(local_output_path):
+            # Upload to S3 if using S3 backend
+            with open(local_output_path, "rb") as f:
+                content = f.read()
+            storage_path = storage.save_bytes(s3_key, content, content_type="audio/mpeg")
+            return storage_path
+        if os.path.exists(local_output_path):
+            try:
+                os.unlink(local_output_path)
+            except OSError:
+                pass
+
+        dialogue = dialogue_payload.get("dialogue") or []
+        if not dialogue:
+            raise ValueError("Dialogue is empty")
+
+        # Check all dialogue text so Vietnamese without diacritics in early turns still selects Vietnamese voices.
+        sample_text = " ".join(_coerce_string(turn.get("text")) for turn in dialogue)
+        is_vn = is_vietnamese(sample_text)
+
+        voice_a = "vi-VN-HoaiMyNeural" if is_vn else "en-US-JennyNeural"
+        voice_b = "vi-VN-NamMinhNeural" if is_vn else "en-US-GuyNeural"
+
+        # We will generate each speech turn into a unique temp folder per report
+        temp_dir = os.path.join(settings.upload_dir, f"temp_podcast_{report_id}")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        temp_paths: list[str] = []
+
+        async def synthesize_turn(text: str, voice: str, path: str) -> None:
+            last_error: Exception | None = None
+            for attempt in range(3):
+                try:
+                    if os.path.exists(path):
+                        os.unlink(path)
+                    communicate = edge_tts.Communicate(
+                        text,
+                        voice,
+                        receive_timeout=90,
+                    )
+                    await communicate.save(path)
+                    if _is_valid_mp3_file(path):
+                        return
+                    raise ValueError("edge-tts returned an invalid MP3 segment")
+                except Exception as exc:
+                    last_error = exc
+                    if os.path.exists(path):
+                        try:
+                            os.unlink(path)
+                        except OSError:
+                            pass
+                    if attempt < 2:
+                        await asyncio.sleep(0.75 * (attempt + 1))
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError(f"edge-tts did not return playable audio for voice {voice}")
+
+        async def run_synthesis() -> None:
+            for i, turn in enumerate(dialogue):
+                speaker = turn.get("speaker", "Host A")
+                text_chunks = _split_podcast_tts_text(_coerce_string(turn.get("text")))
+                if not text_chunks:
+                    continue
+                voice = voice_a if speaker == "Host A" else voice_b
+                for chunk_index, text_chunk in enumerate(text_chunks):
+                    temp_path = os.path.join(
+                        temp_dir,
+                        f"turn_{i}_{chunk_index}.mp3",
+                    )
+                    temp_paths.append(temp_path)
+                    await synthesize_turn(text_chunk, voice, temp_path)
+
+        temp_output_path = os.path.join(podcast_dir, f"{report_id}.tmp.mp3")
+
+        try:
+            asyncio.run(run_synthesis())
+
+            if not temp_paths:
+                raise ValueError("Dialogue contains no speakable text")
+
+            _combine_mp3_segments(temp_paths, temp_output_path)
+            if not _is_valid_mp3_file(temp_output_path):
+                raise ValueError("Combined podcast audio is not a valid MP3 file.")
+
+            # Upload to storage backend
+            with open(temp_output_path, "rb") as f:
+                mp3_content = f.read()
+            storage_path = storage.save_bytes(s3_key, mp3_content, content_type="audio/mpeg")
+
+            # Also keep local copy if using local backend (for backward compat)
+            if not storage.resolve_local_path(storage_path):
+                os.replace(temp_output_path, local_output_path)
+        finally:
+            # Clean up temporary files and folder
+            if os.path.exists(temp_output_path):
+                try:
+                    os.unlink(temp_output_path)
+                except OSError:
+                    pass
+            for path in temp_paths:
+                if os.path.exists(path):
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+            if os.path.exists(temp_dir):
+                try:
+                    for fname in os.listdir(temp_dir):
+                        try:
+                            os.unlink(os.path.join(temp_dir, fname))
+                        except OSError:
+                            pass
+                    os.rmdir(temp_dir)
+                except OSError:
+                    pass
+
+        return storage_path
+
+
+def _generate_podcast_report(
+    *,
+    db: Session,
+    project_id: uuid.UUID,
+    query: str,
+    report_type: str,
+    format: str,
+    provider: str,
+    parent_run_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.provider_settings_service import (
+        ProviderSettingsError,
+        normalize_provider,
+        resolve_chat_provider_config,
+    )
+
+    try:
+        answer_provider = normalize_provider(provider)
+        generation_config = resolve_chat_provider_config(db, project_id, answer_provider)
+    except ProviderSettingsError as exc:
+        raise ReportError(str(exc)) from exc
+
+    indexing_result = ensure_project_sources_indexed(
+        db,
+        project_id=project_id,
+        filters=None,
+        trigger="podcast_indexing",
+    )
+    chunks = _load_flashcard_chunks(db, project_id)
+    if not chunks:
+        raise ReportError(
+            "No indexed chunks are available for podcast generation.",
+            code="REPORT_PODCAST_NO_CHUNKS",
+            status_code=409,
+            details={"indexing": indexing_result},
+        )
+
+    # Take up to 15 chunks for the podcast discussion to keep context compact and relevant
+    podcast_chunks = chunks[:15]
+    evidence_blocks, citations = _format_flashcard_evidence(podcast_chunks)
+    language_instruction = _detect_language_instruction(query)
+
+    prompt = _PODCAST_PROMPT_TEMPLATE.format(
+        query=query,
+        evidence=evidence_blocks,
+        language_instruction=language_instruction,
+    )
+
+    raw_payload = _call_llm_json(
+        prompt=prompt,
+        provider=answer_provider,
+        api_key=generation_config["api_key"],
+        base_url=generation_config.get("base_url"),
+        model=generation_config["chat_model"],
+    )
+    parsed = _load_json_object(raw_payload)
+
+    # Normalize dialogue turn formats
+    dialogue_turns = []
+    raw_dialogue = parsed.get("dialogue") or []
+    if not isinstance(raw_dialogue, list):
+        raw_dialogue = []
+
+    for turn in raw_dialogue:
+        if not isinstance(turn, dict):
+            continue
+        speaker = _coerce_string(turn.get("speaker"), "Host A")
+        text = _coerce_string(turn.get("text"), "").strip()
+        if not text:
+            continue
+        # Clean markdown formatting characters
+        text = re.sub(r'[*_`#\[\]]', '', text)
+
+        # Attach matching citation indexes if mentioned, or just map all citations
+        turn_citations = []
+        raw_cit_indexes = turn.get("citation_indexes")
+        if isinstance(raw_cit_indexes, list):
+            for idx in raw_cit_indexes:
+                try:
+                    c_idx = int(idx) - 1
+                    if 0 <= c_idx < len(citations):
+                        turn_citations.append(citations[c_idx])
+                except (ValueError, TypeError):
+                    pass
+        if not turn_citations:
+            # Default to mapping all citations if none are specifically indexed
+            turn_citations = citations
+
+        dialogue_turns.append({
+            "speaker": speaker,
+            "text": text,
+            "citations": _unique_citations(turn_citations)
+        })
+
+    payload = {
+        "overview": _coerce_string(parsed.get("overview"), "Discussion on project findings."),
+        "dialogue": dialogue_turns
+    }
+
+    title = _derive_title(query, report_type)
+
+    # Render script as Markdown for standard content display
+    markdown_lines = [f"# {title}", f"\n{payload['overview']}\n"]
+    for turn in payload["dialogue"]:
+        markdown_lines.append(f"**{turn['speaker']}**: {turn['text']}\n")
+    report_content = "\n".join(markdown_lines)
+
+    prompt_hash = hashlib.sha256(_PODCAST_PROMPT_TEMPLATE.encode()).hexdigest()[:16]
+    config_hash = hashlib.sha256(f"{answer_provider}:{generation_config['chat_model']}".encode()).hexdigest()[:16]
+    evidence_snapshot = _build_evidence_snapshot(citations)
+
+    run = ProcessingRunRepository(db).create(
+        project_id=project_id,
+        job_id=None,
+        run_type="report",
+        model_id=generation_config["chat_model"],
+        prompt_hash=prompt_hash,
+        config_hash=config_hash,
+        retrieval_config=None,
+        run_metadata={
+            "report_type": report_type,
+            "format": format,
+            "query": query,
+            "provider": answer_provider,
+            "structured_output": True,
+            "indexed_chunk_count": len(chunks),
+            "generated_turns_count": len(payload["dialogue"]),
+            "indexing": indexing_result,
+            "evidence_snapshot": evidence_snapshot,
+        },
+        parent_run_id=parent_run_id,
+    )
+
+    report = Report(
+        project_id=project_id,
+        query=query,
+        title=title,
+        report_type=report_type,
+        format=format,
+        content=report_content,
+        structured_payload=payload,
+        status="completed",
+        run_id=run.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    structured_payload = hydrate_report_payload_citations(db, payload)
+
+    # Collect all unique source IDs
+    source_ids = list({citation["source_id"] for citation in citations if citation.get("source_id")})
+    hydrated_citations = hydrate_citations(db, citations)
+
+    return {
+        "report_id": str(report.id),
+        "query": query,
+        "title": title,
+        "type": report_type,
+        "format": format,
+        "content": report_content,
+        "structured_payload": structured_payload,
+        "status": "completed",
+        "run_id": str(run.id),
+        "source_ids": source_ids,
+        "citations": hydrated_citations,
         "evidence_snapshot": evidence_snapshot,
     }
 
