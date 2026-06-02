@@ -3,7 +3,7 @@ from pathlib import Path
 
 import requests
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -260,9 +260,17 @@ def get_source_artifact(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
+    filename = source.original_uri or f"{source.id}.pdf"
     if is_s3_path(source.storage_path):
-        presigned_url = storage.generate_presigned_url(source.storage_path, expires_in=300)
-        return RedirectResponse(url=presigned_url, status_code=307)
+        return StreamingResponse(
+            storage.get_stream(source.storage_path),
+            media_type="application/pdf",
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     local_path = storage.resolve_local_path(source.storage_path)
     if local_path is None:
@@ -275,7 +283,7 @@ def get_source_artifact(
     return FileResponse(
         str(local_path),
         media_type="application/pdf",
-        filename=source.original_uri or f"{source.id}.pdf",
+        filename=filename,
     )
 
 

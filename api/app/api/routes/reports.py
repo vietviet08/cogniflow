@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,7 @@ from app.services.report_service import (
     serialize_report,
     update_action_item_status,
 )
-from app.services.storage_backend import S3StorageBackend, build_s3_podcast_key, get_storage_backend
+from app.services.storage_backend import build_s3_podcast_key, get_storage_backend
 from app.storage.models import User
 from app.storage.repositories.auth_token_repository import AuthTokenRepository
 from app.storage.repositories.job_repository import JobRepository
@@ -339,17 +339,18 @@ def get_report_podcast_audio_route(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
-    if isinstance(storage, S3StorageBackend):
-        presigned_url = storage.generate_presigned_url(s3_key, expires_in=3600)
-        return RedirectResponse(url=presigned_url, status_code=307)
-
     local_path = storage.resolve_local_path(s3_key)
     if local_path is None:
-        raise APIError(
-            code="PODCAST_AUDIO_MISSING",
-            message="Podcast audio file could not be found.",
-            status_code=status.HTTP_404_NOT_FOUND,
+        return StreamingResponse(
+            storage.get_stream(s3_key),
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "private, max-age=3600",
+                "Content-Disposition": f'inline; filename="podcast-{report_id}.mp3"',
+                "X-Content-Type-Options": "nosniff",
+            },
         )
+
     return FileResponse(
         str(local_path),
         media_type="audio/mpeg",

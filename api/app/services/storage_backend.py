@@ -140,9 +140,17 @@ class S3StorageBackend(StorageBackend):
         secret_access_key: str = "",
     ) -> None:
         import boto3
+        from botocore.config import Config
 
         self._bucket = bucket
-        kwargs: dict[str, str] = {"region_name": region}
+        kwargs: dict[str, object] = {
+            "region_name": region,
+            "endpoint_url": f"https://s3.{region}.amazonaws.com",
+            "config": Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "virtual"},
+            ),
+        }
         if access_key_id and secret_access_key:
             kwargs["aws_access_key_id"] = access_key_id
             kwargs["aws_secret_access_key"] = secret_access_key
@@ -164,11 +172,14 @@ class S3StorageBackend(StorageBackend):
         bucket, key = self._parse(storage_path)
         response = self._client.get_object(Bucket=bucket, Key=key)
         body = response["Body"]
-        while True:
-            chunk = body.read(chunk_size)
-            if not chunk:
-                break
-            yield chunk
+        try:
+            while True:
+                chunk = body.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            body.close()
 
     def save_bytes(self, s3_key: str, content: bytes, content_type: str | None = None) -> str:
         extra_args: dict[str, str] = {}

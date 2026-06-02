@@ -326,6 +326,43 @@ def test_get_podcast_audio_returns_playable_mpeg(client, db_session, monkeypatch
     assert response.content == audio_bytes
 
 
+def test_get_podcast_audio_streams_s3_audio_without_redirect(client, db_session, monkeypatch):
+    project = _create_project(client)
+    report = Report(
+        project_id=uuid.UUID(project["id"]),
+        query="Create a podcast",
+        title="Podcast: Create a podcast",
+        report_type="podcast",
+        format="markdown",
+        content="# Podcast",
+        structured_payload={"dialogue": [{"speaker": "Host A", "text": "Start."}]},
+        status="completed",
+        run_id=None,
+    )
+    db_session.add(report)
+    db_session.commit()
+    db_session.refresh(report)
+
+    audio_bytes = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x64" + (b"\x00" * 256)
+
+    class FakeS3Storage:
+        def resolve_local_path(self, storage_path):
+            return None
+
+        def get_stream(self, storage_path, chunk_size=8192):
+            yield audio_bytes
+
+    monkeypatch.setattr(report_route_module, "podcast_audio_file_is_playable", lambda path: True)
+    monkeypatch.setattr(report_route_module, "get_storage_backend", lambda: FakeS3Storage())
+
+    response = client.get(f"/api/v1/reports/{report.id}/podcast-audio")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert "location" not in response.headers
+    assert response.content == audio_bytes
+
+
 def test_get_podcast_audio_generation_failure_returns_edge_tts_error(
     client, db_session, monkeypatch, tmp_path
 ):
