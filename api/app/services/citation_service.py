@@ -3,13 +3,13 @@ from __future__ import annotations
 import re
 import uuid
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 import fitz
 import pdfplumber
 from sqlalchemy.orm import Session
 
+from app.services.storage_backend import get_storage_backend
 from app.storage.models import Chunk, Document, Source
 
 
@@ -166,11 +166,12 @@ def _infer_page_number(source: Source, chunk_content: str) -> int | None:
     if source.type != "file" or not source.storage_path:
         return None
 
-    path = Path(source.storage_path)
-    if path.suffix.lower() != ".pdf" or not path.exists():
+    storage = get_storage_backend()
+    if not source.storage_path.lower().endswith(".pdf") or not storage.exists(source.storage_path):
         return None
 
-    normalized_pages = [_normalize_text(page) for page in _load_pdf_pages(str(path))]
+    with storage.local_file(source.storage_path) as local_path:
+        normalized_pages = [_normalize_text(page) for page in _load_pdf_pages(str(local_path))]
     normalized_chunk = _normalize_text(chunk_content)
     if not normalized_chunk:
         return None

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import requests
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from app.services.ingestion_service import (
     save_uploaded_file,
     supported_document_extensions,
 )
+from app.services.storage_backend import get_storage_backend, is_s3_path
 from app.storage.models import Chunk, Document, Job, Source, User
 from app.storage.repositories.job_repository import JobRepository
 from app.storage.repositories.project_repository import ProjectRepository
@@ -242,15 +243,16 @@ def get_source_artifact(
             status_code=status.HTTP_409_CONFLICT,
         )
 
-    artifact_path = source.storage_path
-    if not artifact_path.lower().endswith(".pdf"):
+    if not source.storage_path.lower().endswith(".pdf"):
         return error_response(
             request,
             code="SOURCE_ARTIFACT_UNSUPPORTED",
             message="Only PDF artifacts are supported by the built-in viewer.",
             status_code=status.HTTP_409_CONFLICT,
         )
-    if not Path(artifact_path).exists():
+
+    storage = get_storage_backend()
+    if not storage.exists(source.storage_path):
         return error_response(
             request,
             code="SOURCE_ARTIFACT_MISSING",
@@ -258,8 +260,20 @@ def get_source_artifact(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
+    if is_s3_path(source.storage_path):
+        presigned_url = storage.generate_presigned_url(source.storage_path, expires_in=300)
+        return RedirectResponse(url=presigned_url, status_code=307)
+
+    local_path = storage.resolve_local_path(source.storage_path)
+    if local_path is None:
+        return error_response(
+            request,
+            code="SOURCE_ARTIFACT_MISSING",
+            message="Stored PDF artifact does not exist.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     return FileResponse(
-        artifact_path,
+        str(local_path),
         media_type="application/pdf",
         filename=source.original_uri or f"{source.id}.pdf",
     )
@@ -508,18 +522,23 @@ def _delete_vector_records(chroma_ids: list[str]) -> dict[str, object]:
 def _delete_owned_artifact(storage_path: str | None) -> dict[str, object]:
     if not storage_path:
         return {"attempted": False, "deleted": False}
-    artifact_path = Path(storage_path)
-    if not artifact_path.exists():
+    if not is_s3_path(storage_path):
+        artifact_path = Path(storage_path)
+        upload_root = Path(get_settings().upload_dir).resolve()
+        resolved_artifact = artifact_path.resolve()
+        if not resolved_artifact.is_relative_to(upload_root):
+            return {
+                "attempted": True,
+                "deleted": False,
+                "reason": "outside_upload_dir",
+            }
+        if not resolved_artifact.exists():
+            return {"attempted": True, "deleted": False, "reason": "missing"}
+        resolved_artifact.unlink()
+        return {"attempted": True, "deleted": True}
+
+    storage = get_storage_backend()
+    if not storage.exists(storage_path):
         return {"attempted": True, "deleted": False, "reason": "missing"}
-
-    upload_root = Path(get_settings().upload_dir).resolve()
-    resolved_artifact = artifact_path.resolve()
-    if not resolved_artifact.is_relative_to(upload_root):
-        return {
-            "attempted": True,
-            "deleted": False,
-            "reason": "outside_upload_dir",
-        }
-
-    artifact_path.unlink()
-    return {"attempted": True, "deleted": True}
+    deleted = storage.delete(storage_path)
+    return {"attempted": True, "deleted": deleted}

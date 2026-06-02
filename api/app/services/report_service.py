@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import threading
 import unicodedata
 import uuid
 from typing import Any, Iterable
@@ -19,6 +20,7 @@ from app.services.citation_service import hydrate_citations, hydrate_report_payl
 from app.services.embedding_service import LOCAL_EMBEDDING_MODEL
 from app.services.insight_service import InsightError, generate_insight
 from app.services.query_service import ensure_project_sources_indexed
+from app.services.storage_backend import build_s3_podcast_key, get_storage_backend
 from app.storage.models import Chunk, Document, QuizAttempt, Report, ReportInsight, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 from app.storage.repositories.report_repository import ReportRepository
@@ -1426,8 +1428,19 @@ def _is_valid_mp3_file(path: str) -> bool:
         return _has_mp3_frame(file.read(4096))
 
 
+def _is_valid_mp3_bytes(data: bytes) -> bool:
+    return len(data) >= 128 and _has_mp3_frame(data[:4096])
+
+
 def podcast_audio_file_is_playable(path: str) -> bool:
-    return _is_valid_mp3_file(path)
+    storage = get_storage_backend()
+    if not storage.exists(path):
+        return False
+    try:
+        data = storage.get_bytes(path)
+        return _is_valid_mp3_bytes(data)
+    except Exception:
+        return False
 
 
 def _strip_id3v1(data: bytes) -> bytes:
@@ -1465,8 +1478,6 @@ def _combine_mp3_segments(segment_paths: list[str], output_path: str) -> None:
         file.write(combined)
 
 
-import threading
-
 _podcast_locks: dict[uuid.UUID, threading.Lock] = {}
 _podcast_locks_lock = threading.Lock()
 
@@ -1480,7 +1491,7 @@ def get_podcast_lock(report_id: uuid.UUID) -> threading.Lock:
 
 def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any]) -> str:
     """Generate and concatenate the speech audio for the podcast dialogue using edge-tts.
-    Returns the absolute path to the combined MP3 file.
+    Returns the storage_path (S3 key or local path) to the combined MP3 file.
     """
     import asyncio
 
@@ -1488,21 +1499,33 @@ def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any
 
     from app.core.config import get_settings
 
-    # 1. Create uploads/podcasts folder if missing
-    podcast_dir = os.path.join(get_settings().upload_dir, "podcasts")
+    storage = get_storage_backend()
+    s3_key = build_s3_podcast_key(str(report_id))
+
+    # If already generated and valid, return storage path
+    if storage.exists(s3_key) and podcast_audio_file_is_playable(s3_key):
+        return s3_key
+
+    # 1. Create local temp folder for generation (edge-tts needs local files)
+    settings = get_settings()
+    podcast_dir = os.path.join(settings.upload_dir, "podcasts")
     os.makedirs(podcast_dir, exist_ok=True)
 
-    output_path = os.path.join(podcast_dir, f"{report_id}.mp3")
+    local_output_path = os.path.join(podcast_dir, f"{report_id}.mp3")
 
     # Use a lock per report_id to prevent concurrent generations/writes for the same podcast
     lock = get_podcast_lock(report_id)
     with lock:
-        # If already generated, return path immediately
-        if _is_valid_mp3_file(output_path):
-            return output_path
-        if os.path.exists(output_path):
+        # Check if already generated locally
+        if _is_valid_mp3_file(local_output_path):
+            # Upload to S3 if using S3 backend
+            with open(local_output_path, "rb") as f:
+                content = f.read()
+            storage_path = storage.save_bytes(s3_key, content, content_type="audio/mpeg")
+            return storage_path
+        if os.path.exists(local_output_path):
             try:
-                os.unlink(output_path)
+                os.unlink(local_output_path)
             except OSError:
                 pass
 
@@ -1518,7 +1541,7 @@ def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any
         voice_b = "vi-VN-NamMinhNeural" if is_vn else "en-US-GuyNeural"
 
         # We will generate each speech turn into a unique temp folder per report
-        temp_dir = os.path.join(get_settings().upload_dir, f"temp_podcast_{report_id}")
+        temp_dir = os.path.join(settings.upload_dir, f"temp_podcast_{report_id}")
         os.makedirs(temp_dir, exist_ok=True)
 
         temp_paths: list[str] = []
@@ -1577,7 +1600,15 @@ def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any
             _combine_mp3_segments(temp_paths, temp_output_path)
             if not _is_valid_mp3_file(temp_output_path):
                 raise ValueError("Combined podcast audio is not a valid MP3 file.")
-            os.replace(temp_output_path, output_path)
+
+            # Upload to storage backend
+            with open(temp_output_path, "rb") as f:
+                mp3_content = f.read()
+            storage_path = storage.save_bytes(s3_key, mp3_content, content_type="audio/mpeg")
+
+            # Also keep local copy if using local backend (for backward compat)
+            if not storage.resolve_local_path(storage_path):
+                os.replace(temp_output_path, local_output_path)
         finally:
             # Clean up temporary files and folder
             if os.path.exists(temp_output_path):
@@ -1602,7 +1633,7 @@ def generate_podcast_audio(report_id: uuid.UUID, dialogue_payload: dict[str, Any
                 except OSError:
                     pass
 
-        return output_path
+        return storage_path
 
 
 def _generate_podcast_report(

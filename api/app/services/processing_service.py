@@ -32,6 +32,7 @@ from app.services.provider_settings_service import (
     ProviderSettingsError,
     resolve_chat_provider_config,
 )
+from app.services.storage_backend import get_storage_backend
 from app.storage.models import Chunk, Document, Source
 from app.storage.repositories.processing_run_repository import ProcessingRunRepository
 
@@ -199,14 +200,16 @@ def _extract_source_content(db: Session, source: Source) -> ExtractedSourceConte
     if not source.storage_path:
         raise ProcessingError(f"Source '{source.id}' does not have a stored artifact.")
 
-    storage_path = Path(source.storage_path)
-    if not storage_path.exists():
-        raise ProcessingError(f"Stored artifact '{storage_path}' does not exist.")
+    storage = get_storage_backend()
+    if not storage.exists(source.storage_path):
+        raise ProcessingError(f"Stored artifact '{source.storage_path}' does not exist.")
 
     if source.type == "file":
-        return _extract_file_content(storage_path, _resolve_vision_config(db, source.project_id))
+        with storage.local_file(source.storage_path) as local_path:
+            return _extract_file_content(local_path, _resolve_vision_config(db, source.project_id))
     if source.type in {"url", "arxiv", "google_drive", "notion", "slack", "confluence"}:
-        return _extract_remote_payload(storage_path)
+        with storage.local_file(source.storage_path) as local_path:
+            return _extract_remote_payload(local_path)
     raise ProcessingError(f"Unsupported source type '{source.type}'.")
 
 

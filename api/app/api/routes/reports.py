@@ -1,8 +1,7 @@
-import os
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -22,6 +21,7 @@ from app.services.report_service import (
     serialize_report,
     update_action_item_status,
 )
+from app.services.storage_backend import S3StorageBackend, build_s3_podcast_key, get_storage_backend
 from app.storage.models import User
 from app.storage.repositories.auth_token_repository import AuthTokenRepository
 from app.storage.repositories.job_repository import JobRepository
@@ -317,12 +317,11 @@ def get_report_podcast_audio_route(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Resolve audio path
-    podcast_dir = os.path.join(get_settings().upload_dir, "podcasts")
-    audio_path = os.path.join(podcast_dir, f"{report.id}.mp3")
+    storage = get_storage_backend()
+    s3_key = build_s3_podcast_key(str(report.id))
 
     # If audio does not exist yet or a previous attempt left a corrupt file, generate it on-the-fly.
-    if not podcast_audio_file_is_playable(audio_path):
+    if not podcast_audio_file_is_playable(s3_key):
         try:
             generate_podcast_audio(report.id, report.structured_payload or {})
         except Exception as exc:
@@ -333,15 +332,26 @@ def get_report_podcast_audio_route(
                 details={"reason": exc.__class__.__name__},
             ) from exc
 
-    if not podcast_audio_file_is_playable(audio_path):
+    if not podcast_audio_file_is_playable(s3_key):
         raise APIError(
             code="PODCAST_AUDIO_MISSING",
             message="Podcast audio file could not be found.",
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
+    if isinstance(storage, S3StorageBackend):
+        presigned_url = storage.generate_presigned_url(s3_key, expires_in=3600)
+        return RedirectResponse(url=presigned_url, status_code=307)
+
+    local_path = storage.resolve_local_path(s3_key)
+    if local_path is None:
+        raise APIError(
+            code="PODCAST_AUDIO_MISSING",
+            message="Podcast audio file could not be found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     return FileResponse(
-        audio_path,
+        str(local_path),
         media_type="audio/mpeg",
         filename=f"podcast-{report_id}.mp3",
         content_disposition_type="inline",

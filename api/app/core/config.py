@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     chroma_port: int = Field(default=8001, alias="CHROMA_PORT")
     chroma_collection: str = Field(default="cogniflow-documents", alias="CHROMA_COLLECTION")
     upload_dir: str = Field(default="data/uploads", alias="UPLOAD_DIR")
+    storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
+    s3_uploads_bucket: str = Field(default="", alias="S3_UPLOADS_BUCKET")
+    aws_region: str = Field(default="ap-southeast-1", alias="AWS_REGION")
+    aws_access_key_id: str = Field(default="", alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: str = Field(default="", alias="AWS_SECRET_ACCESS_KEY")
     web_app_url: str = Field(default="http://localhost:3000", alias="WEB_APP_URL")
     integration_oauth_state_secret: str = Field(
         default="dev-integration-oauth-state-secret",
