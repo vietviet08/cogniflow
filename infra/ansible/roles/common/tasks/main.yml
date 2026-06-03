@@ -86,3 +86,24 @@
       state: present
       update_cache: true
   become: true
+
+- name: Add Deadsnakes PPA repository
+  apt_repository:
+      repo: ppa:deadsnakes/ppa
+      state: present
+  become: true
+
+- name: Install Python 3.12 and dependencies
+  apt:
+      name:
+          - python3.12
+          - python3.12-venv
+          - python3.12-dev
+      state: present
+      update_cache: true
+  become: true
+
+- name: Ensure pip is installed for Python 3.12
+  command: python3.12 -m ensurepip --upgrade
+  become: true
+  changed_when: true
