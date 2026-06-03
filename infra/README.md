@@ -6,11 +6,12 @@ Target architecture:
 notemesh.vietnq.online            -> CloudFront -> S3 static web bucket
 api-notemesh.vietnq.online        -> ALB -> app EC2 nginx -> FastAPI container
 pgadmin-notemesh.vietnq.online    -> ALB -> app EC2 nginx -> pgAdmin container
-jenkins-notemesh.vietnq.online      -> ALB -> Jenkins EC2 nginx -> Jenkins service
+jenkins-notemesh.vietnq.online    -> ALB -> app EC2 nginx -> Jenkins service
 
 FastAPI container -> RDS PostgreSQL
 FastAPI/worker    -> ChromaDB container on app EC2
 FastAPI/worker    -> private S3 uploads bucket
+Jenkins           -> installed directly on app EC2
 ```
 
 ## Terraform
@@ -49,11 +50,10 @@ terraform apply
 
 ## Ansible
 
-Update inventory from Terraform outputs:
+Update inventory from Terraform output:
 
 ```bash
 terraform -chdir=infra/terraform output app_server_public_ip
-terraform -chdir=infra/terraform output jenkins_server_public_ip
 ```
 
 Edit:

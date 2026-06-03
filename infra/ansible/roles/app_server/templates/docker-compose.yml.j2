@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/{{ github_repo }}:{{ api_image_tag | default('latest') }}
+    image: {{ ecr_repository_url }}:{{ api_image_tag | default('latest') }}
     container_name: notemesh-api
     restart: unless-stopped
     env_file:
@@ -23,7 +23,7 @@ services:
       - notemesh-net
 
   worker:
-    image: ghcr.io/{{ github_repo }}:{{ api_image_tag | default('latest') }}
+    image: {{ ecr_repository_url }}:{{ api_image_tag | default('latest') }}
     container_name: notemesh-worker
     command: ["python", "-m", "app.workers.runtime"]
     restart: unless-stopped
@@ -50,7 +50,7 @@ services:
     volumes:
       - ./data/chromadb:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:{{ chroma_port }}/api/v2/heartbeat || curl -fsS http://localhost:{{ chroma_port }}/api/v1/heartbeat"]
+      test: ["CMD", "/usr/bin/bash", "-c", "</dev/tcp/127.0.0.1/{{ chroma_port }}"]
       interval: 30s
       timeout: 10s
       retries: 3

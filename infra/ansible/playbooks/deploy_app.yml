@@ -11,6 +11,9 @@
       api_image_tag: "{{ tag | default('latest') }}"
 
   tasks:
+      - name: Log in to AWS ECR
+        shell: aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ ecr_repository_url.split('/')[0] }}
+
       - name: Pull latest images
         community.docker.docker_compose_v2:
             project_src: "{{ app_dir }}"

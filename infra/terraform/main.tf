@@ -68,7 +68,6 @@ module "ec2" {
   key_pair_name    = var.key_pair_name
   public_subnet_id = module.vpc.public_subnet_ids[0]
   sg_app_id        = module.security_groups.sg_app_id
-  sg_jenkins_id    = module.security_groups.sg_jenkins_id
   uploads_bucket   = var.uploads_bucket_name
   db_host          = module.rds.db_endpoint
   db_name          = var.db_name
@@ -76,19 +75,18 @@ module "ec2" {
 }
 
 module "alb" {
-  source              = "./modules/alb"
-  project_name        = var.project_name
-  environment         = var.environment
-  vpc_id              = module.vpc.vpc_id
-  public_subnet_ids   = module.vpc.public_subnet_ids
-  sg_alb_id           = module.security_groups.sg_alb_id
-  acm_cert_arn        = module.acm_alb.certificate_arn
-  enable_https        = var.enable_custom_domains
-  app_instance_id     = module.ec2.app_instance_id
-  jenkins_instance_id = module.ec2.jenkins_instance_id
-  api_domain          = var.api_domain
-  pgadmin_domain      = var.pgadmin_domain
-  jenkins_domain      = var.jenkins_domain
+  source            = "./modules/alb"
+  project_name      = var.project_name
+  environment       = var.environment
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+  sg_alb_id         = module.security_groups.sg_alb_id
+  acm_cert_arn      = module.acm_alb.certificate_arn
+  enable_https      = var.enable_custom_domains
+  app_instance_id   = module.ec2.app_instance_id
+  api_domain        = var.api_domain
+  pgadmin_domain    = var.pgadmin_domain
+  jenkins_domain    = var.jenkins_domain
 }
 
 module "cloudfront" {
@@ -101,4 +99,17 @@ module "cloudfront" {
   acm_cert_arn         = module.acm_cloudfront.certificate_arn
   use_acm_certificate  = var.enable_custom_domains
   domain_aliases       = [var.frontend_domain]
+}
+
+resource "aws_ecr_repository" "api" {
+  name                 = "${var.project_name}-api"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-api-repo"
+  }
 }

@@ -1,6 +1,13 @@
 ---
 # roles/common/tasks/main.yml — Cài đặt chung cho mọi server
 
+- name: Clean up conflicting Docker apt sources (before apt update)
+  shell: |
+    rm -f /etc/apt/sources.list.d/*docker*
+    sed -i '/download.docker.com/d' /etc/apt/sources.list
+  become: true
+  changed_when: false
+
 - name: Update apt cache
   apt:
       update_cache: true

@@ -14,13 +14,13 @@ output "cloudfront_distribution_id" {
 }
 
 output "app_server_public_ip" {
-  description = "Public IP of the app EC2 server for SSH and Ansible."
+  description = "Public IP of the single EC2 server running Docker Compose and Jenkins."
   value       = module.ec2.app_public_ip
 }
 
 output "jenkins_server_public_ip" {
-  description = "Public IP of the Jenkins EC2 server for SSH and Ansible."
-  value       = module.ec2.jenkins_public_ip
+  description = "Same as app_server_public_ip. Jenkins runs on the single app EC2 server."
+  value       = module.ec2.app_public_ip
 }
 
 output "rds_endpoint" {
@@ -81,4 +81,9 @@ output "hostinger_dns_instructions" {
     Initial apply uses the default CloudFront certificate and HTTP ALB listener.
     After ACM certificates become ISSUED, set enable_custom_domains = true and run terraform apply again.
   EOT
+}
+
+output "ecr_repository_url" {
+  description = "ECR Docker repository URL."
+  value       = aws_ecr_repository.api.repository_url
 }

@@ -66,7 +66,7 @@ resource "aws_lb_target_group" "jenkins_nginx" {
 
 resource "aws_lb_target_group_attachment" "jenkins_nginx" {
   target_group_arn = aws_lb_target_group.jenkins_nginx.arn
-  target_id        = var.jenkins_instance_id
+  target_id        = var.app_instance_id
   port             = 80
 }
 

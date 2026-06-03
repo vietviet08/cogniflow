@@ -5,7 +5,7 @@ This stack creates:
 - VPC with public subnets for ALB/EC2 and private subnets for RDS
 - Security groups
 - ACM certificates for ALB hostnames and CloudFront frontend hostname
-- App EC2 and Jenkins EC2
+- One EC2 server running Docker Compose services and Jenkins
 - RDS PostgreSQL
 - Private uploads S3 bucket and static web S3 bucket
 - CloudFront distribution for the static frontend

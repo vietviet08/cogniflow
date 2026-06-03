@@ -6,7 +6,6 @@ variable "sg_alb_id" { type = string }
 variable "acm_cert_arn" { type = string }
 variable "enable_https" { type = bool }
 variable "app_instance_id" { type = string }
-variable "jenkins_instance_id" { type = string }
 variable "api_domain" { type = string }
 variable "pgadmin_domain" { type = string }
 variable "jenkins_domain" { type = string }
