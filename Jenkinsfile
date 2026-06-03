@@ -24,9 +24,9 @@ pipeline {
             steps {
                 dir('api') {
                     sh '''
-                        python3 -m pip install -r requirements-dev.txt -q
-                        PYTHONPATH=. python3 scripts/check_contract_sync.py
-                        python3 -m pytest tests/ -v --tb=short
+                        python3.12 -m pip install -r requirements-dev.txt -q
+                        PYTHONPATH=. python3.12 scripts/check_contract_sync.py
+                        python3.12 -m pytest tests/ -v --tb=short
                     '''
                 }
             }
