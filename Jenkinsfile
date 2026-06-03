@@ -20,7 +20,7 @@ pipeline {
         }
 
         stage('Build — Next.js Static') {
-            when { branch 'master' }
+            when { expression { env.GIT_BRANCH?.contains('master') } }
             steps {
                 dir('web') {
                     sh '''
@@ -32,7 +32,7 @@ pipeline {
         }
 
         stage('Deploy — Upload Static to S3') {
-            when { branch 'master' }
+            when { expression { env.GIT_BRANCH?.contains('master') } }
             steps {
                 sh """
                     aws s3 sync web/out/ s3://${S3_STATIC_BUCKET}/ \
@@ -48,7 +48,7 @@ pipeline {
         }
 
         stage('Deploy — CloudFront Invalidation') {
-            when { branch 'master' }
+            when { expression { env.GIT_BRANCH?.contains('master') } }
             steps {
                 sh """
                     aws cloudfront create-invalidation \
