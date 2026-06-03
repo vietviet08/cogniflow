@@ -11,6 +11,9 @@
       api_image_tag: "{{ tag | default('latest') }}"
 
   tasks:
+      - name: Log in to AWS ECR
+        shell: aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ ecr_repository_url.split('/')[0] }}
+
       - name: Pull latest images
         community.docker.docker_compose_v2:
             project_src: "{{ app_dir }}"
@@ -25,7 +28,7 @@
 
       - name: Verify API health
         uri:
-            url: "http://localhost:8000/health"
+            url: "http://localhost:{{ api_port }}/api/v1/health"
             status_code: 200
             timeout: 30
         retries: 10
@@ -35,7 +38,7 @@
 
       - name: Show deploy result
         debug:
-            msg: "✅ Deploy successful! API is healthy."
+            msg: "Deploy successful. API is healthy."
 
   handlers:
       - name: restart app services

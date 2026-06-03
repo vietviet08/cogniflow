@@ -9,7 +9,7 @@ pipeline {
         S3_STATIC_BUCKET = 'notemesh-static-prod'
         CF_DISTRIBUTION_ID = credentials('cloudfront-distribution-id')
         APP_SERVER_IP   = credentials('app-server-ip')
-        GITHUB_REPO     = 'ghcr.io/your-org/notemesh-api'
+        ECR_REPO        = '640168447652.dkr.ecr.ap-southeast-1.amazonaws.com/notemesh-api'
     }
 
     stages {
@@ -51,8 +51,8 @@ pipeline {
                     script {
                         def tag = "${env.GIT_COMMIT[0..7]}"
                         sh """
-                            docker build -t ${GITHUB_REPO}:${tag} .
-                            docker tag ${GITHUB_REPO}:${tag} ${GITHUB_REPO}:latest
+                            docker build -t ${ECR_REPO}:${tag} .
+                            docker tag ${ECR_REPO}:${tag} ${ECR_REPO}:latest
                         """
                     }
                 }
@@ -104,9 +104,12 @@ pipeline {
                 script {
                     def tag = "${env.GIT_COMMIT[0..7]}"
                     sh """
-                        # Push Docker image (GitHub Container Registry hoặc ECR)
-                        docker push ${GITHUB_REPO}:${tag}
-                        docker push ${GITHUB_REPO}:latest
+                        # Login to AWS ECR
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
+
+                        # Push Docker image to ECR
+                        docker push ${ECR_REPO}:${tag}
+                        docker push ${ECR_REPO}:latest
 
                         # Chạy Ansible deploy playbook
                         ansible-playbook \

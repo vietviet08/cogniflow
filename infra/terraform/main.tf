@@ -19,15 +19,18 @@ module "security_groups" {
 # ACM cho ALB — vùng ap-southeast-1
 module "acm_alb" {
   source      = "./modules/acm"
-  domain_name = var.domain_name
-  san_domains = ["*.${var.domain_name}"]
+  domain_name = var.api_domain
+  san_domains = [
+    var.pgadmin_domain,
+    var.jenkins_domain,
+  ]
 }
 
 # ACM cho CloudFront — vùng us-east-1 (bắt buộc)
 module "acm_cloudfront" {
   source      = "./modules/acm"
-  domain_name = "notemesh.${var.domain_name}"
-  san_domains = [var.domain_name]
+  domain_name = var.frontend_domain
+  san_domains = []
 
   providers = {
     aws = aws.us_east_1
@@ -43,54 +46,70 @@ module "s3" {
 }
 
 module "rds" {
-  source              = "./modules/rds"
-  project_name        = var.project_name
-  environment         = var.environment
-  db_name             = var.db_name
-  db_username         = var.db_username
-  db_password         = var.db_password
-  db_instance_class   = var.db_instance_class
+  source               = "./modules/rds"
+  project_name         = var.project_name
+  environment          = var.environment
+  db_name              = var.db_name
+  db_username          = var.db_username
+  db_password          = var.db_password
+  db_instance_class    = var.db_instance_class
+  db_engine_version    = var.db_engine_version
   db_allocated_storage = var.db_allocated_storage
   db_subnet_group_name = module.vpc.db_subnet_group_name
-  sg_rds_id           = module.security_groups.sg_rds_id
+  sg_rds_id            = module.security_groups.sg_rds_id
 }
 
 module "ec2" {
-  source            = "./modules/ec2"
-  project_name      = var.project_name
-  environment       = var.environment
-  ami_id            = var.ami_id
-  instance_type     = var.ec2_instance_type
-  key_pair_name     = var.key_pair_name
-  public_subnet_id  = module.vpc.public_subnet_ids[0]
-  sg_app_id         = module.security_groups.sg_app_id
-  sg_jenkins_id     = module.security_groups.sg_jenkins_id
-  uploads_bucket    = var.uploads_bucket_name
-  db_host           = module.rds.db_endpoint
-  db_name           = var.db_name
-  db_username       = var.db_username
+  source           = "./modules/ec2"
+  project_name     = var.project_name
+  environment      = var.environment
+  ami_id           = var.ami_id
+  instance_type    = var.ec2_instance_type
+  key_pair_name    = var.key_pair_name
+  public_subnet_id = module.vpc.public_subnet_ids[0]
+  sg_app_id        = module.security_groups.sg_app_id
+  uploads_bucket   = var.uploads_bucket_name
+  db_host          = module.rds.db_endpoint
+  db_name          = var.db_name
+  db_username      = var.db_username
 }
 
 module "alb" {
-  source           = "./modules/alb"
-  project_name     = var.project_name
-  environment      = var.environment
-  vpc_id           = module.vpc.vpc_id
+  source            = "./modules/alb"
+  project_name      = var.project_name
+  environment       = var.environment
+  vpc_id            = module.vpc.vpc_id
   public_subnet_ids = module.vpc.public_subnet_ids
-  sg_alb_id        = module.security_groups.sg_alb_id
-  acm_cert_arn     = module.acm_alb.certificate_arn
-  app_instance_id  = module.ec2.app_instance_id
-  jenkins_instance_id = module.ec2.jenkins_instance_id
-  domain_name      = var.domain_name
+  sg_alb_id         = module.security_groups.sg_alb_id
+  acm_cert_arn      = module.acm_alb.certificate_arn
+  enable_https      = var.enable_custom_domains
+  app_instance_id   = module.ec2.app_instance_id
+  api_domain        = var.api_domain
+  pgadmin_domain    = var.pgadmin_domain
+  jenkins_domain    = var.jenkins_domain
 }
 
 module "cloudfront" {
-  source             = "./modules/cloudfront"
-  project_name       = var.project_name
-  environment        = var.environment
-  static_bucket_id   = module.s3.static_bucket_id
-  static_bucket_arn  = module.s3.static_bucket_arn
+  source               = "./modules/cloudfront"
+  project_name         = var.project_name
+  environment          = var.environment
+  static_bucket_id     = module.s3.static_bucket_id
+  static_bucket_arn    = module.s3.static_bucket_arn
   static_bucket_domain = module.s3.static_bucket_regional_domain
-  acm_cert_arn       = module.acm_cloudfront.certificate_arn
-  domain_aliases     = ["notemesh.${var.domain_name}"]
+  acm_cert_arn         = module.acm_cloudfront.certificate_arn
+  use_acm_certificate  = var.enable_custom_domains
+  domain_aliases       = [var.frontend_domain]
+}
+
+resource "aws_ecr_repository" "api" {
+  name                 = "${var.project_name}-api"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-api-repo"
+  }
 }

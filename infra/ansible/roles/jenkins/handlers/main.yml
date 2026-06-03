@@ -4,3 +4,10 @@
       name: jenkins
       state: restarted
   become: true
+
+- name: reload nginx
+  systemd:
+      name: nginx
+      state: reloaded
+      enabled: true
+  become: true

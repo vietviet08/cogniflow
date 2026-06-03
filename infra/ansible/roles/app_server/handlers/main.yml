@@ -5,3 +5,10 @@
       state: restarted
   become: true
   become_user: "{{ app_user }}"
+
+- name: reload nginx
+  systemd:
+      name: nginx
+      state: reloaded
+      enabled: true
+  become: true

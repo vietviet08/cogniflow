@@ -1,5 +1,72 @@
 ---
-# roles/jenkins/tasks/main.yml — Cấu hình Jenkins sau khi đã install
+- name: Install Jenkins dependencies
+  apt:
+      name:
+          - fontconfig
+          - openjdk-21-jdk
+      state: present
+      update_cache: true
+  become: true
+
+- name: Remove legacy Java 17
+  apt:
+      name:
+          - openjdk-17-jdk
+          - openjdk-17-jre
+          - openjdk-17-jre-headless
+      state: absent
+  become: true
+
+- name: Add Jenkins apt signing key
+  get_url:
+      url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+      dest: /usr/share/keyrings/jenkins-keyring.asc
+      owner: root
+      group: root
+      mode: "0644"
+      force: true
+  become: true
+
+- name: Add Jenkins apt repository
+  apt_repository:
+      repo: "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/"
+      filename: jenkins
+      state: present
+  become: true
+
+- name: Install Jenkins
+  apt:
+      name: jenkins
+      state: present
+      update_cache: true
+  become: true
+
+- name: Add Jenkins user to docker group
+  user:
+      name: jenkins
+      groups: docker
+      append: true
+  become: true
+  notify: restart jenkins
+
+- name: Configure Jenkins JVM options
+  lineinfile:
+      path: /etc/default/jenkins
+      regexp: "^JAVA_OPTS="
+      line: 'JAVA_OPTS="-Djava.awt.headless=true -Xmx1024m -Xms512m"'
+      state: present
+  become: true
+  notify: restart jenkins
+
+- name: Enable and start Jenkins
+  systemd:
+      name: jenkins
+      state: started
+      enabled: true
+  become: true
+
+- name: Flush Jenkins handlers before health check
+  meta: flush_handlers
 
 - name: Wait for Jenkins to be fully started
   uri:
@@ -24,7 +91,7 @@
           Jenkins Initial Admin Password:
           {{ jenkins_initial_password.content | b64decode }}
 
-          Access Jenkins at: https://jenkins.{{ domain_name }}
+          Access Jenkins at: https://{{ jenkins_domain }}
           ============================================================
 
 - name: Install Jenkins plugins via CLI
@@ -38,7 +105,7 @@
   loop:
       - git
       - github
-      - workflow-aggregator # Pipeline
+      - workflow-aggregator
       - pipeline-stage-view
       - ssh-agent
       - aws-credentials
@@ -50,16 +117,16 @@
   notify: restart jenkins
   become: true
 
-- name: Configure Jenkins JVM options (tăng heap cho t3.medium)
-  lineinfile:
-      path: /etc/default/jenkins
-      regexp: "^JAVA_OPTS="
-      line: 'JAVA_OPTS="-Djava.awt.headless=true -Xmx1024m -Xms512m"'
-      state: present
+- name: Create Jenkins SSH key for deploying to local app server
+  file:
+      path: /var/lib/jenkins/.ssh
+      state: directory
+      owner: jenkins
+      group: jenkins
+      mode: "0700"
   become: true
-  notify: restart jenkins
 
-- name: Create Jenkins SSH key for deploying to App server
+- name: Generate Jenkins SSH key for deploying to local app server
   openssh_keypair:
       path: /var/lib/jenkins/.ssh/deploy_key
       type: rsa
@@ -68,7 +135,6 @@
       group: jenkins
       mode: "0600"
   become: true
-  become_user: jenkins
 
 - name: Get Jenkins deploy public key
   slurp:
@@ -80,6 +146,6 @@
   debug:
       msg: |
           ============================================================
-          Jenkins Deploy Public Key (thêm vào ~/.ssh/authorized_keys trên App Server):
+          Jenkins Deploy Public Key:
           {{ jenkins_pubkey.content | b64decode }}
           ============================================================

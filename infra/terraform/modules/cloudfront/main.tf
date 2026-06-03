@@ -1,5 +1,5 @@
 locals {
-  name_prefix = "${var.project_name}-${var.environment}"
+  name_prefix  = "${var.project_name}-${var.environment}"
   s3_origin_id = "S3-${var.static_bucket_id}"
 }
 
@@ -18,7 +18,7 @@ resource "aws_cloudfront_distribution" "main" {
   is_ipv6_enabled     = true
   comment             = "NoteMesh static site - ${var.environment}"
   default_root_object = "index.html"
-  aliases             = var.domain_aliases
+  aliases             = var.use_acm_certificate ? var.domain_aliases : []
   price_class         = "PriceClass_200" # US, EU, Asia (không có Vietnam nhưng Singapore gần)
 
   origin {
@@ -61,9 +61,10 @@ resource "aws_cloudfront_distribution" "main" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = var.acm_cert_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
+    cloudfront_default_certificate = !var.use_acm_certificate
+    acm_certificate_arn            = var.use_acm_certificate ? var.acm_cert_arn : null
+    ssl_support_method             = var.use_acm_certificate ? "sni-only" : null
+    minimum_protocol_version       = var.use_acm_certificate ? "TLSv1.2_2021" : null
   }
 
   tags = { Name = "${local.name_prefix}-cloudfront" }

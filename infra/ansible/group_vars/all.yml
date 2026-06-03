@@ -1,11 +1,12 @@
 ---
-# group_vars/all.yml — Biến dùng chung cho mọi host
-
 project_name: notemesh
 app_environment: prod
 aws_region: ap-southeast-1
-domain_name: catcosy.shop
 
-# Thư mục deploy trên server
+frontend_domain: notemesh.vietnq.online
+api_domain: api-notemesh.vietnq.online
+pgadmin_domain: pgadmin-notemesh.vietnq.online
+jenkins_domain: jenkins-notemesh.vietnq.online
+
 app_dir: /opt/notemesh
 app_user: ubuntu
