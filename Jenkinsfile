@@ -6,7 +6,7 @@ pipeline {
 
     environment {
         AWS_REGION               = 'ap-southeast-1'
-        S3_STATIC_BUCKET         = 'notemesh-static-prod'
+        S3_STATIC_BUCKET         = 'notemesh-bucket-prod-static'
         CF_DISTRIBUTION_ID       = credentials('cloudfront-distribution-id')
         NEXT_PUBLIC_API_BASE_URL = 'https://api-notemesh.vietnq.online/api/v1'
     }
