@@ -65,4 +65,24 @@
             path: /etc/fstab
             line: "/swapfile none swap sw 0 0"
             state: present
+        when: not swap_stat.stat.exists
+  become: true
+
+- name: Download NodeSource setup script
+  get_url:
+      url: https://deb.nodesource.com/setup_20.x
+      dest: /tmp/nodesource_setup.sh
+      mode: "0755"
+  become: true
+
+- name: Run NodeSource setup script
+  command: /tmp/nodesource_setup.sh
+  become: true
+  changed_when: true
+
+- name: Install Node.js and npm
+  apt:
+      name: nodejs
+      state: present
+      update_cache: true
   become: true

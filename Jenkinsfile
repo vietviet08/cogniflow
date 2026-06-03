@@ -45,7 +45,7 @@ pipeline {
         }
 
         stage('Build — API Docker Image') {
-            when { branch 'main' }
+            when { branch 'master' }
             steps {
                 dir('api') {
                     script {
@@ -60,7 +60,7 @@ pipeline {
         }
 
         stage('Build — Next.js Static') {
-            when { branch 'main' }
+            when { branch 'master' }
             steps {
                 dir('web') {
                     sh '''
@@ -72,7 +72,7 @@ pipeline {
         }
 
         stage('Deploy — Upload Static to S3') {
-            when { branch 'main' }
+            when { branch 'master' }
             steps {
                 sh """
                     aws s3 sync web/out/ s3://${S3_STATIC_BUCKET}/ \
@@ -88,7 +88,7 @@ pipeline {
         }
 
         stage('Deploy — CloudFront Invalidation') {
-            when { branch 'main' }
+            when { branch 'master' }
             steps {
                 sh """
                     aws cloudfront create-invalidation \
@@ -99,7 +99,7 @@ pipeline {
         }
 
         stage('Deploy — API to EC2') {
-            when { branch 'main' }
+            when { branch 'master' }
             steps {
                 script {
                     def tag = "${env.GIT_COMMIT[0..7]}"
