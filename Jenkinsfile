@@ -1,15 +1,14 @@
-// Jenkinsfile — Pipeline CI/CD cho NoteMesh
+// Jenkinsfile — Pipeline CI/CD cho NoteMesh (Chỉ deploy Frontend)
 // Đặt file này ở root của repository
 
 pipeline {
     agent any
 
     environment {
-        AWS_REGION      = 'ap-southeast-1'
-        S3_STATIC_BUCKET = 'notemesh-static-prod'
-        CF_DISTRIBUTION_ID = credentials('cloudfront-distribution-id')
-        APP_SERVER_IP   = credentials('app-server-ip')
-        ECR_REPO        = '640168447652.dkr.ecr.ap-southeast-1.amazonaws.com/notemesh-api'
+        AWS_REGION               = 'ap-southeast-1'
+        S3_STATIC_BUCKET         = 'notemesh-static-prod'
+        CF_DISTRIBUTION_ID       = credentials('cloudfront-distribution-id')
+        NEXT_PUBLIC_API_BASE_URL = 'https://api-notemesh.vietnq.online/api/v1'
     }
 
     stages {
@@ -17,45 +16,6 @@ pipeline {
             steps {
                 checkout scm
                 echo "Branch: ${env.GIT_BRANCH} | Commit: ${env.GIT_COMMIT[0..7]}"
-            }
-        }
-
-        stage('Test — API') {
-            steps {
-                dir('api') {
-                    sh '''
-                        python3.12 -m pip install -r requirements-dev.txt -q
-                        PYTHONPATH=. python3.12 scripts/check_contract_sync.py
-                        python3.12 -m pytest tests/ -v --tb=short
-                    '''
-                }
-            }
-        }
-
-        stage('Test — Web') {
-            steps {
-                dir('web') {
-                    sh '''
-                        npm ci --silent
-                        npm run typecheck
-                        npm run test -- --run
-                    '''
-                }
-            }
-        }
-
-        stage('Build — API Docker Image') {
-            when { branch 'master' }
-            steps {
-                dir('api') {
-                    script {
-                        def tag = "${env.GIT_COMMIT[0..7]}"
-                        sh """
-                            docker build -t ${ECR_REPO}:${tag} .
-                            docker tag ${ECR_REPO}:${tag} ${ECR_REPO}:latest
-                        """
-                    }
-                }
             }
         }
 
@@ -97,35 +57,11 @@ pipeline {
                 """
             }
         }
-
-        stage('Deploy — API to EC2') {
-            when { branch 'master' }
-            steps {
-                script {
-                    def tag = "${env.GIT_COMMIT[0..7]}"
-                    sh """
-                        # Login to AWS ECR
-                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO}
-
-                        # Push Docker image to ECR
-                        docker push ${ECR_REPO}:${tag}
-                        docker push ${ECR_REPO}:latest
-
-                        # Chạy Ansible deploy playbook
-                        ansible-playbook \
-                            -i infra/ansible/inventory/hosts.ini \
-                            infra/ansible/playbooks/deploy_app.yml \
-                            -e "api_image_tag=${tag}" \
-                            --private-key ~/.ssh/deploy_key
-                    """
-                }
-            }
-        }
     }
 
     post {
         success {
-            echo "✅ Pipeline succeeded! Deployed commit ${env.GIT_COMMIT[0..7]}"
+            echo "✅ Pipeline succeeded! Deployed frontend commit ${env.GIT_COMMIT[0..7]}"
         }
         failure {
             echo "❌ Pipeline failed on branch ${env.GIT_BRANCH}"
