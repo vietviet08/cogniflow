@@ -24,9 +24,33 @@
           - htop
           - net-tools
           - python3-pip
-          - awscli
       state: present
   become: true
+
+- name: Check if AWS CLI v2 is installed
+  command: aws --version
+  register: aws_cli_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Install AWS CLI v2
+  block:
+      - name: Download AWS CLI v2 zip
+        get_url:
+            url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+            dest: /tmp/awscliv2.zip
+            mode: "0644"
+
+      - name: Unzip AWS CLI v2
+        unarchive:
+            src: /tmp/awscliv2.zip
+            dest: /tmp
+            remote_src: true
+
+      - name: Run AWS CLI v2 installer
+        command: /tmp/aws/install --update
+  become: true
+  when: aws_cli_check.rc != 0
 
 - name: Set timezone to Asia/Ho_Chi_Minh
   timezone:
