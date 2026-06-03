@@ -35,6 +35,8 @@ services:
     depends_on:
       chromadb:
         condition: service_healthy
+    healthcheck:
+      disable: true
     networks:
       - notemesh-net
 
