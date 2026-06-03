@@ -1,6 +1,4 @@
 ---
-# roles/app_server/tasks/main.yml — Deploy FastAPI + ChromaDB
-
 - name: Create app directory
   file:
       path: "{{ app_dir }}"
@@ -10,7 +8,7 @@
       mode: "0755"
   become: true
 
-- name: Create subdirectories
+- name: Create app subdirectories
   file:
       path: "{{ app_dir }}/{{ item }}"
       state: directory
@@ -23,6 +21,21 @@
       - logs
   become: true
 
+- name: Create pgAdmin data directory
+  file:
+      path: "{{ app_dir }}/data/pgadmin"
+      state: directory
+      owner: "5050"
+      group: "5050"
+      mode: "0750"
+  become: true
+
+- name: Install nginx
+  apt:
+      name: nginx
+      state: present
+  become: true
+
 - name: Deploy docker-compose.yml
   template:
       src: docker-compose.yml.j2
@@ -33,15 +46,66 @@
   become: true
   notify: restart services
 
-- name: Deploy .env file
+- name: Deploy API env file
   template:
       src: api.env.j2
       dest: "{{ app_dir }}/.env"
       owner: "{{ app_user }}"
       group: "{{ app_user }}"
-      mode: "0600" # secrets — only owner readable
+      mode: "0600"
   become: true
   notify: restart services
+
+- name: Deploy pgAdmin env file
+  template:
+      src: pgadmin.env.j2
+      dest: "{{ app_dir }}/pgadmin.env"
+      owner: "{{ app_user }}"
+      group: "{{ app_user }}"
+      mode: "0600"
+  become: true
+  notify: restart services
+
+- name: Deploy pgAdmin server registration
+  template:
+      src: pgadmin-servers.json.j2
+      dest: "{{ app_dir }}/pgadmin-servers.json"
+      owner: "{{ app_user }}"
+      group: "{{ app_user }}"
+      mode: "0640"
+  become: true
+  notify: restart services
+
+- name: Deploy nginx reverse proxy config
+  template:
+      src: nginx-notemesh.conf.j2
+      dest: /etc/nginx/sites-available/notemesh.conf
+      owner: root
+      group: root
+      mode: "0644"
+  become: true
+  notify: reload nginx
+
+- name: Enable nginx reverse proxy config
+  file:
+      src: /etc/nginx/sites-available/notemesh.conf
+      dest: /etc/nginx/sites-enabled/notemesh.conf
+      state: link
+      force: true
+  become: true
+  notify: reload nginx
+
+- name: Disable default nginx site
+  file:
+      path: /etc/nginx/sites-enabled/default
+      state: absent
+  become: true
+  notify: reload nginx
+
+- name: Validate nginx config
+  command: nginx -t
+  become: true
+  changed_when: false
 
 - name: Pull latest Docker images
   community.docker.docker_compose_v2:
@@ -59,7 +123,7 @@
 
 - name: Wait for FastAPI health check
   uri:
-      url: "http://localhost:8000/health"
+      url: "http://localhost:{{ api_port }}/api/v1/health"
       status_code: 200
       timeout: 30
   retries: 10
@@ -69,4 +133,4 @@
 
 - name: Show FastAPI health status
   debug:
-      msg: "FastAPI is healthy ✓"
+      msg: "FastAPI is healthy"

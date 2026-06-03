@@ -18,9 +18,39 @@ variable "environment" {
 
 # ─── Domain ────────────────────────────────────────────────
 variable "domain_name" {
-  description = "Domain gốc (không có www)"
+  description = "Legacy root domain. Prefer the explicit *_domain variables below."
   type        = string
-  default     = "catcosy.shop"
+  default     = "vietnq.online"
+}
+
+variable "frontend_domain" {
+  description = "Public hostname for the static Next.js frontend served by CloudFront."
+  type        = string
+  default     = "notemesh.vietnq.online"
+}
+
+variable "api_domain" {
+  description = "Public hostname for the FastAPI service."
+  type        = string
+  default     = "api-notemesh.vietnq.online"
+}
+
+variable "pgadmin_domain" {
+  description = "Public hostname for pgAdmin."
+  type        = string
+  default     = "pgadmin-notemesh.vietnq.online"
+}
+
+variable "jenkins_domain" {
+  description = "Public hostname for Jenkins."
+  type        = string
+  default     = "jenkins-notemesh.vietnq.online"
+}
+
+variable "enable_custom_domains" {
+  description = "Set true only after ACM DNS validation records have been added in Hostinger and certificates are ISSUED."
+  type        = bool
+  default     = false
 }
 
 # ─── Network ───────────────────────────────────────────────
@@ -76,6 +106,12 @@ variable "db_instance_class" {
   description = "RDS instance class"
   type        = string
   default     = "db.t3.micro"
+}
+
+variable "db_engine_version" {
+  description = "Optional PostgreSQL engine version for RDS. Leave null to let AWS select the supported default minor version."
+  type        = string
+  default     = null
 }
 
 variable "db_name" {

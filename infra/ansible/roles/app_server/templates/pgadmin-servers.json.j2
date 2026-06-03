@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "NoteMesh RDS",
+      "Group": "Servers",
+      "Host": "{{ db_host }}",
+      "Port": {{ db_port }},
+      "MaintenanceDB": "{{ db_name }}",
+      "Username": "{{ db_username }}",
+      "SSLMode": "prefer"
+    }
+  }
+}

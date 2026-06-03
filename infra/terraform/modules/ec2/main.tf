@@ -105,13 +105,7 @@ resource "aws_instance" "app" {
   }
 
   # User data: cài Docker + Docker Compose khi khởi động lần đầu
-  user_data = base64encode(templatefile("${path.module}/../../scripts/user_data_app.sh", {
-    db_host     = var.db_host
-    db_name     = var.db_name
-    db_username = var.db_username
-    aws_region  = "ap-southeast-1"
-    s3_bucket   = var.uploads_bucket
-  }))
+  user_data = base64encode(file("${path.module}/../../../scripts/user_data_app.sh"))
 
   tags = {
     Name = "${local.name_prefix}-app-server"
@@ -135,7 +129,7 @@ resource "aws_instance" "jenkins" {
     encrypted             = true
   }
 
-  user_data = base64encode(file("${path.module}/../../scripts/user_data_jenkins.sh"))
+  user_data = base64encode(file("${path.module}/../../../scripts/user_data_jenkins.sh"))
 
   tags = {
     Name = "${local.name_prefix}-jenkins-server"

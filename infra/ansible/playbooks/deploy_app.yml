@@ -25,7 +25,7 @@
 
       - name: Verify API health
         uri:
-            url: "http://localhost:8000/health"
+            url: "http://localhost:{{ api_port }}/api/v1/health"
             status_code: 200
             timeout: 30
         retries: 10
@@ -35,7 +35,7 @@
 
       - name: Show deploy result
         debug:
-            msg: "✅ Deploy successful! API is healthy."
+            msg: "Deploy successful. API is healthy."
 
   handlers:
       - name: restart app services

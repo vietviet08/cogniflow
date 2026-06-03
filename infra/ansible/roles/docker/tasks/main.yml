@@ -53,6 +53,15 @@
       mode: "0755"
   become: true
 
+- name: Create Docker CLI plugin directory
+  file:
+      path: /usr/local/lib/docker/cli-plugins
+      state: directory
+      owner: root
+      group: root
+      mode: "0755"
+  become: true
+
 - name: Create docker compose symlink
   file:
       src: /usr/local/bin/docker-compose

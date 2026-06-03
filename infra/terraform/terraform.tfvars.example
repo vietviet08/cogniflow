@@ -1,27 +1,37 @@
-# ─── Điền các giá trị thực vào đây ───────────────────────────────────────────
-# Copy file này thành terraform.tfvars và điền thông tin thực
-# KHÔNG commit terraform.tfvars lên git (đã có trong .gitignore)
+# Copy this file to terraform.tfvars and fill real values.
+# Do not commit terraform.tfvars.
 
 aws_region   = "ap-southeast-1"
 project_name = "notemesh"
 environment  = "prod"
-domain_name  = "catcosy.shop"
 
-# EC2 Key Pair (tạo trước trên AWS Console → EC2 → Key Pairs)
+# Hostinger DNS hostnames.
+frontend_domain = "notemesh.vietnq.online"
+api_domain      = "api-notemesh.vietnq.online"
+pgadmin_domain  = "pgadmin-notemesh.vietnq.online"
+jenkins_domain  = "jenkins-notemesh.vietnq.online"
+
+# First apply: keep false so Terraform can create ACM certs and print DNS validation records.
+# After adding ACM validation CNAME records in Hostinger and certificates are ISSUED, set true and apply again.
+enable_custom_domains = false
+
+# EC2 Key Pair created in AWS EC2 -> Key Pairs.
 key_pair_name = "notemesh-keypair"
 
-# IP của bạn để SSH (chạy: curl ifconfig.me)
-your_ip_cidr = "YOUR_IP/32"  # Ví dụ: "123.456.789.0/32"
+# Your public IP for SSH access. Example: "203.0.113.10/32"
+your_ip_cidr = "YOUR_IP/32"
 
-# RDS Database
+# RDS PostgreSQL.
 db_name     = "notemesh"
 db_username = "notemesh_admin"
-db_password = "CHANGE_ME_STRONG_PASSWORD_123!"  # Đổi thành password mạnh
+db_password = "CHANGE_ME_STRONG_PASSWORD_123!"
+# Optional. Leave commented so AWS picks a currently supported default minor version.
+# db_engine_version = "16.8"
 
-# S3 bucket names (phải unique toàn cầu)
+# S3 bucket names must be globally unique.
 uploads_bucket_name = "notemesh-uploads-prod"
 static_bucket_name  = "notemesh-static-prod"
 
-# EC2 (Ubuntu 22.04 LTS - ap-southeast-1)
-ami_id        = "ami-0df7a207adb9748c7"
-ec2_instance_type = "t3.medium"
+# Ubuntu 22.04 LTS in ap-southeast-1. Verify before production use.
+ami_id             = "ami-0df7a207adb9748c7"
+ec2_instance_type  = "t3.medium"

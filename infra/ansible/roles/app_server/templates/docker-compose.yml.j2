@@ -1,34 +1,12 @@
-version: "3.9"
-
 services:
-  # ─── FastAPI Backend ────────────────────────────────────────────────────────
   api:
-    image: ghcr.io/{{ github_repo | default('your-org/notemesh-api') }}:{{ api_image_tag | default('latest') }}
-    # Hoặc dùng build local nếu chưa có registry:
-    # build:
-    #   context: /opt/notemesh/api
-    #   dockerfile: Dockerfile
+    image: ghcr.io/{{ github_repo }}:{{ api_image_tag | default('latest') }}
     container_name: notemesh-api
     restart: unless-stopped
+    env_file:
+      - ./.env
     ports:
-      - "8000:8000"
-    environment:
-      - API_ENV={{ api_env }}
-      - DATABASE_URL=postgresql+psycopg://{{ db_username }}:{{ db_password }}@{{ db_host }}/{{ db_name }}
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8001
-      - CHROMA_COLLECTION={{ chroma_collection }}
-      - UPLOAD_DIR=/app/data/uploads
-      - WEB_APP_URL={{ web_app_url }}
-      - API_CORS_ALLOW_ORIGINS={{ cors_origins }}
-      - OPENAI_API_KEY={{ openai_api_key }}
-      - GOOGLE_API_KEY={{ google_api_key }}
-      - GOOGLE_OAUTH_CLIENT_ID={{ google_oauth_client_id }}
-      - GOOGLE_OAUTH_CLIENT_SECRET={{ google_oauth_client_secret }}
-      - INTEGRATION_OAUTH_STATE_SECRET={{ oauth_state_secret }}
-      - WORKER_INLINE_EXECUTION=false
-      - AWS_DEFAULT_REGION={{ aws_region }}
-      - S3_UPLOADS_BUCKET={{ s3_uploads_bucket }}
+      - "127.0.0.1:{{ api_port }}:8000"
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./logs:/app/logs
@@ -45,28 +23,12 @@ services:
       - notemesh-net
 
   worker:
-    image: ghcr.io/{{ github_repo | default('your-org/notemesh-api') }}:{{ api_image_tag | default('latest') }}
+    image: ghcr.io/{{ github_repo }}:{{ api_image_tag | default('latest') }}
     container_name: notemesh-worker
     command: ["python", "-m", "app.workers.runtime"]
     restart: unless-stopped
-    environment:
-      - API_ENV={{ api_env }}
-      - DATABASE_URL=postgresql+psycopg://{{ db_username }}:{{ db_password }}@{{ db_host }}/{{ db_name }}
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8001
-      - CHROMA_COLLECTION={{ chroma_collection }}
-      - UPLOAD_DIR=/app/data/uploads
-      - WEB_APP_URL={{ web_app_url }}
-      - API_CORS_ALLOW_ORIGINS={{ cors_origins }}
-      - OPENAI_API_KEY={{ openai_api_key }}
-      - GOOGLE_API_KEY={{ google_api_key }}
-      - GOOGLE_OAUTH_CLIENT_ID={{ google_oauth_client_id }}
-      - GOOGLE_OAUTH_CLIENT_SECRET={{ google_oauth_client_secret }}
-      - INTEGRATION_OAUTH_STATE_SECRET={{ oauth_state_secret }}
-      - WORKER_INLINE_EXECUTION=false
-      - WORKER_POLL_INTERVAL_SECONDS=2
-      - AWS_DEFAULT_REGION={{ aws_region }}
-      - S3_UPLOADS_BUCKET={{ s3_uploads_bucket }}
+    env_file:
+      - ./.env
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./logs:/app/logs
@@ -76,26 +38,39 @@ services:
     networks:
       - notemesh-net
 
-  # ─── ChromaDB Vector Store ──────────────────────────────────────────────────
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:1.0.20
     container_name: notemesh-chromadb
     restart: unless-stopped
-    # KHÔNG expose port ra ngoài — chỉ accessible trong Docker network
     expose:
-      - "8001"
+      - "{{ chroma_port }}"
     environment:
-      - CHROMA_SERVER_HTTP_PORT=8001
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
     volumes:
-      - ./data/chromadb:/chroma/chroma
+      - ./data/chromadb:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/v1/heartbeat"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:{{ chroma_port }}/api/v2/heartbeat || curl -fsS http://localhost:{{ chroma_port }}/api/v1/heartbeat"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - notemesh-net
+
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    container_name: notemesh-pgadmin
+    restart: unless-stopped
+    env_file:
+      - ./pgadmin.env
+    ports:
+      - "127.0.0.1:{{ pgadmin_listen_port }}:80"
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      - api
     networks:
       - notemesh-net
 

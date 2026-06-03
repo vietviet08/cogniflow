@@ -38,13 +38,13 @@ resource "aws_security_group" "alb" {
 # ─── SG-APP: EC2 App Server ───────────────────────────────────────────────────
 resource "aws_security_group" "app" {
   name        = "${local.name_prefix}-sg-app"
-  description = "App server: FastAPI port 8000 from ALB only, SSH from your IP"
+  description = "App server: nginx port 80 from ALB only, SSH from your IP"
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "FastAPI from ALB"
-    from_port       = 8000
-    to_port         = 8000
+    description     = "nginx reverse proxy from ALB"
+    from_port       = 80
+    to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
@@ -68,27 +68,16 @@ resource "aws_security_group" "app" {
   tags = { Name = "${local.name_prefix}-sg-app" }
 }
 
-# Cho phép Jenkins gọi API app khi deploy (thêm sau khi jenkins SG được tạo)
-resource "aws_security_group_rule" "app_from_jenkins" {
-  type                     = "ingress"
-  description              = "Allow Jenkins to call FastAPI for health check after deploy"
-  from_port                = 8000
-  to_port                  = 8000
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.app.id
-  source_security_group_id = aws_security_group.jenkins.id
-}
-
 # ─── SG-JENKINS: EC2 Jenkins Server ──────────────────────────────────────────
 resource "aws_security_group" "jenkins" {
   name        = "${local.name_prefix}-sg-jenkins"
-  description = "Jenkins: port 8080 from ALB only, SSH from your IP"
+  description = "Jenkins: nginx port 80 from ALB only, SSH from your IP"
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "Jenkins UI from ALB"
-    from_port       = 8080
-    to_port         = 8080
+    description     = "nginx reverse proxy from ALB"
+    from_port       = 80
+    to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }

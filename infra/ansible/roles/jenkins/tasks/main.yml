@@ -11,6 +11,43 @@
   register: jenkins_status
   until: jenkins_status.status == 200
 
+- name: Install nginx
+  apt:
+      name: nginx
+      state: present
+  become: true
+
+- name: Deploy Jenkins nginx reverse proxy config
+  template:
+      src: nginx-jenkins.conf.j2
+      dest: /etc/nginx/sites-available/jenkins.conf
+      owner: root
+      group: root
+      mode: "0644"
+  become: true
+  notify: reload nginx
+
+- name: Enable Jenkins nginx reverse proxy config
+  file:
+      src: /etc/nginx/sites-available/jenkins.conf
+      dest: /etc/nginx/sites-enabled/jenkins.conf
+      state: link
+      force: true
+  become: true
+  notify: reload nginx
+
+- name: Disable default nginx site
+  file:
+      path: /etc/nginx/sites-enabled/default
+      state: absent
+  become: true
+  notify: reload nginx
+
+- name: Validate nginx config
+  command: nginx -t
+  become: true
+  changed_when: false
+
 - name: Get Jenkins initial admin password
   slurp:
       src: /var/lib/jenkins/secrets/initialAdminPassword
@@ -24,7 +61,7 @@
           Jenkins Initial Admin Password:
           {{ jenkins_initial_password.content | b64decode }}
 
-          Access Jenkins at: https://jenkins.{{ domain_name }}
+          Access Jenkins at: https://{{ jenkins_domain }}
           ============================================================
 
 - name: Install Jenkins plugins via CLI
